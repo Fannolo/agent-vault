@@ -48,8 +48,20 @@ public struct PendingSummary: Codable, Sendable, Identifiable {
     public let accountID: UUID
     public let action: WireAction
     public let expiresAt: Date
-    public init(id: UUID, clientID: UUID, accountID: UUID, action: WireAction, expiresAt: Date) {
-        self.id = id; self.clientID = clientID; self.accountID = accountID; self.action = action; self.expiresAt = expiresAt
+    public let status: String
+    public init(id: UUID, clientID: UUID, accountID: UUID, action: WireAction, expiresAt: Date, status: String = "waiting") {
+        self.id = id; self.clientID = clientID; self.accountID = accountID; self.action = action; self.expiresAt = expiresAt; self.status = status
+    }
+}
+
+public struct AuditSummary: Codable, Sendable {
+    public let timestamp: Date
+    public let clientID: UUID
+    public let accountID: UUID?
+    public let action: WireAction?
+    public let outcome: String
+    public init(timestamp: Date, clientID: UUID, accountID: UUID?, action: WireAction?, outcome: String) {
+        self.timestamp = timestamp; self.clientID = clientID; self.accountID = accountID; self.action = action; self.outcome = outcome
     }
 }
 
@@ -58,8 +70,10 @@ public struct AdminSnapshot: Codable, Sendable {
     public let clients: [ClientSummary]
     public let grants: [GrantSummary]
     public let pending: [PendingSummary]
-    public init(accounts: [AccountSummary], clients: [ClientSummary], grants: [GrantSummary], pending: [PendingSummary]) {
+    public let audit: [AuditSummary]
+    public init(accounts: [AccountSummary], clients: [ClientSummary], grants: [GrantSummary], pending: [PendingSummary], audit: [AuditSummary] = []) {
         self.accounts = accounts; self.clients = clients; self.grants = grants; self.pending = pending
+        self.audit = audit
     }
 }
 

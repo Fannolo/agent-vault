@@ -30,7 +30,10 @@ public actor Administration {
                   callsRemaining: max(0, $0.callLimit - $0.callsUsed), requiresApproval: $0.requiresApproval, revoked: $0.revoked)
         }, pending: state.pending.filter { [.waiting, .approved].contains($0.status) && $0.expiresAt > now() }.map {
             .init(id: $0.id, clientID: $0.clientID, accountID: $0.accountID,
-                  action: WireAction(rawValue: $0.action.rawValue)!, expiresAt: $0.expiresAt)
+                  action: WireAction(rawValue: $0.action.rawValue)!, expiresAt: $0.expiresAt, status: $0.status.rawValue)
+        }, audit: state.audit.map {
+            .init(timestamp: $0.timestamp, clientID: $0.clientID, accountID: $0.accountID,
+                  action: $0.action.flatMap { WireAction(rawValue: $0.rawValue) }, outcome: $0.outcome)
         })
     }
 
