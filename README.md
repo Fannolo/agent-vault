@@ -26,7 +26,7 @@ development client ID. The next broker milestone addresses this boundary.
 
 ## Try the synthetic demo
 
-Requires macOS 14 or newer and Swift 6.1 or newer. The official Swift MCP SDK is
+Requires macOS 14 or newer and Swift 6.2 or newer. The official Swift MCP SDK is
 pinned to `0.12.1`; dependency revisions are recorded in `Package.resolved`.
 
 ```sh

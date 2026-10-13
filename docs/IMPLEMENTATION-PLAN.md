@@ -76,3 +76,6 @@ The synthetic smoke test deletes its unique temporary Keychain namespace. These
 checks do not establish production OS isolation or an independent security audit.
 CI is configured for the same offline unit/MCP checks plus a release build;
 its result is separate from this local verification record.
+
+CI selects Xcode 26.2 explicitly. The pinned dependency graph requires Swift 6.2;
+the default macOS 15 runner's older Xcode does not satisfy that requirement.
