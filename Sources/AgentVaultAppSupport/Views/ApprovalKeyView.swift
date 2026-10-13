@@ -9,6 +9,8 @@ struct ApprovalKeyView: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let registration = model.registration {
                     LabeledContent("Protection", value: label(registration.protection))
+                    Text("SHA-256 fingerprint: \(registration.sha256Fingerprint)")
+                        .font(.caption.monospaced()).textSelection(.enabled)
                     if registration.protection == .softwareFixture {
                         Label("Preview key: not protected. Never use this build to approve real changes.", systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)

@@ -150,6 +150,8 @@ func privateDirectory() throws -> URL {
     defer { try? store.delete(for: id) }
     try store.save(value, for: id)
     #expect(try store.load(for: id) == value)
+    try store.lockForSyntheticTest()
+    #expect(try store.load(for: id) == value)
     let reopened = try PrivateKeychainStore(path: path, password: password)
     #expect(try reopened.load(for: id) == value)
     try reopened.delete(for: id)

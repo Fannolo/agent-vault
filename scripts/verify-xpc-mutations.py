@@ -43,6 +43,11 @@ MUTATIONS = [
     ("requests not gated on the broker probe", CLIENT,
      "if let failure = await link.verified.value {", "if false, let failure = await link.verified.value {",
      {"only the genuine broker's handlers ran, each with the bound UID"}),
+    ("no client broker UID check", CLIENT,
+     "guard UInt32(connection.effectiveUserIdentifier) == brokerUID else {",
+     "guard true else {",
+     {"bridge refuses a genuine broker with an unexpected kernel UID",
+      "human app refuses a genuine broker with an unexpected kernel UID"}),
     ("no per-connection concurrency limit", SERVER,
      "guard connectionInFlight.acquire() else", "guard connectionInFlight.acquire() || true else",
      {"excess concurrency on one connection returns busy"}),
@@ -62,7 +67,7 @@ def main():
     tree = work / "tree"
     report = []
     try:
-        shutil.copytree(ROOT, tree, ignore=shutil.ignore_patterns(".build", ".git", ".swiftpm"))
+        shutil.copytree(ROOT, tree, ignore=shutil.ignore_patterns(".build", ".git", ".swiftpm", "dist", "__pycache__"))
         for name, relative, old, new, expected in MUTATIONS:
             target = tree / relative
             original = target.read_text()

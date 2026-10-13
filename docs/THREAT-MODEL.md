@@ -18,8 +18,11 @@ before transmitting any request, including enrollment credentials. A copied genu
 shares its original code identity; permissions belong to the paired OS user and bridge, not
 to an individual model, chat or host name.
 
-Admin mutations require a single-use random challenge signed by the human app's protected
-P-256 key. The broker freezes the request and verifies the configured public key. The app
+Admin mutations require a single-use challenge signed by the human app's protected
+P-256 key. Its digest binds operation metadata, challenge ID, random nonce and expiry.
+Credential bytes and credential-content hashes are excluded from that digest. The broker
+freezes the actual request privately and verifies the configured public key. The app
+recomputes the digest from its request before allowing a signature and
 requests fresh device-owner authentication for every signature and refuses unprotected or
 unverifiable keys. Public-key registration is a trusted installation ceremony; the public key
 alone is not hardware attestation. The approval key never stores service credentials.
@@ -59,7 +62,9 @@ Enrollment, rotation and deletion persist intent before mutating Keychain, retai
 across interruption, and recover under the daemon's exclusive owner lease. No automatic
 migration reads a user's existing Keychain or version-1 developer state. Production metadata
 requires an HMAC with an independent broker-only key and refuses unsigned downgrade. The latest
-1,000 audit events are bounded metadata. HMAC detects modification, not replay of an older
+audit history is bounded metadata: 256 reserved administration entries and 744 invocation
+entries in schema 3. Agent traffic cannot evict the administration partition; administration
+traffic can still evict older administration entries. HMAC detects modification, not replay of an older
 authentic snapshot or deletion by a privileged attacker; audit is not an immutable witness.
 
 The MCP transport bounds input before SDK parsing: 64 KiB per line, depth 64, 16 queued and
@@ -67,6 +72,13 @@ outstanding requests, strict JSON-RPC envelopes and duplicate-key/ID refusal. No
 are limited to 8 KiB and 64/second with a burst of 16. Output is capped at 1 MiB with a write
 deadline. XPC bounds request/reply sizes, connections and concurrent handler calls. The pinned
 Swift SDK and dependencies are inventoried, not independently audited.
+
+Read traffic has 32 handler slots and administration has four independent slots. Cheap empty
+authentication probes do not consume those handler slots. Pending invocation approvals have
+a 120-second lifetime; waiting resumes report that approval is still required. The dedicated
+broker's explicit Keychain is unlocked with its private seed before every access, including
+after sleep or an explicit lock. Its lock policy stays unchanged: changing it required a GUI
+authorization prompt in the native check. No Keychain setting or search list is changed.
 
 Swift/Foundation may copy immutable credential buffers and strings. The design does not claim
 complete RAM zeroization. Native tests use unique synthetic namespaces and delete only their

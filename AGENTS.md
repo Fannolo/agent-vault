@@ -1,8 +1,10 @@
 # Agent Vault development
 
-This is an early local development prototype. Keep the security claim in README.md
-and docs/THREAT-MODEL.md aligned with the code. Do not describe the prototype as an
-isolated, signed or audited credential broker.
+This is a development implementation with a Developer ID signed review bundle.
+Keep README.md and docs/THREAT-MODEL.md aligned with measured evidence. Dedicated-UID
+runtime isolation, real protected-key signing, production browser deployment and
+notarization remain open gates. Do not claim production readiness or independent
+security certification from unit tests, same-UID fixtures or model review.
 
 Credentials and sessions must never be returned by an MCP tool. Do not add raw
 secret retrieval, arbitrary execution, caller-supplied destinations, generic browser

@@ -32,6 +32,69 @@ private final class InterruptedSecrets: SecretStore, @unchecked Sendable {
     }
 }
 
+private final class CrashImageSecrets: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private let state: any StateStore
+    private var items: [UUID: Data]
+    private var captureNext = false
+    private var image: (metadata: Data, secrets: [UUID: Data])?
+    init(state: any StateStore, items: [UUID: Data] = [:]) { self.state = state; self.items = items }
+    func captureNextSave() { lock.withLock { captureNext = true } }
+    var crashImage: (metadata: Data, secrets: [UUID: Data])? { lock.withLock { image } }
+    var ids: Set<UUID> { lock.withLock { Set(items.keys) } }
+    func save(_ value: Data, for id: UUID) throws {
+        try lock.withLock {
+            items[id] = value
+            if captureNext {
+                captureNext = false
+                image = (try JSONEncoder().encode(state.snapshot()), items)
+                throw VaultError.secretUnavailable
+            }
+        }
+    }
+    func load(for id: UUID) throws -> Data {
+        try lock.withLock {
+            guard let value = items[id] else { throw VaultError.secretUnavailable }
+            return value
+        }
+    }
+    func delete(for id: UUID) throws { _ = lock.withLock { items.removeValue(forKey: id) } }
+}
+
+@Test func rotationCrashImageRestartsFromJournalBeforeOrdinaryErrorCompensation() async throws {
+    let liveRoot = try privateDirectory(), crashRoot = try privateDirectory()
+    defer {
+        try? FileManager.default.removeItem(at: liveRoot)
+        try? FileManager.default.removeItem(at: crashRoot)
+    }
+    let state = try FileStateStore(directory: liveRoot)
+    let secrets = CrashImageSecrets(state: state), broker = Broker(state: state, secrets: secrets)
+    let account = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-original".utf8))
+    let client = try await broker.registerClient()
+    _ = try await broker.grant(clientID: client.id, accountID: account.id, duration: 60, callLimit: 2)
+    secrets.captureNextSave()
+    await #expect(throws: VaultError.secretUnavailable) {
+        try await broker.rotate(accountID: account.id, credential: Data("SYNTHETIC-staged".utf8))
+    }
+    #expect(try state.snapshot().accounts[0].lifecycle == .active)
+    let image = try #require(secrets.crashImage)
+    let journal = try JSONDecoder().decode(VaultState.self, from: image.metadata)
+    #expect(journal.accounts[0].lifecycle == .rotating)
+    #expect(image.secrets.count == 2)
+    // Restore the actual persisted metadata and secret-store image captured after
+    // the stage write, before the original process could run compensation.
+    let path = crashRoot.appendingPathComponent("state.json")
+    try image.metadata.write(to: path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
+    let restoredState = try FileStateStore(directory: crashRoot)
+    let restoredSecrets = CrashImageSecrets(state: restoredState, items: image.secrets)
+    let restarted = Broker(state: restoredState, secrets: restoredSecrets)
+    try await restarted.recoverInterruptedLifecycle()
+    #expect(restoredSecrets.ids == [account.credentialID])
+    #expect(try await restarted.run(clientID: client.id, accountID: account.id, action: .demoStatus) == .demoReady)
+    #expect(try restoredState.snapshot().adminAudit.contains { $0.outcome == "rotation_recovered" })
+}
+
 @Test func interruptedEnrollmentKeepsEvidenceAndRecoveryDeletesOnlyTrackedItem() async throws {
     let state = MemoryState(), secrets = InterruptedSecrets()
     let broker = Broker(state: state, secrets: secrets)
@@ -49,7 +112,7 @@ private final class InterruptedSecrets: SecretStore, @unchecked Sendable {
     #expect(secrets.ids == [unrelated])
 }
 
-@Test func interruptedRotationRestoresOriginalAndSuccessfulRotationRevokesOldGrant() async throws {
+@Test func failedRotationRestoresOriginalImmediatelyAndSuccessfulRotationRevokesOldGrant() async throws {
     let state = MemoryState(), secrets = InterruptedSecrets()
     let broker = Broker(state: state, secrets: secrets)
     let account = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-original".utf8))
@@ -59,9 +122,9 @@ private final class InterruptedSecrets: SecretStore, @unchecked Sendable {
     await #expect(throws: VaultError.secretUnavailable) {
         try await broker.rotate(accountID: account.id, credential: Data("SYNTHETIC-replacement".utf8))
     }
-    await #expect(throws: VaultError.denied) {
-        _ = try await broker.run(clientID: client.id, accountID: account.id, action: .demoStatus)
-    }
+    #expect(try state.snapshot().accounts[0].lifecycle == .active)
+    #expect(secrets.ids == [account.credentialID])
+    #expect(try await broker.run(clientID: client.id, accountID: account.id, action: .demoStatus) == .demoReady)
     let restarted = Broker(state: state, secrets: secrets)
     try await restarted.recoverInterruptedLifecycle()
     #expect(secrets.ids == [account.credentialID])
@@ -104,13 +167,53 @@ private final class InterruptedSecrets: SecretStore, @unchecked Sendable {
     else { Issue.record("Approval-required grant dispatched without approval"); return }
     #expect(f.secrets.reads == 0)
     #expect(try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) == .approvalRequired(id))
-    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id, clientID: f.client.id) }
+    #expect(try await f.broker.resume(id, clientID: f.client.id) == .approvalRequired(id))
+    #expect(f.secrets.reads == 0)
     try await f.broker.approveInvocation(id)
     let other = try await f.broker.registerClient()
     await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id, clientID: other.id) }
     #expect(try await f.broker.resume(id, clientID: f.client.id) == .demoReady)
     await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id, clientID: f.client.id) }
     #expect(try f.state.snapshot().grants.first { $0.id == grant.id }?.callsUsed == 1)
+}
+
+@Test func failedRotationCompensationKeepsJournalUntilRecoveryCanDeleteTheStage() async throws {
+    let state = MemoryState(), secrets = InterruptedSecrets()
+    let broker = Broker(state: state, secrets: secrets)
+    let account = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-original".utf8))
+    let client = try await broker.registerClient()
+    _ = try await broker.grant(clientID: client.id, accountID: account.id, duration: 60, callLimit: 1)
+    secrets.interruptNextSave(); secrets.interruptNextDelete()
+    await #expect(throws: VaultError.secretUnavailable) {
+        try await broker.rotate(accountID: account.id, credential: Data("SYNTHETIC-stage".utf8))
+    }
+    let journal = try state.snapshot().accounts[0]
+    #expect(journal.lifecycle == .rotating)
+    #expect(journal.stagedCredentialID != nil)
+    #expect(secrets.ids.count == 2)
+    await #expect(throws: VaultError.denied) {
+        _ = try await broker.run(clientID: client.id, accountID: account.id, action: .demoStatus)
+    }
+    let restarted = Broker(state: state, secrets: secrets)
+    try await restarted.recoverInterruptedLifecycle()
+    #expect(secrets.ids == [account.credentialID])
+    #expect(try await restarted.run(clientID: client.id, accountID: account.id, action: .demoStatus) == .demoReady)
+    #expect(try state.snapshot().adminAudit.contains { $0.outcome == "rotation_recovered" })
+}
+
+@Test func waitingResumeKeepsRequestAndBudgetUntilIts120SecondExpiry() async throws {
+    let f = try await Fixture.make()
+    try await f.broker.revokeGrant(f.grant.id)
+    let grant = try await f.broker.grant(clientID: f.client.id, accountID: f.account.id,
+        duration: 300, callLimit: 2, requiresApproval: true)
+    guard case .approvalRequired(let id) = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
+    else { Issue.record("Missing approval request"); return }
+    f.clock.advance(119)
+    #expect(try await f.broker.resume(id, clientID: f.client.id) == .approvalRequired(id))
+    #expect(try f.state.snapshot().grants.first { $0.id == grant.id }?.callsUsed == 0)
+    f.clock.advance(1)
+    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id, clientID: f.client.id) }
+    #expect(f.secrets.reads == 0)
 }
 
 @Test func revocationAndExpiryCancelApprovalsBeforeSecretRead() async throws {

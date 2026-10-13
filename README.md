@@ -6,10 +6,11 @@ approval app and a thin stdio MCP bridge.
 **Development build: dedicated-user isolation, real protected-key signing and notarization
 remain release gates. Do not use production passwords or PINs yet.**
 
-Implemented and tested:
+Implemented, with component checks:
 
 - Authenticated, separate read/admin XPC channels with exact code-hash and kernel UID checks.
-- A dedicated-user daemon, protected configuration, explicit private Keychain and owner lease.
+- A daemon designed for a dedicated user, protected configuration, explicit private Keychain
+  and owner lease. Its installed dedicated-user behavior remains unverified.
 - Recoverable enrollment, rotation/deletion, per-call approvals, expiry, revocation and budgets.
 - Native secure forms, client/grant management, pending approvals and private audit export.
 - Four production bridge tools: `accounts_list`, `action_run`, `request_resume`, `request_cancel`.
@@ -104,6 +105,7 @@ swift test --force-resolved-versions
 python3 scripts/verify-mcp.py
 python3 scripts/verify-boundaries.py
 python3 scripts/verify-xpc.py
+python3 scripts/verify-installer.py
 ```
 
 The XPC harness uses uniquely named temporary user launch agents and removes exactly its own

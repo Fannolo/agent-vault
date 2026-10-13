@@ -96,8 +96,9 @@ public final class VaultAdminClient: Sendable {
 ///
 /// XPC checks a client-side code requirement on messages the client receives, so a request
 /// sent to an impostor would still be delivered. Each new connection therefore completes a
-/// payload-free probe, answered by the broker with a fixed `invalid_request`, before any
-/// request is sent. An interrupted connection is discarded so its replacement is probed again.
+/// payload-free probe, answered by the broker with a fixed `invalid_request` before concurrency
+/// admission, before any request is sent. An interrupted connection is discarded so its
+/// replacement is probed again.
 final class Channel: @unchecked Sendable {
     enum Target {
         case service(String)

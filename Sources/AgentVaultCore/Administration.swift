@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import AgentVaultContracts
+import AgentVaultApproval
 
 /// The transport must authorize the human-app peer before exposing this object.
 public actor Administration {
@@ -37,7 +38,7 @@ public actor Administration {
         }, pending: state.pending.filter { [.waiting, .approved].contains($0.status) && $0.expiresAt > now() }.map {
             .init(id: $0.id, clientID: $0.clientID, accountID: $0.accountID,
                   action: WireAction(rawValue: $0.action.rawValue)!, expiresAt: $0.expiresAt, status: $0.status.rawValue)
-        }, audit: state.audit.map {
+        }, audit: (state.audit + state.adminAudit).sorted { $0.timestamp < $1.timestamp }.map {
             .init(timestamp: $0.timestamp, clientID: $0.clientID, accountID: $0.accountID,
                   action: $0.action.flatMap { WireAction(rawValue: $0.rawValue) }, outcome: $0.outcome)
         })
@@ -48,10 +49,19 @@ public actor Administration {
         let timestamp = now()
         frozen = frozen.filter { $0.value.expiresAt > timestamp }
         guard frozen.count < 32 else { throw VaultError.busy }
-        let id = UUID(), payload = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
+        let id = UUID(), nonce = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
         let expiresAt = timestamp.addingTimeInterval(60)
+        let payload = try ApprovalIntent.payload(request: request, id: id, nonce: nonce, expiresAt: expiresAt)
         frozen[id] = Frozen(request: request, payload: payload, expiresAt: expiresAt)
-        return .init(id: id, payload: payload, expiresAt: expiresAt)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            await self?.expire(id)
+        }
+        return .init(id: id, payload: payload, expiresAt: expiresAt, nonce: nonce)
+    }
+
+    private func expire(_ id: UUID) {
+        if let value = frozen[id], value.expiresAt <= now() { frozen.removeValue(forKey: id) }
     }
 
     public func authorize(_ id: UUID, signature: Data) async throws -> AdminReply {

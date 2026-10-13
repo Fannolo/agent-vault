@@ -1,5 +1,6 @@
 #if DEBUG
 import AgentVaultContracts
+import AgentVaultApproval
 import CryptoKit
 import Foundation
 
@@ -38,12 +39,13 @@ package actor InMemoryBroker: VaultAdminTransport {
 
     package func begin(_ request: AdminRequest) async throws -> AdminChallenge {
         try validate(request)
-        var payload = Data()
-        for _ in 0..<4 { payload.append(contentsOf: withUnsafeBytes(of: UInt64.random(in: .min ... .max)) { Array($0) }) }
+        var nonce = Data()
+        for _ in 0..<4 { nonce.append(contentsOf: withUnsafeBytes(of: UInt64.random(in: .min ... .max)) { Array($0) }) }
         let id = UUID()
         let expiry = now().addingTimeInterval(challengeLifetime)
+        let payload = try ApprovalIntent.payload(request: request, id: id, nonce: nonce, expiresAt: expiry)
         challenges[id] = Frozen(request: request, payload: payload, expiresAt: expiry)
-        return AdminChallenge(id: id, payload: payload, expiresAt: expiry)
+        return AdminChallenge(id: id, payload: payload, expiresAt: expiry, nonce: nonce)
     }
 
     package func authorize(challengeID: UUID, signature: Data) async throws -> AdminReply {

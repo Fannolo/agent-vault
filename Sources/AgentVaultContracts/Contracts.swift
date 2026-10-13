@@ -125,7 +125,10 @@ public struct AdminChallenge: Codable, Sendable {
     public let id: UUID
     public let payload: Data
     public let expiresAt: Date
-    public init(id: UUID, payload: Data, expiresAt: Date) { self.id = id; self.payload = payload; self.expiresAt = expiresAt }
+    public let nonce: Data
+    public init(id: UUID, payload: Data, expiresAt: Date, nonce: Data = Data(repeating: 0, count: 32)) {
+        self.id = id; self.payload = payload; self.expiresAt = expiresAt; self.nonce = nonce
+    }
 }
 
 public struct AdminReply: Codable, Sendable {

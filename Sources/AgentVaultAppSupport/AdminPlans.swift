@@ -38,7 +38,7 @@ public enum CredentialInput {
 }
 
 public enum GrantDuration: Double, CaseIterable, Identifiable, Sendable {
-    case fifteenMinutes = 900, oneHour = 3600, eightHours = 28_800, oneDay = 86_400, sevenDays = 604_800
+    case fifteenMinutes = 900, oneHour = 3600, eightHours = 28_800, oneDay = 86_400
     public var id: Double { rawValue }
     public var label: String {
         switch self {
@@ -46,7 +46,6 @@ public enum GrantDuration: Double, CaseIterable, Identifiable, Sendable {
         case .oneHour: "1 hour"
         case .eightHours: "8 hours"
         case .oneDay: "24 hours"
-        case .sevenDays: "7 days"
         }
     }
 }
@@ -83,19 +82,27 @@ public struct GrantPlan: Equatable, Sendable {
 public enum AdminSummary {
     public static func short(_ id: UUID) -> String { String(id.uuidString.prefix(8)).lowercased() }
 
-    public static func text(for request: AdminRequest) -> String {
-        switch request.operation {
+    public static func text(for request: AdminRequest, snapshot: AdminSnapshot? = nil) -> String {
+        func full(_ id: UUID?) -> String { id?.uuidString.lowercased() ?? "?" }
+        let account = snapshot?.accounts.first { $0.id == request.accountID }
+        let client = snapshot?.clients.first { $0.id == request.clientID }
+        let pending = snapshot?.pending.first { $0.id == request.requestID }
+        let operationContext = pending.map {
+            "Account \($0.accountID.uuidString.lowercased()), action \($0.action.rawValue), client \($0.clientID.uuidString.lowercased()), expires \($0.expiresAt.ISO8601Format()). "
+        } ?? ""
+        return switch request.operation {
         case .enroll: "Add a \(request.service?.displayName ?? "service") account"
-        case .rotate: "Replace the credential for account \(request.accountID.map(short) ?? "?")"
-        case .deleteAccount: "Delete account \(request.accountID.map(short) ?? "?") and its credential"
+        case .rotate: "Replace the credential for account \(full(request.accountID))"
+        case .deleteAccount: "Delete account \(full(request.accountID)) and its credential"
         case .pairClient: "Pair the client running as user ID \(request.uid.map(String.init) ?? "?")"
         case .grant:
-            "Let client \(request.clientID.map(short) ?? "?") use account \(request.accountID.map(short) ?? "?") "
-                + "for \(request.callLimit ?? 0) calls" + (request.requiresApproval == true ? ", each needing approval" : "")
-        case .revokeGrant: "Revoke grant \(request.grantID.map(short) ?? "?")"
-        case .revokeClient: "Revoke client \(request.clientID.map(short) ?? "?")"
-        case .approveInvocation: "Approve request \(request.requestID.map(short) ?? "?")"
-        case .rejectInvocation: "Reject request \(request.requestID.map(short) ?? "?")"
+            "Let client \(full(request.clientID)) (UID \(client?.uid.description ?? "?")) use account \(full(request.accountID)) "
+                + "(\(account?.service.displayName ?? "fixed service")) for \(Int(request.duration ?? 0)) seconds after approval, "
+                + "\(request.callLimit ?? 0) calls" + (request.requiresApproval == true ? ", each needing approval" : ", without per-call approval")
+        case .revokeGrant: "Revoke grant \(full(request.grantID))"
+        case .revokeClient: "Revoke client \(full(request.clientID))"
+        case .approveInvocation: operationContext + "Approve request \(full(request.requestID))"
+        case .rejectInvocation: operationContext + "Reject request \(full(request.requestID))"
         case .recover: "Recover broker state"
         case .prune: "Prune expired broker records"
         }

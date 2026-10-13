@@ -189,7 +189,7 @@ public final class AppModel {
         isBusy = true
         defer { isBusy = false }
         do {
-            let outcome = try await service.perform(request, summary: AdminSummary.text(for: request))
+            let outcome = try await service.perform(request, summary: AdminSummary.text(for: request, snapshot: snapshot))
             onSuccess?(outcome)
             notice = Notice(kind: .success, text: success)
             await refresh()
@@ -198,19 +198,20 @@ public final class AppModel {
             notice = Notice(kind: .failure, text: Self.describe(failure))
             return false
         } catch {
-            notice = Notice(kind: .failure, text: "The operation failed. Nothing was changed.")
+            notice = Notice(kind: .failure, text: "The operation could not be confirmed. Refresh the broker state before retrying.")
             return false
         }
     }
 
     static func describe(_ failure: AdminFailure) -> String {
         switch failure {
-        case .transport(.unavailable): "The broker is not reachable. Nothing was changed."
+        case .transport(.unavailable): "The broker could not confirm the operation. Refresh its state before retrying."
         case .transport(.unsupported): "This broker does not support that operation."
         case .transport(.rejected(let code)): "The broker refused the request (\(code))."
         case .challengeExpired: "The approval request expired. Try again."
+        case .intentMismatch: "The approval challenge did not match this operation. Nothing was approved."
         case .signing(let error): describe(error)
-        case .rejected(let code): "The broker did not apply the change (\(code))."
+        case .rejected(let code): "The broker reported a failure (\(code)). Refresh its state before retrying."
         }
     }
 

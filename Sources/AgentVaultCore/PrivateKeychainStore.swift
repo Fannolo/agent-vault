@@ -7,6 +7,7 @@ import Security
 public final class PrivateKeychainStore: SecretStore, @unchecked Sendable {
     private let keychain: SecKeychain
     private let access: SecAccess
+    private let password: Data
     private let namespace = "io.agent-vault.broker.credentials.v2"
 
     public init(path: URL, password: Data) throws {
@@ -14,6 +15,7 @@ public final class PrivateKeychainStore: SecretStore, @unchecked Sendable {
         // Security.framework documents a canonical UTF-8 password. Keep the
         // installer seed binary, and use one deterministic ASCII encoding here.
         let password = Data(password.base64EncodedString().utf8)
+        self.password = password
         let directory = path.deletingLastPathComponent()
         var info = stat()
         guard lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
@@ -49,9 +51,19 @@ public final class PrivateKeychainStore: SecretStore, @unchecked Sendable {
         }
         guard status == errSecSuccess, let keychain else { throw VaultError.secretUnavailable }
         self.keychain = keychain
-        guard password.withUnsafeBytes({
-            SecKeychainUnlock(keychain, UInt32($0.count), $0.baseAddress, true)
-        }) == errSecSuccess else { throw VaultError.secretUnavailable }
+        try unlock()
+        // Keep this database's lock policy. Changing it can require a GUI owner-
+        // authorization prompt even after unlocking, which a LaunchDaemon cannot
+        // answer. Every operation explicitly unlocks with the private seed instead.
+    }
+
+    private func unlock() throws {
+        guard password.withUnsafeBytes({ SecKeychainUnlock(keychain, UInt32($0.count), $0.baseAddress, true) }) == errSecSuccess
+        else { throw VaultError.secretUnavailable }
+    }
+
+    package func lockForSyntheticTest() throws {
+        guard SecKeychainLock(keychain) == errSecSuccess else { throw VaultError.secretUnavailable }
     }
 
     private func query(_ id: UUID) -> [String: Any] {
@@ -62,6 +74,7 @@ public final class PrivateKeychainStore: SecretStore, @unchecked Sendable {
     }
     public func save(_ value: Data, for accountID: UUID) throws {
         guard !value.isEmpty, value.count <= 8192 else { throw VaultError.invalidInput }
+        try unlock()
         var item = query(accountID)
         item.removeValue(forKey: kSecMatchSearchList as String)
         item[kSecUseKeychain as String] = keychain
@@ -70,6 +83,7 @@ public final class PrivateKeychainStore: SecretStore, @unchecked Sendable {
         guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw VaultError.secretUnavailable }
     }
     public func load(for accountID: UUID) throws -> Data {
+        try unlock()
         var item = query(accountID)
         item[kSecReturnData as String] = true; item[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -78,6 +92,7 @@ public final class PrivateKeychainStore: SecretStore, @unchecked Sendable {
         return data
     }
     public func delete(for accountID: UUID) throws {
+        try unlock()
         let status = SecItemDelete(query(accountID) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw VaultError.secretUnavailable }
     }

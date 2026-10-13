@@ -90,6 +90,104 @@ import Testing
         #expect(try await client.perform(ReadRequest(operation: .accounts)).status == "ok")
     }
 
+    @Test func saturatedReadTrafficPreservesFreshAndEstablishedAdminAccess() async throws {
+        let held = HeldCalls<ReadReply>()
+        let snapshots = Recorder(), begins = Recorder()
+        let loop = Loopback(read: { _, _ in
+            await held.perform(ReadReply(status: "ok"))
+        }, snapshot: { uid in
+            snapshots.record(uid)
+            return AdminSnapshot(accounts: [], clients: [], grants: [], pending: [])
+        }, begin: { uid, _ in
+            begins.record(uid)
+            return AdminChallenge(id: UUID(), payload: Data(repeating: 7, count: 32), expiresAt: Date() + 60)
+        })
+        let established = loop.adminClient()
+        _ = try await established.snapshot()
+        let clients = (0..<8).map { _ in loop.readClient(timeout: 10) }
+        let tasks = clients.flatMap { client in
+            (0..<4).map { _ in
+                Task { try await client.perform(ReadRequest(operation: .accounts)) }
+            }
+        }
+        let fresh = loop.adminClient()
+        let excess = loop.readClient()
+        defer {
+            held.release()
+            clients.forEach { $0.invalidate() }
+            established.invalidate(); fresh.invalidate(); excess.invalidate()
+        }
+        let saturated = await held.waitUntilStarted(32)
+        #expect(saturated)
+        guard saturated else { return }
+
+        // Even a new channel can authenticate with its empty probe while all 32 read calls wait.
+        #expect(await raw(loop.readEndpoint, Data()) == #"{"error":"invalid_request"}"#)
+        #expect(await raw(loop.adminEndpoint, protocol: VaultAdminRPC.self) { proxy, reply in
+            (proxy as? VaultAdminRPC)?.begin(Data(), reply: reply)
+        } == #"{"error":"invalid_request"}"#)
+        await #expect(throws: IPCError.busy) {
+            try await excess.perform(ReadRequest(operation: .accounts))
+        }
+        #expect(held.started == 32)
+        _ = try await fresh.snapshot()
+        _ = try await established.snapshot()
+        guard case .challenge = try await fresh.begin(AdminRequest(operation: .prune)) else {
+            Issue.record("admin begin did not issue a challenge while reads were saturated"); return
+        }
+        #expect(snapshots.uids == [me, me, me])
+        #expect(begins.uids == [me]) // Empty probes never reach the mutation handler.
+        held.release()
+        for task in tasks { #expect(try await task.value.status == "ok") }
+    }
+
+    @Test func standardConnectionStillAllowsOnlyFourInFlightReadCalls() async throws {
+        let held = HeldCalls<ReadReply>()
+        let loop = Loopback(read: { _, _ in await held.perform(ReadReply(status: "ok")) })
+        let client = loop.readClient(timeout: 10)
+        let tasks = (0..<4).map { _ in
+            Task { try await client.perform(ReadRequest(operation: .accounts)) }
+        }
+        defer { held.release(); client.invalidate() }
+        let saturated = await held.waitUntilStarted(4)
+        #expect(saturated)
+        guard saturated else { return }
+        await #expect(throws: IPCError.busy) {
+            try await client.perform(ReadRequest(operation: .accounts))
+        }
+        #expect(held.started == 4)
+        held.release()
+        for task in tasks { #expect(try await task.value.status == "ok") }
+        #expect(try await client.perform(ReadRequest(operation: .accounts)).status == "ok")
+    }
+
+    @Test func saturatedAdminWorkDoesNotDelayInvalidProbesOrInvokeTheirHandlers() async throws {
+        let held = HeldCalls<AdminSnapshot>()
+        let begins = Recorder()
+        let loop = Loopback(snapshot: { _ in
+            await held.perform(AdminSnapshot(accounts: [], clients: [], grants: [], pending: []))
+        }, begin: { uid, _ in
+            begins.record(uid)
+            return AdminChallenge(id: UUID(), payload: Data(repeating: 7, count: 32), expiresAt: Date() + 60)
+        })
+        let client = loop.adminClient(timeout: 10)
+        let tasks = (0..<4).map { _ in Task { try await client.snapshot() } }
+        let fresh = loop.adminClient()
+        defer { held.release(); client.invalidate(); fresh.invalidate() }
+        let saturated = await held.waitUntilStarted(4)
+        #expect(saturated)
+        guard saturated else { return }
+        #expect(await raw(loop.adminEndpoint, protocol: VaultAdminRPC.self) { proxy, reply in
+            (proxy as? VaultAdminRPC)?.begin(Data(), reply: reply)
+        } == #"{"error":"invalid_request"}"#)
+        // The fresh client's probe succeeds, then its valid request meets the admin work bound.
+        await #expect(throws: IPCError.busy) { try await fresh.begin(AdminRequest(operation: .prune)) }
+        #expect(held.started == 4)
+        #expect(begins.uids.isEmpty)
+        held.release()
+        for task in tasks { #expect(try await task.value.accounts.isEmpty) }
+    }
+
     @Test func handlerFailureAndInvalidHandlerOutputBecomeUnavailable() async {
         struct Boom: Error {}
         let failing = Loopback(read: { _, _ in throw Boom() })
@@ -134,6 +232,45 @@ import Testing
             let client = VaultReadClient(validated: developmentConfiguration(), endpoint: fake.endpoint, timeout: 3)
             await #expect(throws: IPCError.malformedReply) { try await client.perform(ReadRequest(operation: .accounts)) }
         }
+    }
+}
+
+/// Holds actual dispatched XPC work until the test explicitly releases it.
+private final class HeldCalls<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private var released = false
+    private var waiting: [(CheckedContinuation<Value, Never>, Value)] = []
+
+    var started: Int { lock.withLock { count } }
+
+    func perform(_ value: Value) async -> Value {
+        await withCheckedContinuation { continuation in
+            let immediate = lock.withLock {
+                count += 1
+                guard !released else { return true }
+                waiting.append((continuation, value))
+                return false
+            }
+            if immediate { continuation.resume(returning: value) }
+        }
+    }
+
+    func waitUntilStarted(_ expected: Int) async -> Bool {
+        let deadline = Date() + 4
+        while started < expected && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return started == expected
+    }
+
+    func release() {
+        let pending = lock.withLock {
+            released = true
+            defer { waiting.removeAll() }
+            return waiting
+        }
+        for (continuation, value) in pending { continuation.resume(returning: value) }
     }
 }
 

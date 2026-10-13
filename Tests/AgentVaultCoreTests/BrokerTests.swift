@@ -98,6 +98,7 @@ actor PausedAdapter: ServiceAdapter {
     try await f.broker.revokeGrant(f.grant.id)
     await adapter.release()
     await #expect(throws: VaultError.denied) { _ = try await task.value }
+    #expect(try f.state.snapshot().audit.filter { $0.outcome == "response_suppressed" }.count == 1)
 }
 
 struct FailingAdapter: ServiceAdapter {
@@ -111,6 +112,7 @@ struct FailingAdapter: ServiceAdapter {
     await #expect(throws: VaultError.upstreamUnavailable) {
         _ = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
     }
+    #expect(try f.state.snapshot().audit.filter { $0.outcome == "failed" }.count == 1)
     await #expect(throws: VaultError.denied) {
         _ = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
     }

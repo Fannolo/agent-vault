@@ -204,6 +204,7 @@ enum WireCodec {
         case .challenge:
             let challenge = try decoder.decode(Single<AdminChallenge>.self, from: data).value
             guard challengePayloadBytes.contains(challenge.payload.count),
+                  challenge.nonce.count == 32,
                   challenge.expiresAt.timeIntervalSince1970.isFinite else { throw IPCError.malformedReply }
             return .challenge(challenge)
         case .adminReply:
@@ -270,7 +271,7 @@ enum WireCodec {
                 "audit": .array(.object(required: ["timestamp", "clientID", "outcome"],
                                         optional: ["accountID", "action"]), max: 1000)
             ])
-        case .challenge: return .object(required: ["id", "payload", "expiresAt"])
+        case .challenge: return .object(required: ["id", "payload", "expiresAt", "nonce"])
         case .adminReply: return .object(required: ["status"], optional: ["id"])
         case .error: return .scalar
         }

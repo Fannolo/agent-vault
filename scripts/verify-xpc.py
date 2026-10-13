@@ -129,6 +129,7 @@ def run(harness):
     h = harness
     h.build()
     main = h.config("main", "main")
+    wrong_broker_uid = h.config("wrong-broker-uid", "main", broker_uid=UID + 1)
     uid_server = h.config("uid-server", "uid", allowed_uid=UID + 1)
     uid_client = h.config("uid-client", "uid")
     spoof_server = h.config("spoof-server", "spoof", broker="impostor-broker")
@@ -177,6 +178,12 @@ def run(harness):
     h.expect("bridge refuses a spoofed broker", h.invoke("bridge", "read", "--config", spoof_client, "--op", "run"),
              lambda r: r["outcome"] == "broker_rejected")
     h.expect("human app refuses a spoofed broker", h.invoke("app", "admin", "--config", spoof_client),
+             lambda r: r["outcome"] == "broker_rejected")
+    h.expect("bridge refuses a genuine broker with an unexpected kernel UID",
+             h.invoke("bridge", "read", "--config", wrong_broker_uid, "--op", "accounts"),
+             lambda r: r["outcome"] == "broker_rejected")
+    h.expect("human app refuses a genuine broker with an unexpected kernel UID",
+             h.invoke("app", "admin", "--config", wrong_broker_uid),
              lambda r: r["outcome"] == "broker_rejected")
     h.expect("production configuration in a user-owned file is refused",
              h.invoke("broker", "check-config", "--config", production_same_uid, "--role", "broker"),

@@ -1,6 +1,7 @@
 import Foundation
 import LocalAuthentication
 import Security
+import AgentVaultRuntime
 
 /// Proof that the person just passed a fresh user-presence check. The context is bound to
 /// that evaluation so protected key use does not prompt a second time.
@@ -196,22 +197,37 @@ public final class HumanApprovalSigner: ApprovalSigning, @unchecked Sendable {
     private let backends: [ApprovalKeyBackend]
     private let authenticator: UserPresenceAuthenticating
     private let lock = NSLock()
+    private let enrollmentDirectory: URL?
 
     public init(namespace: String = HumanApprovalSigner.productionNamespace,
                 authenticator: UserPresenceAuthenticating = LocalAuthenticator()) {
         backends = [KeychainKeyBackend(protection: .secureEnclave, namespace: namespace),
                     KeychainKeyBackend(protection: .keychainUserPresence, namespace: namespace)]
         self.authenticator = authenticator
+        enrollmentDirectory = namespace == Self.productionNamespace ?
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/AgentVault/approval-key") : nil
     }
 
     /// Injection point for tests of the signing flow with a non-persistent test key.
     package init(backends: [ApprovalKeyBackend], authenticator: UserPresenceAuthenticating) {
         self.backends = backends
         self.authenticator = authenticator
+        enrollmentDirectory = nil
     }
 
     public func registration() async throws -> ApprovalKeyRegistration {
         try lock.withLock {
+            let lease: BrokerLease?
+            if let enrollmentDirectory {
+                do {
+                    if !FileManager.default.fileExists(atPath: enrollmentDirectory.path) {
+                        try FileManager.default.createDirectory(at: enrollmentDirectory, withIntermediateDirectories: true,
+                            attributes: [.posixPermissions: 0o700])
+                    }
+                    lease = try BrokerLease(directory: enrollmentDirectory)
+                } catch { throw ApprovalSigningError.keyLookupFailed(-1) }
+            } else { lease = nil }
+            defer { withExtendedLifetime(lease) {} }
             var uncertain: Int32?
             for backend in backends {
                 switch backend.lookup(proof: nil) {

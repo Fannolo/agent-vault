@@ -18,7 +18,9 @@ Read operations are accounts, fixed action run, approved-request resume and canc
 Responses are closed status codes plus typed account/profile/request data. Admin
 operations include enrollment, rotation, deletion, pairing, grants, revocation,
 pending invocation approval/rejection, recovery and pruning. begin freezes a validated
-request, bounds its lifetime and returns a random challenge payload; authorize
+request, bounds its lifetime and returns a digest of operation metadata, challenge ID,
+nonce and expiry; the app recomputes that digest before signing. Credential contents and
+content hashes never enter the digest. authorize
 verifies the signature against a broker-configured public key and consumes it before
 applying the frozen request. Tokens/signatures from one challenge cannot authorize
 another challenge. For fixture testing only, a generated software P256 key is used.

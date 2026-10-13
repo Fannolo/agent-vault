@@ -1,9 +1,11 @@
 import AgentVaultContracts
+import AgentVaultApproval
 import Foundation
 
 public enum AdminFailure: Error, Equatable, Sendable {
     case transport(AdminTransportError)
     case challengeExpired
+    case intentMismatch
     case signing(ApprovalSigningError)
     case rejected(String)
 }
@@ -36,6 +38,8 @@ public struct AdminAuthorizationService: Sendable {
         do { challenge = try await transport.begin(request) }
         catch let error as AdminTransportError { throw AdminFailure.transport(error) }
         guard challenge.expiresAt.timeIntervalSince(now()) > Self.expiryMargin else { throw AdminFailure.challengeExpired }
+        guard challenge.payload == (try? ApprovalIntent.payload(request: request, id: challenge.id,
+            nonce: challenge.nonce, expiresAt: challenge.expiresAt)) else { throw AdminFailure.intentMismatch }
 
         let signature: Data
         do { signature = try await signer.sign(payload: challenge.payload, reason: summary) }

@@ -115,7 +115,7 @@ that check, the server sends `unavailable` instead. The validator enforces these
 - A pending status is `waiting` or `approved`.
 - A snapshot has at most 128 accounts, 128 clients, 512 grants, 128 pending entries and
   1,000 audit entries. The key sets are exact.
-- A challenge payload is 16–1024 bytes.
+- A challenge payload is 16–1024 bytes, with a required 32-byte nonce.
 
 A snapshot at every maximum count encodes to 368,128 bytes and crosses XPC in a test.
 The reply cap is 512 KiB.
@@ -132,10 +132,13 @@ peer data or handler error text.
 | Request size | 16 KiB |
 | Reply size | 512 KiB |
 | In flight per connection | 4 |
-| In flight in total | 32 |
+| Read handlers in flight | 32 |
+| Admin handlers in flight | 4, independent of read handlers |
 | Connections per service | 16 |
 
 When a limit is exceeded, the broker returns `busy` or refuses the connection.
+Empty authentication probes are rejected before acquiring a handler slot, so saturated
+read handlers cannot prevent a new authenticated admin connection from probing the broker.
 
 ## Integration
 
@@ -163,7 +166,8 @@ probe belong to the transport.
 
 ## Production layout
 
-The templates in `deploy/ipc/` follow the root's runtime layout. They have not been run.
+`deploy/ipc/agentvault_installer.py` implements this layout. Reference config/plist templates
+remain for tests. Sandbox installation has been tested; privileged host installation has not.
 
 | Item | Value |
 | --- | --- |
@@ -179,21 +183,13 @@ base64 X9.63 }`. The private data directory holds `keychain.password` and
 `state-integrity.key` (32 random bytes each, owner-read-only 0400) and the broker's
 `broker.lock`.
 
-`install-broker.sh.template` does these steps:
-
-1. Refuses to run unless it runs as root and `AGENT_VAULT_INSTALL=dedicated-account` is
-   set.
-2. Checks the broker binary against `ipc.brokerRequirement` with `codesign`.
-3. Checks that the approval key is a 65-byte uncompressed P-256 point.
-4. Creates or reuses the hidden `_agentvault` account in UIDs 200–399, and refuses an
-   account that has an unexpected shell.
-5. Creates the two seeds only if they are absent.
-6. Installs the configuration atomically, then bootstraps the daemon.
-
-Re-running the installer converges to the same state. `uninstall-broker.sh.template`
-removes what the installer created. It deletes state only with `--delete-state` and the
-account only with `--delete-account`. If the root's daemon creates its own seeds, remove
-step 5.
+The installer first copies all three programs into protected staging and verifies publisher,
+role, hardened runtime and exact code hash. It verifies the approval key against the fingerprint
+read from the app, validates existing ownership and account state, and uses descriptor-relative
+no-follow traversal and atomic installation. Seeds are never overwritten. A journal supports
+retry after interruption. Changing code pins, paired UID or approval key requires separate
+explicit options. Uninstall preserves the dedicated account and private data. See
+[installation instructions and limits](INSTALLATION.md).
 
 ## Verification
 
@@ -239,18 +235,21 @@ therefore enforces on its own.
 
 Results on 13 October 2026, Apple Swift 6.2.4, macOS 15:
 
-- `swift test`: 61 tests passed (26 Core, 35 IPC).
+- Early IPC checkpoint: 61 tests passed (26 Core, 35 IPC); later integrated and review-fix
+  results are recorded in [the verification record](verification/review-checkpoint.json).
 - `verify-xpc.py`: 18 of 18 scenarios passed. All temporary labels were removed.
 - `verify-xpc-mutations.py`: all 7 mutations behaved as expected.
 - `swift build -c release` succeeded.
-- `sh -n` passed for both install templates, and `plutil -lint` passed for the plist.
+- The replacement Python installer passes its unit suite, guard mutations and signed-payload
+  sandbox checks. Those checks simulate account creation and launchd and do not establish a
+  working privileged installation.
 
 ## Unproven
 
 - Separation by UID at runtime. Every verified process ran as the same user. The `uid+1`
   scenario shows that the broker rejects a UID it does not expect. It does not show that
   a dedicated `_agentvault` broker resists same-user inspection. That needs the
-  privileged install, which is out of scope here.
+  privileged install, which remains a release gate.
 - `.privileged` lookup and the Developer ID requirements against real signed builds and
   the installed LaunchDaemon.
 - Code-requirement behaviour across `exec` or PID reuse beyond what XPC's per-message

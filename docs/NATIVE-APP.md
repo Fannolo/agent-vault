@@ -11,14 +11,17 @@ value goes into one admin request and the form state is cleared before the reque
 Accounts (add, replace, delete), Clients (pair by UID, revoke), Grants (client + account,
 expiry, call budget, per-call approval toggle, revoke), Requests (waiting or approved; only
 `waiting` has Approve/Reject), Audit (metadata table and JSON export, mode 0600) and Approval Key
-(protection level and public key to register).
+(protection level, public key and its SHA-256 fingerprint to register).
 
 ## Admin protocol
 
 Every mutation is `begin` (broker freezes the request, returns a single-use challenge), a
 fresh user-presence prompt that names the action, an ECDSA P-256/SHA-256 DER signature over
 `challenge.payload`, then `authorize`. The app builds the prompt text from its own request, never
-from the challenge. Payload, password and signature are never logged (a source test bans
+from the challenge. The app also recomputes the shared metadata digest and refuses a changed
+operation before asking for user presence. The digest binds challenge ID, nonce, expiry and
+request metadata; it excludes credential content and credential-content hashes. Payload,
+password and signature are never logged (a source test bans
 `print`, `NSLog`, `os_log`, `Logger`, `dump`).
 
 `VaultAdminTransport` is the only broker dependency: `snapshot`, `begin`, `authorize`. Audit
@@ -44,7 +47,8 @@ unprotected production fallback. Details:
 - `AgentVault --print-approval-public-key` prints the public key as JSON (X9.63 and SPKI base64,
   SHA-256 fingerprint) and creates the key if none exists. Exit codes: 64 usage, 70 unavailable or
   unprotected, 73 creation failed, 74 lookup failed, 75 no user presence, 76 key not protected.
-- Not defended: two processes creating the key concurrently (the lock is per process).
+- Production registration holds a private per-user file lease across lookup and creation,
+  preventing two app copies from creating competing keys. An unavailable lease fails closed.
 
 ## Verification record (13 October 2026, Apple Swift 6.2.4, Xcode 26.3, macOS 15)
 
@@ -55,8 +59,9 @@ unprotected production fallback. Details:
   (-34018) from `SecKeyCreateRandomKey` for Secure Enclave and for software Keychain keys with
   user presence, with and without the data-protection keychain (probe run on this Mac). So the app
   fails closed here, the real signing path was **not** exercised with a hardware or Keychain key,
-  and no real Touch ID prompt was shown. Verifying it needs a build signed with a team identity
-  and keychain entitlements, which this task did not use or install.
+  and no real Touch ID prompt was shown. A later Bite Developer ID signed review bundle also
+  returned -34018 (exit 73, no public-key output). No matching Developer ID provisioning profile
+  was available. Verifying the key needs a matching profile and protected-key/user-presence run.
 - `scripts/build-mac-app.sh [debug|release]` builds `.build/app/AgentVault.app`, ad hoc signed,
   installs nothing. A DEBUG-only preview (`AGENT_VAULT_UI_PREVIEW=1`, software key and in-memory
   broker, compiled out of release) and screenshot tour (`AGENT_VAULT_UI_SCREENSHOTS=<dir>`, renders

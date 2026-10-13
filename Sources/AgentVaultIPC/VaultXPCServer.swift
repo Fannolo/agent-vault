@@ -24,7 +24,8 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
     private let handlers: Handlers
     private let readListener: NSXPCListener
     private let adminListener: NSXPCListener
-    private let totalInFlight: Gate
+    private let readInFlight: Gate
+    private let adminInFlight: Gate
     private let readConnections: Gate
     private let adminConnections: Gate
 
@@ -42,7 +43,9 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
          adminListener: NSXPCListener, handlers: Handlers) {
         self.configuration = configuration; self.limits = limits; self.handlers = handlers
         self.readListener = readListener; self.adminListener = adminListener
-        totalInFlight = Gate(limit: limits.maxInFlightTotal)
+        readInFlight = Gate(limit: limits.maxInFlightTotal)
+        // Revocation and other human controls retain capacity even when every read slot is occupied.
+        adminInFlight = Gate(limit: 4)
         readConnections = Gate(limit: limits.maxConnectionsPerService)
         adminConnections = Gate(limit: limits.maxConnectionsPerService)
         super.init()
@@ -75,7 +78,7 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
 
         connection.setCodeSigningRequirement(admin ? configuration.adminRequirement : configuration.readRequirement)
         let peer = Peer(uid: uid, limits: limits, connectionInFlight: Gate(limit: limits.maxInFlightPerConnection),
-                        totalInFlight: totalInFlight)
+                        serviceInFlight: admin ? adminInFlight : readInFlight)
         if admin {
             connection.exportedInterface = NSXPCInterface(with: VaultAdminRPC.self)
             connection.exportedObject = AdminEndpoint(peer: peer, handlers: handlers)
@@ -128,14 +131,14 @@ final class Peer: Sendable {
     let uid: UInt32
     let limits: IPCLimits
     private let connectionInFlight: Gate
-    private let totalInFlight: Gate
+    private let serviceInFlight: Gate
 
-    init(uid: UInt32, limits: IPCLimits, connectionInFlight: Gate, totalInFlight: Gate) {
+    init(uid: UInt32, limits: IPCLimits, connectionInFlight: Gate, serviceInFlight: Gate) {
         self.uid = uid; self.limits = limits
-        self.connectionInFlight = connectionInFlight; self.totalInFlight = totalInFlight
+        self.connectionInFlight = connectionInFlight; self.serviceInFlight = serviceInFlight
     }
 
-    /// Validates size, concurrency and shape synchronously, then runs `work` off the XPC queue.
+    /// Validates size and shape before allocating capacity, then runs `work` off the XPC queue.
     func dispatch<Input: Sendable>(size: Int, reply block: @escaping (Data) -> Void,
                                    parse: () throws(IPCError) -> Input,
                                    work: @escaping @Sendable (UInt32, Input) async -> Data) {
@@ -145,17 +148,16 @@ final class Peer: Sendable {
             return
         }
         guard size <= limits.maxRequestBytes else { return reply.send(WireCodec.errorReply(.requestTooLarge)) }
-        guard connectionInFlight.acquire() else { return reply.send(WireCodec.errorReply(.busy)) }
-        guard totalInFlight.acquire() else {
-            connectionInFlight.release()
-            return reply.send(WireCodec.errorReply(.busy))
-        }
         let input: Input
         do {
             input = try parse()
         } catch {
-            release()
             return reply.send(WireCodec.errorReply(error))
+        }
+        guard connectionInFlight.acquire() else { return reply.send(WireCodec.errorReply(.busy)) }
+        guard serviceInFlight.acquire() else {
+            connectionInFlight.release()
+            return reply.send(WireCodec.errorReply(.busy))
         }
         let uid = uid
         Task {
@@ -167,7 +169,7 @@ final class Peer: Sendable {
 
     private func release() {
         connectionInFlight.release()
-        totalInFlight.release()
+        serviceInFlight.release()
     }
 }
 

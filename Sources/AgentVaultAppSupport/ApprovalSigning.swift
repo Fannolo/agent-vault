@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public enum ApprovalKeyProtection: String, Sendable, Equatable {
     /// Private key generated and used inside the Secure Enclave, gated by user presence.
@@ -46,6 +47,7 @@ public struct ApprovalKeyRegistration: Sendable, Equatable {
     }
 
     public var publicKeyBase64: String { publicKeyX963.base64EncodedString() }
+    public var sha256Fingerprint: String { SHA256.hash(data: publicKeyX963).map { String(format: "%02x", $0) }.joined() }
 }
 
 public protocol ApprovalSigning: Sendable {

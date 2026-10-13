@@ -97,12 +97,16 @@ public final class FileStateStore: StateStore, @unchecked Sendable {
     }
 
     private func validateState(_ state: VaultState) throws {
-        guard state.version == 2,
+        guard state.version == 3,
                   state.accounts.count <= VaultState.maxAccounts,
                   state.clients.count <= VaultState.maxClients,
                   state.grants.count <= VaultState.maxGrants,
                   state.pending.count <= 128,
-                  state.audit.count <= 1000,
+                  state.audit.count <= VaultState.maxInvocationAudit,
+                  state.adminAudit.count <= VaultState.maxAdministrationAudit,
+                  (state.audit + state.adminAudit).allSatisfy({
+                      $0.timestamp.timeIntervalSince1970.isFinite && $0.outcome.utf8.count <= 64
+                  }),
                   Set(state.accounts.map(\.id)).count == state.accounts.count,
                   Set(state.clients.map(\.id)).count == state.clients.count,
                   Set(state.grants.map(\.id)).count == state.grants.count,

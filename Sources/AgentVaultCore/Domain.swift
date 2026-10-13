@@ -121,11 +121,15 @@ public struct VaultState: Codable, Sendable {
     public static let maxAccounts = 128
     public static let maxClients = 128
     public static let maxGrants = 512
-    public var version: Int = 2
+    public static let maxInvocationAudit = 744
+    public static let maxAdministrationAudit = 256
+    public static let administrationPrincipal = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+    public var version: Int = 3
     public var accounts: [Account] = []
     public var clients: [ClientRecord] = []
     public var grants: [Grant] = []
     public var audit: [AuditEvent] = []
+    public var adminAudit: [AuditEvent] = []
     public var pending: [PendingInvocation] = []
     public init() {}
 
@@ -133,7 +137,17 @@ public struct VaultState: Codable, Sendable {
                                 at timestamp: Date) {
         audit.append(.init(timestamp: timestamp, clientID: client, accountID: account,
                            action: action, outcome: outcome))
-        if audit.count > 1000 { audit.removeFirst(audit.count - 1000) }
+        if audit.count > Self.maxInvocationAudit { audit.removeFirst(audit.count - Self.maxInvocationAudit) }
+    }
+
+    public mutating func recordAdministration(client: UUID = VaultState.administrationPrincipal,
+                                             account: UUID? = nil, action: Action? = nil,
+                                             outcome: String, at timestamp: Date) {
+        adminAudit.append(.init(timestamp: timestamp, clientID: client, accountID: account,
+                               action: action, outcome: outcome))
+        if adminAudit.count > Self.maxAdministrationAudit {
+            adminAudit.removeFirst(adminAudit.count - Self.maxAdministrationAudit)
+        }
     }
 }
 

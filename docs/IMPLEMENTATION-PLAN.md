@@ -9,12 +9,17 @@
 | Lifecycle | Durable enrollment/rotation/deletion intent, tracked IDs, recovery, pruning | Installed daemon interruption check |
 | Browser | Ephemeral fixed-flow library and real hostile loopback tests | Isolated GUI deployment and live GitHub selector/MFA validation; production disabled |
 | Protocol | Bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Independent review and host compatibility |
-| Distribution | Dependency inventory, signed review-bundle builder and install templates | Hardened installer review, provisioning, notarization and CI |
+| Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
-The integrated local suite passed 147 tests. These include 36 Core tests, 35 IPC tests,
+The review-fix integrated local suite passed 161 tests. These include 44 Core tests and 38 IPC tests,
 real WebKit fixture tests, native-app flow tests, 13 bounded-stdio pipe tests, runtime file/lease
 checks and a real SDK client exercising all four bridge tools. Native Keychain checks are
 explicit opt-ins; their successful earlier run is separate from this default suite.
+
+The installer passed 38 tests both normally and with Python optimizations, 10 guard mutations,
+and install/verify/retry/uninstall against a signed payload in its non-root sandbox. Account
+creation and launchd are simulated there. Current verification artifacts and limits are in
+[the checkpoint record](verification/review-checkpoint.json).
 
 No existing application, browser profile, host MCP configuration, company evidence or real
 service credential has been modified. No dedicated user, daemon or app has been installed.

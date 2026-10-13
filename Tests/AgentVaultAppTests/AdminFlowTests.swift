@@ -91,6 +91,33 @@ struct AdminFlowTests {
         #expect(model.auditStatus == .unavailable)
     }
 
+    @Test func changedOperationChallengeIsRejectedBeforeSigningOrAuthorization() async throws {
+        let signer = SoftwareFixtureSigner()
+        let underlying = InMemoryBroker(publicKey: signer.publicKey)
+        let transport = AlteredIntentTransport(broker: underlying)
+        let model = AppModel(transport: transport, signer: signer)
+        #expect(await model.pair(uid: 501) == false)
+        #expect(signer.signCount == 0)
+        #expect(await transport.authorizationCount == 0)
+        #expect(await underlying.appliedOperations.isEmpty)
+        #expect(model.notice?.text.contains("did not match") == true)
+    }
+
+    @Test func grantPromptIncludesExactScopeAndOnlySupportedDurations() async throws {
+        let r = await rig()
+        #expect(await r.model.enroll(service: .github, secret: "ghp_synthetic_token_123"))
+        #expect(await r.model.pair(uid: 501))
+        let account = try #require(r.model.snapshot?.accounts.first)
+        let client = try #require(r.model.snapshot?.clients.first)
+        #expect(await r.model.grant(GrantPlan(clientID: client.id, accountID: account.id,
+            duration: .oneDay, callLimit: 3, alwaysRequireApproval: false)))
+        let reason = try #require(r.signer.reasons.last)
+        #expect(reason.contains(client.id.uuidString.lowercased()) && reason.contains(account.id.uuidString.lowercased()))
+        #expect(reason.contains("UID 501") && reason.contains("GitHub API") && reason.contains("86400 seconds"))
+        #expect(reason.contains("3 calls") && reason.contains("without per-call approval"))
+        #expect(GrantDuration.allCases.allSatisfy { $0.rawValue > 0 && $0.rawValue <= 86_400 })
+    }
+
     @Test func malformedInputNeverReachesTheBroker() async throws {
         let r = await rig(features: AppFeatures(browserServicesEnabled: true))
         #expect(await r.model.enroll(service: .github, secret: "short") == false)
@@ -198,4 +225,20 @@ struct AdminFlowTests {
 
 extension InMemoryBroker {
     func setChallengeLifetime(_ value: TimeInterval) { challengeLifetime = value }
+}
+
+private actor AlteredIntentTransport: VaultAdminTransport {
+    let broker: InMemoryBroker
+    private(set) var authorizationCount = 0
+    init(broker: InMemoryBroker) { self.broker = broker }
+    func snapshot() async throws -> AdminSnapshot { try await broker.snapshot() }
+    func begin(_ request: AdminRequest) async throws -> AdminChallenge {
+        var altered = request
+        altered.uid = 502
+        return try await broker.begin(altered)
+    }
+    func authorize(challengeID: UUID, signature: Data) async throws -> AdminReply {
+        authorizationCount += 1
+        return try await broker.authorize(challengeID: challengeID, signature: signature)
+    }
 }

@@ -15,7 +15,9 @@ let package = Package(
     ],
     targets: [
         .target(name: "AgentVaultContracts"),
-        .target(name: "AgentVaultAppSupport", dependencies: ["AgentVaultContracts", "AgentVaultIPC", "AgentVaultRuntime"],
+        .target(name: "AgentVaultApproval", dependencies: ["AgentVaultContracts"]),
+        .testTarget(name: "AgentVaultApprovalTests", dependencies: ["AgentVaultApproval", "AgentVaultContracts"]),
+        .target(name: "AgentVaultAppSupport", dependencies: ["AgentVaultContracts", "AgentVaultApproval", "AgentVaultIPC", "AgentVaultRuntime"],
                 linkerSettings: [.linkedFramework("Security"), .linkedFramework("LocalAuthentication"), .linkedFramework("SwiftUI"), .linkedFramework("AppKit")]),
         .executableTarget(name: "AgentVaultApp", dependencies: ["AgentVaultAppSupport"]),
         .testTarget(name: "AgentVaultAppTests", dependencies: ["AgentVaultAppSupport", "AgentVaultContracts"]),
@@ -27,7 +29,7 @@ let package = Package(
         .testTarget(name: "AgentVaultMCPTransportTests", dependencies: ["AgentVaultMCPTransport"]),
         .testTarget(name: "AgentVaultRuntimeTests", dependencies: ["AgentVaultRuntime"]),
         .testTarget(name: "AgentVaultMCPBridgeTests", dependencies: ["AgentVaultMCPBridge", "AgentVaultContracts", .product(name: "MCP", package: "swift-sdk")]),
-        .target(name: "AgentVaultCore", dependencies: ["AgentVaultContracts"], linkerSettings: [.linkedFramework("Security")]),
+        .target(name: "AgentVaultCore", dependencies: ["AgentVaultContracts", "AgentVaultApproval"], linkerSettings: [.linkedFramework("Security")]),
         .executableTarget(name: "AgentVaultCLI", dependencies: [
             "AgentVaultCore", .product(name: "MCP", package: "swift-sdk")
         ]),
