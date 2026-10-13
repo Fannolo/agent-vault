@@ -46,6 +46,10 @@ enum MCPInterface {
                         return try response(.object(["status": "completed", "profile": .object([
                             "login": .string(profile.login), "id": .int(profile.id)
                         ])]))
+                    case .approvalRequired(let id):
+                        return try response(.object(["status": "approval_required", "requestId": .string(id.uuidString)]))
+                    case .humanStepRequired(let id):
+                        return try response(.object(["status": "human_step_required", "requestId": .string(id.uuidString)]))
                     }
                 default: throw VaultError.invalidInput
                 }

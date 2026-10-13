@@ -5,6 +5,7 @@ public actor Broker {
     private let secrets: any SecretStore
     private let adapter: any ServiceAdapter
     private let now: @Sendable () -> Date
+    private var lifecycleMutations: Set<UUID> = []
 
     public init(state: any StateStore, secrets: any SecretStore,
                 adapter: any ServiceAdapter = FixedServiceAdapter(),
@@ -15,23 +16,27 @@ public actor Broker {
     public func enroll(service: Service, credential: Data) throws -> Account {
         guard !credential.isEmpty, credential.count <= 8192 else { throw VaultError.invalidInput }
         if service == .github { try GitHubAdapter.validateCredential(credential) }
-        let account = Account(service: service)
-        try secrets.save(credential, for: account.id)
-        do {
-            try state.transaction {
-                guard $0.accounts.count < VaultState.maxAccounts else { throw VaultError.stateUnavailable }
-                $0.accounts.append(account)
-            }
+        var account = Account(service: service, lifecycle: .enrolling)
+        try state.transaction {
+            guard $0.accounts.count < VaultState.maxAccounts else { throw VaultError.stateUnavailable }
+            $0.accounts.append(account)
         }
-        catch {
-            try? secrets.delete(for: account.id)
-            throw VaultError.stateUnavailable
+        // Persist intent before Keychain mutation so a crash never loses the item ID.
+        try secrets.save(credential, for: account.credentialID)
+        account.lifecycle = .active
+        try state.transaction {
+            guard let index = $0.accounts.firstIndex(where: { $0.id == account.id && $0.lifecycle == .enrolling })
+            else { throw VaultError.stateUnavailable }
+            $0.accounts[index] = account
         }
         return account
     }
 
-    public func registerClient() throws -> ClientRecord {
-        let client = ClientRecord()
+    public func registerClient(uid: UInt32? = nil) throws -> ClientRecord {
+        if let uid, let existing = try state.snapshot().clients.first(where: { $0.uid == uid && !$0.revoked }) {
+            return existing
+        }
+        let client = ClientRecord(uid: uid)
         try state.transaction {
             guard $0.clients.count < VaultState.maxClients else { throw VaultError.stateUnavailable }
             $0.clients.append(client)
@@ -40,18 +45,19 @@ public actor Broker {
     }
 
     public func grant(clientID: UUID, accountID: UUID, duration: TimeInterval,
-                      callLimit: Int) throws -> Grant {
+                      callLimit: Int, requiresApproval: Bool = false) throws -> Grant {
         guard duration > 0, duration <= 86_400, duration.isFinite,
               callLimit > 0, callLimit <= 10_000 else { throw VaultError.invalidInput }
         return try state.transaction { state in
             let timestamp = now()
             guard state.grants.count < VaultState.maxGrants else { throw VaultError.stateUnavailable }
             guard state.clients.contains(where: { $0.id == clientID && !$0.revoked }),
-                  let account = state.accounts.first(where: { $0.id == accountID }) else {
+                  let account = state.accounts.first(where: { $0.id == accountID && $0.lifecycle == .active }) else {
                 throw VaultError.denied
             }
             let grant = Grant(clientID: clientID, accountID: accountID, action: account.service.action,
-                              expiresAt: timestamp.addingTimeInterval(duration), callLimit: callLimit)
+                              expiresAt: timestamp.addingTimeInterval(duration), callLimit: callLimit,
+                              requiresApproval: requiresApproval)
             state.grants.append(grant)
             state.record(client: clientID, account: accountID, action: grant.action,
                          outcome: "grant_created", at: timestamp)
@@ -59,21 +65,23 @@ public actor Broker {
         }
     }
 
-    public func revokeGrant(_ id: UUID) throws {
+    public func revokeGrant(_ id: UUID) async throws {
         try state.transaction { state in
             let timestamp = now()
             guard let index = state.grants.firstIndex(where: { $0.id == id }) else {
                 throw VaultError.invalidInput
             }
             state.grants[index].revoked = true
+            for i in state.pending.indices where state.pending[i].grantID == id { state.pending[i].status = .cancelled }
             let grant = state.grants[index]
             state.record(client: grant.clientID, account: grant.accountID, action: grant.action,
                          outcome: "grant_revoked", at: timestamp)
         }
+        await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: id)
     }
 
-    public func revokeClient(_ id: UUID) throws {
-        try state.transaction { state in
+    public func revokeClient(_ id: UUID) async throws {
+        let sessions = try state.transaction { state in
             let timestamp = now()
             guard let index = state.clients.firstIndex(where: { $0.id == id }) else {
                 throw VaultError.invalidInput
@@ -82,8 +90,11 @@ public actor Broker {
             for i in state.grants.indices where state.grants[i].clientID == id {
                 state.grants[i].revoked = true
             }
+            for i in state.pending.indices where state.pending[i].clientID == id { state.pending[i].status = .cancelled }
             state.record(client: id, account: nil, action: nil, outcome: "client_revoked", at: timestamp)
+            return state.grants.filter { $0.clientID == id }.map(\.id)
         }
+        for session in sessions { await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: session) }
     }
 
     public func availableAccounts(clientID: UUID) throws -> [Account] {
@@ -91,7 +102,8 @@ public actor Broker {
         let timestamp = now()
         guard snapshot.clients.contains(where: { $0.id == clientID && !$0.revoked }) else { return [] }
         return snapshot.accounts.filter { account in
-            snapshot.grants.contains { grant in
+            guard account.lifecycle == .active else { return false }
+            return snapshot.grants.contains { grant in
                 Self.permits(grant, client: clientID, account: account.id,
                              action: account.service.action, at: timestamp)
             }
@@ -99,19 +111,85 @@ public actor Broker {
     }
 
     public func run(clientID: UUID, accountID: UUID, action: Action) async throws -> OperationResult {
+        let pending: UUID? = try state.transaction { state in
+            let timestamp = now()
+            guard state.clients.contains(where: { $0.id == clientID && !$0.revoked }),
+                  state.accounts.contains(where: { $0.id == accountID && $0.lifecycle == .active && $0.service.action == action }),
+                  let grant = state.grants.first(where: { Self.permits($0, client: clientID, account: accountID, action: action, at: timestamp) }),
+                  grant.requiresApproval else { return nil }
+            if let existing = state.pending.first(where: {
+                $0.clientID == clientID && $0.accountID == accountID && $0.action == action &&
+                $0.grantID == grant.id && $0.expiresAt > timestamp && [.waiting, .approved].contains($0.status)
+            }) { return existing.id }
+            state.pending.removeAll { $0.expiresAt <= timestamp || [.cancelled, .consumed].contains($0.status) }
+            guard state.pending.count < 128 else { throw VaultError.busy }
+            let invocation = PendingInvocation(id: UUID(), clientID: clientID, accountID: accountID,
+                action: action, grantID: grant.id, expiresAt: min(grant.expiresAt, timestamp.addingTimeInterval(120)), status: .waiting)
+            state.pending.append(invocation)
+            state.record(client: clientID, account: accountID, action: action, outcome: "approval_requested", at: timestamp)
+            return invocation.id
+        }
+        if let pending { return .approvalRequired(pending) }
+        return try await execute(clientID: clientID, accountID: accountID, action: action, approvedRequest: nil)
+    }
+
+    public func approveInvocation(_ id: UUID) throws {
+        try state.transaction { state in
+            let timestamp = now()
+            guard let index = state.pending.firstIndex(where: { $0.id == id && $0.status == .waiting && $0.expiresAt > timestamp }),
+                  let grant = state.grants.first(where: { $0.id == state.pending[index].grantID }),
+                  Self.permits(grant, client: state.pending[index].clientID, account: state.pending[index].accountID,
+                               action: state.pending[index].action, at: timestamp) else { throw VaultError.denied }
+            state.pending[index].status = .approved
+        }
+    }
+
+    public func rejectInvocation(_ id: UUID) throws {
+        try state.transaction { state in
+            guard let index = state.pending.firstIndex(where: {
+                $0.id == id && [.waiting, .approved].contains($0.status)
+            }) else { throw VaultError.denied }
+            state.pending[index].status = .cancelled
+        }
+    }
+
+    public func cancelInvocation(_ id: UUID, clientID: UUID) throws {
+        guard try state.snapshot().pending.contains(where: { $0.id == id && $0.clientID == clientID }) else { throw VaultError.denied }
+        try rejectInvocation(id)
+    }
+
+    public func resume(_ id: UUID, clientID: UUID) async throws -> OperationResult {
+        guard let invocation = try state.snapshot().pending.first(where: { $0.id == id && $0.clientID == clientID })
+        else { throw VaultError.denied }
+        return try await execute(clientID: clientID, accountID: invocation.accountID, action: invocation.action, approvedRequest: id)
+    }
+
+    private func execute(clientID: UUID, accountID: UUID, action: Action, approvedRequest: UUID?) async throws -> OperationResult {
         let permit: (Account, UUID)? = try state.transaction { state in
             let timestamp = now()
             guard state.clients.contains(where: { $0.id == clientID && !$0.revoked }),
-                  let account = state.accounts.first(where: { $0.id == accountID }),
+                  let account = state.accounts.first(where: { $0.id == accountID && $0.lifecycle == .active }),
                   account.service.action == action,
-                  let index = state.grants.firstIndex(where: {
-                      Self.permits($0, client: clientID, account: accountID, action: action, at: timestamp)
+                  let index = state.grants.firstIndex(where: { grant in
+                      Self.permits(grant, client: clientID, account: accountID, action: action, at: timestamp) &&
+                      (approvedRequest == nil || state.pending.contains(where: { pending in
+                          pending.id == approvedRequest && pending.grantID == grant.id
+                      }))
                   }) else {
                 // Caller-supplied account IDs can be arbitrary; audit only known account IDs.
                 state.record(client: clientID, account: state.accounts.first(where: { $0.id == accountID })?.id,
                              action: action, outcome: "denied", at: timestamp)
                 return nil
             }
+            if state.grants[index].requiresApproval {
+                guard let approvedRequest,
+                      let pendingIndex = state.pending.firstIndex(where: {
+                          $0.id == approvedRequest && $0.clientID == clientID && $0.accountID == accountID &&
+                          $0.action == action && $0.grantID == state.grants[index].id &&
+                          $0.status == .approved && $0.expiresAt > timestamp
+                      }) else { return nil }
+                state.pending[pendingIndex].status = .consumed
+            } else if approvedRequest != nil { return nil }
             // Reserve before dispatch; attempted calls consume budget even if the provider fails.
             state.grants[index].callsUsed += 1
             state.record(client: clientID, account: accountID, action: action, outcome: "reserved", at: timestamp)
@@ -119,14 +197,21 @@ public actor Broker {
         }
         guard let (account, grantID) = permit else { throw VaultError.denied }
         do {
-            let credential = try secrets.load(for: account.id)
+            let credential = try secrets.load(for: account.credentialID)
             // Keychain access may block on a human prompt. Recheck before dispatch.
             let current = try state.snapshot()
             guard current.clients.contains(where: { $0.id == clientID && !$0.revoked }),
                   current.grants.contains(where: { $0.id == grantID && !$0.revoked && $0.expiresAt > now() }) else {
                 throw VaultError.denied
             }
-            let output = try await adapter.execute(service: account.service, credential: credential)
+            let output: OperationResult
+            if let sessionAdapter = adapter as? any SessionServiceAdapter,
+               let grant = current.grants.first(where: { $0.id == grantID }) {
+                output = try await sessionAdapter.execute(sessionID: grantID, expiresAt: grant.expiresAt,
+                                                          service: account.service, credential: credential)
+            } else {
+                output = try await adapter.execute(service: account.service, credential: credential)
+            }
             // Revocation during an in-flight request also suppresses its response.
             let allowed = try finish(client: clientID, account: accountID, action: action,
                                      grant: grantID, succeeded: true)
@@ -135,7 +220,112 @@ public actor Broker {
         } catch {
             _ = try? finish(client: clientID, account: accountID, action: action,
                             grant: grantID, succeeded: false)
+            // An unreadable final policy state is also a loss of authority.
+            await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: grantID)
             throw (error as? VaultError) ?? VaultError.upstreamUnavailable
+        }
+    }
+
+    public func snapshot() throws -> VaultState { try state.snapshot() }
+
+    public func clientID(for uid: UInt32) throws -> UUID {
+        let clients = try state.snapshot().clients.filter { $0.uid == uid && !$0.revoked }
+        guard clients.count == 1 else { throw VaultError.denied }
+        return clients[0].id
+    }
+
+    public func rotate(accountID: UUID, credential: Data) async throws {
+        guard !credential.isEmpty, credential.count <= 8192 else { throw VaultError.invalidInput }
+        guard lifecycleMutations.insert(accountID).inserted else { throw VaultError.busy }
+        defer { lifecycleMutations.remove(accountID) }
+        let staged = UUID()
+        let original: Account = try state.transaction { state in
+            guard let i = state.accounts.firstIndex(where: {
+                $0.id == accountID && $0.lifecycle == .active && $0.retiredCredentialID == nil
+            }) else { throw VaultError.denied }
+            if state.accounts[i].service == .github { try GitHubAdapter.validateCredential(credential) }
+            state.accounts[i].lifecycle = .rotating; state.accounts[i].stagedCredentialID = staged
+            return state.accounts[i]
+        }
+        try secrets.save(credential, for: staged)
+        let sessions = try state.transaction { state in
+            guard let i = state.accounts.firstIndex(where: { $0.id == accountID && $0.stagedCredentialID == staged }) else { throw VaultError.stateUnavailable }
+            state.accounts[i].credentialID = staged; state.accounts[i].stagedCredentialID = nil
+            state.accounts[i].retiredCredentialID = original.credentialID; state.accounts[i].lifecycle = .active
+            for index in state.grants.indices where state.grants[index].accountID == accountID { state.grants[index].revoked = true }
+            for index in state.pending.indices where state.pending[index].accountID == accountID { state.pending[index].status = .cancelled }
+            return state.grants.filter { $0.accountID == accountID }.map(\.id)
+        }
+        for session in sessions { await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: session) }
+        try secrets.delete(for: original.credentialID)
+        try state.transaction { state in
+            if let i = state.accounts.firstIndex(where: { $0.id == accountID }) { state.accounts[i].retiredCredentialID = nil }
+        }
+    }
+
+    public func deleteAccount(_ id: UUID) async throws {
+        guard lifecycleMutations.insert(id).inserted else { throw VaultError.busy }
+        defer { lifecycleMutations.remove(id) }
+        let account = try state.transaction { state in
+            guard let i = state.accounts.firstIndex(where: { $0.id == id }) else { throw VaultError.invalidInput }
+            state.accounts[i].lifecycle = .deleting
+            for j in state.grants.indices where state.grants[j].accountID == id { state.grants[j].revoked = true }
+            for j in state.pending.indices where state.pending[j].accountID == id { state.pending[j].status = .cancelled }
+            return state.accounts[i]
+        }
+        for grant in try state.snapshot().grants where grant.accountID == id {
+            await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: grant.id)
+        }
+        try removeCredentialItems(account)
+        try removeAccountRecord(id)
+    }
+
+    // Called by the single broker owner before accepting connections.
+    public func recoverInterruptedLifecycle() throws {
+        guard lifecycleMutations.isEmpty else { throw VaultError.busy }
+        for account in try state.snapshot().accounts {
+            switch account.lifecycle {
+            case .enrolling, .deleting:
+                try removeCredentialItems(account)
+                try removeAccountRecord(account.id)
+            case .rotating:
+                if let staged = account.stagedCredentialID { try secrets.delete(for: staged) }
+                try state.transaction { state in
+                    if let i = state.accounts.firstIndex(where: { $0.id == account.id }) {
+                        state.accounts[i].stagedCredentialID = nil; state.accounts[i].lifecycle = .active
+                    }
+                }
+            case .active:
+                if let retired = account.retiredCredentialID {
+                    try secrets.delete(for: retired)
+                    try state.transaction { state in
+                        if let i = state.accounts.firstIndex(where: { $0.id == account.id }) { state.accounts[i].retiredCredentialID = nil }
+                    }
+                }
+            }
+        }
+    }
+
+    public func prune() throws {
+        try state.transaction { state in
+            let timestamp = now()
+            state.pending.removeAll { [.consumed, .cancelled].contains($0.status) || $0.expiresAt <= timestamp }
+            let needed = Set(state.pending.map(\.grantID))
+            state.grants.removeAll { ($0.revoked || $0.expiresAt <= timestamp) && !needed.contains($0.id) }
+            let used = Set(state.grants.map(\.clientID))
+            state.clients.removeAll { $0.revoked && !used.contains($0.id) }
+        }
+    }
+
+    private func removeCredentialItems(_ account: Account) throws {
+        for id in Set([account.credentialID, account.stagedCredentialID, account.retiredCredentialID].compactMap { $0 }) {
+            try secrets.delete(for: id)
+        }
+    }
+
+    private func removeAccountRecord(_ id: UUID) throws {
+        try state.transaction {
+            $0.accounts.removeAll { $0.id == id }; $0.grants.removeAll { $0.accountID == id }; $0.pending.removeAll { $0.accountID == id }
         }
     }
 

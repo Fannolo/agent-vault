@@ -9,6 +9,9 @@ public struct FixedServiceAdapter: ServiceAdapter {
             return .demoReady
         case .github:
             return .githubProfile(try await GitHubAdapter().profile(credential: credential))
+        case .browserDemo, .githubWeb:
+            // A broker-linked browser adapter must be configured explicitly.
+            throw VaultError.upstreamUnavailable
         }
     }
 }

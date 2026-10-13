@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CryptoKit
 
 /// A locked, private metadata store. It never contains credential values.
 public final class FileStateStore: StateStore, @unchecked Sendable {
@@ -8,8 +9,11 @@ public final class FileStateStore: StateStore, @unchecked Sendable {
     private static let processLock = NSLock()
     private let directory: URL
     private let maxBytes = 1_048_576
+    private let integrityKey: SymmetricKey?
 
-    public init(directory: URL) throws {
+    public init(directory: URL, integrityKey: Data? = nil) throws {
+        guard integrityKey == nil || integrityKey?.count == 32 else { throw VaultError.invalidInput }
+        self.integrityKey = integrityKey.map { SymmetricKey(data: $0) }
         self.directory = directory.standardizedFileURL
         var info = stat()
         if lstat(self.directory.path, &info) != 0 {
@@ -43,6 +47,9 @@ public final class FileStateStore: StateStore, @unchecked Sendable {
         let dir = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard dir >= 0 else { throw VaultError.stateUnavailable }
         defer { close(dir) }
+        var directoryInfo = stat()
+        guard fstat(dir, &directoryInfo) == 0, directoryInfo.st_uid == geteuid(),
+              directoryInfo.st_mode & 0o077 == 0 else { throw VaultError.stateUnavailable }
         let lock = openat(dir, "state.lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard lock >= 0 else { throw VaultError.stateUnavailable }
         defer { close(lock) }
@@ -77,25 +84,69 @@ public final class FileStateStore: StateStore, @unchecked Sendable {
             guard data.count <= maxBytes else { throw VaultError.stateUnavailable }
         }
         do {
-            let state = try JSONDecoder().decode(VaultState.self, from: data)
-            guard state.version == 1,
-                  state.accounts.count <= VaultState.maxAccounts,
-                  state.clients.count <= VaultState.maxClients,
-                  state.grants.count <= VaultState.maxGrants,
-                  Set(state.accounts.map(\.id)).count == state.accounts.count,
-                  Set(state.clients.map(\.id)).count == state.clients.count,
-                  Set(state.grants.map(\.id)).count == state.grants.count,
-                  state.grants.allSatisfy({ $0.callLimit > 0 && $0.callsUsed >= 0 &&
-                                           $0.callsUsed <= $0.callLimit }) else {
-                throw VaultError.stateUnavailable
+            if let integrityKey {
+                let envelope = try JSONDecoder().decode(AuthenticatedState.self, from: data)
+                guard HMAC<SHA256>.isValidAuthenticationCode(envelope.tag, authenticating: envelope.payload,
+                                                           using: integrityKey) else { throw VaultError.stateUnavailable }
+                data = envelope.payload
             }
+            let state = try JSONDecoder().decode(VaultState.self, from: data)
+            try validateState(state)
             return state
         } catch { throw VaultError.stateUnavailable }
     }
 
+    private func validateState(_ state: VaultState) throws {
+        guard state.version == 2,
+                  state.accounts.count <= VaultState.maxAccounts,
+                  state.clients.count <= VaultState.maxClients,
+                  state.grants.count <= VaultState.maxGrants,
+                  state.pending.count <= 128,
+                  state.audit.count <= 1000,
+                  Set(state.accounts.map(\.id)).count == state.accounts.count,
+                  Set(state.clients.map(\.id)).count == state.clients.count,
+                  Set(state.grants.map(\.id)).count == state.grants.count,
+                  Set(state.pending.map(\.id)).count == state.pending.count,
+                  state.grants.allSatisfy({ $0.callLimit > 0 && $0.callLimit <= 10_000 && $0.callsUsed >= 0 &&
+                                           $0.callsUsed <= $0.callLimit }) else {
+                throw VaultError.stateUnavailable
+            }
+        let accounts = Dictionary(uniqueKeysWithValues: state.accounts.map { ($0.id, $0) })
+        let clients = Set(state.clients.map(\.id))
+        let grants = Dictionary(uniqueKeysWithValues: state.grants.map { ($0.id, $0) })
+        let uids = state.clients.filter { !$0.revoked }.compactMap(\.uid)
+        let credentials = state.accounts.flatMap { [$0.credentialID, $0.stagedCredentialID, $0.retiredCredentialID].compactMap { $0 } }
+        guard !uids.contains(0), Set(uids).count == uids.count,
+              Set(credentials).count == credentials.count,
+              state.accounts.allSatisfy({ account in
+                  switch account.lifecycle {
+                  case .enrolling: account.stagedCredentialID == nil && account.retiredCredentialID == nil
+                  case .active: account.stagedCredentialID == nil
+                  case .rotating: account.stagedCredentialID != nil && account.retiredCredentialID == nil
+                  case .deleting: true
+                  }
+              }),
+              state.grants.allSatisfy({ clients.contains($0.clientID) && accounts[$0.accountID]?.service.action == $0.action &&
+                  $0.expiresAt.timeIntervalSince1970.isFinite }),
+              state.pending.allSatisfy({ pending in
+                  guard let grant = grants[pending.grantID] else { return false }
+                  return grant.requiresApproval && grant.clientID == pending.clientID && grant.accountID == pending.accountID &&
+                      grant.action == pending.action && pending.expiresAt.timeIntervalSince1970.isFinite &&
+                      pending.expiresAt <= grant.expiresAt
+              }) else { throw VaultError.stateUnavailable }
+    }
+
     private func writeState(_ state: VaultState, directoryFD: Int32) throws {
-        let data: Data
-        do { data = try JSONEncoder().encode(state) } catch { throw VaultError.stateUnavailable }
+        try validateState(state)
+        var data: Data
+        do {
+            data = try JSONEncoder().encode(state)
+            if let integrityKey {
+                let envelope = AuthenticatedState(payload: data,
+                    tag: Data(HMAC<SHA256>.authenticationCode(for: data, using: integrityKey)))
+                data = try JSONEncoder().encode(envelope)
+            }
+        } catch { throw VaultError.stateUnavailable }
         guard data.count <= maxBytes else { throw VaultError.stateUnavailable }
         let name = ".state-\(UUID().uuidString).tmp"
         let fd = openat(directoryFD, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
@@ -113,4 +164,6 @@ public final class FileStateStore: StateStore, @unchecked Sendable {
         guard fsync(fd) == 0, renameat(directoryFD, name, directoryFD, "state.json") == 0,
               fsync(directoryFD) == 0 else { throw VaultError.stateUnavailable }
     }
+
+    private struct AuthenticatedState: Codable { let payload: Data; let tag: Data }
 }

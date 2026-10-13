@@ -1,2 +1,8 @@
 ts	phase	decision	why	evidence	result
 2026-10-13T15:50:39.278555+00:00	start	Implement the remaining security plan in an isolated worktree	Preserve existing applications and credentials	origin/main@62edb11	open
+2026-10-13T16:14:41Z	ipc	Choose public NSXPC peer requirements and kernel UID binding	Avoid private audit-token APIs and PID-derived identities	docs/contracts/FULL-PLAN.md	transport implementation in progress
+2026-10-13T16:14:41Z	collaboration	Assign IPC and native app/browser work to Claude in separate worktrees	Keep implementation ownership separate while sharing closed wire types	docs/contracts/FULL-PLAN.md	two workers active
+2026-10-13T16:14:42Z	core	Journal credential lifecycle and consume signed approval challenges once	Recover interrupted Keychain writes and prevent replay	Sources/AgentVaultCore/Administration.swift	new tests running
+2026-10-13T16:21:21Z	review	Fix overlapping rotations and invalidate sessions when final authority is uncheckable	Reproductions exposed orphaned credentials and surviving revoked sessions	Tests/AgentVaultCoreTests/LifecycleApprovalTests.swift	fixes reviewed; regression gates added
+2026-10-13T16:21:21Z	storage	Use an explicitly scoped private Keychain and authenticated metadata	Dedicated broker must not depend on a human login Keychain	Sources/AgentVaultCore/PrivateKeychainStore.swift	35 tests passed with native Keychain opt-in
+2026-10-13T16:21:21Z	storage	Set newly created private Keychain file mode to 0600	Native test found Security.framework creates the database as 0644 inside its private directory	Tests/AgentVaultCoreTests/StorageTests.swift	reopen test now passes

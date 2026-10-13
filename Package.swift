@@ -10,7 +10,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "AgentVaultContracts"),
-        .target(name: "AgentVaultCore", linkerSettings: [.linkedFramework("Security")]),
+        .target(name: "AgentVaultCore", dependencies: ["AgentVaultContracts"], linkerSettings: [.linkedFramework("Security")]),
         .executableTarget(name: "AgentVaultCLI", dependencies: [
             "AgentVaultCore", .product(name: "MCP", package: "swift-sdk")
         ]),

@@ -154,12 +154,14 @@ final class DelayedState: StateStore, @unchecked Sendable {
 
 @Test func expiryAfterCompletionLockWaitSuppressesResponse() async throws {
     let f = try await Fixture.make()
-    let state = DelayedState(inner: f.state, clock: f.clock, advanceOnCall: 3)
-    let broker = Broker(state: state, secrets: f.secrets, now: { f.clock.now() })
+    let state = DelayedState(inner: f.state, clock: f.clock, advanceOnCall: 4)
+    let adapter = CountingAdapter()
+    let broker = Broker(state: state, secrets: f.secrets, adapter: adapter, now: { f.clock.now() })
     await #expect(throws: VaultError.denied) {
         _ = try await broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
     }
     #expect(f.secrets.reads == 1)
+    #expect(await adapter.calls == 1)
 }
 
 struct DelayedSecrets: SecretStore {

@@ -7,30 +7,62 @@ public enum VaultError: String, Error, Sendable {
     case denied = "access_denied"
     case upstreamUnavailable = "upstream_unavailable"
     case invalidResponse = "invalid_response"
+    case approvalRequired = "approval_required"
+    case replay = "replay_denied"
+    case busy = "busy"
 }
 
 public enum Action: String, Codable, CaseIterable, Sendable {
     case demoStatus = "demo.status"
     case githubProfile = "github.profile"
+    case browserDemo = "browser.demo"
+    case githubWebProfile = "github.web_profile"
 }
 
 public enum Service: String, Codable, Sendable {
     case demo
-    case github
+    case github, browserDemo, githubWeb
 
-    public var action: Action { self == .demo ? .demoStatus : .githubProfile }
+    public var action: Action {
+        switch self {
+        case .demo: .demoStatus
+        case .github: .githubProfile
+        case .browserDemo: .browserDemo
+        case .githubWeb: .githubWebProfile
+        }
+    }
 }
+
+public enum AccountLifecycle: String, Codable, Sendable { case enrolling, active, rotating, deleting }
 
 public struct Account: Codable, Equatable, Sendable {
     public let id: UUID
     public let service: Service
-    public init(id: UUID = UUID(), service: Service) { self.id = id; self.service = service }
+    public var credentialID: UUID
+    public var stagedCredentialID: UUID?
+    public var retiredCredentialID: UUID?
+    public var lifecycle: AccountLifecycle
+    public init(id: UUID = UUID(), service: Service, lifecycle: AccountLifecycle = .active) {
+        self.id = id; self.service = service; self.credentialID = id; self.lifecycle = lifecycle
+    }
+    private enum CodingKeys: String, CodingKey { case id, service, credentialID, stagedCredentialID, retiredCredentialID, lifecycle }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id); service = try c.decode(Service.self, forKey: .service)
+        credentialID = try c.decode(UUID.self, forKey: .credentialID)
+        stagedCredentialID = try c.decodeIfPresent(UUID.self, forKey: .stagedCredentialID)
+        retiredCredentialID = try c.decodeIfPresent(UUID.self, forKey: .retiredCredentialID)
+        lifecycle = try c.decode(AccountLifecycle.self, forKey: .lifecycle)
+    }
 }
 
 public struct ClientRecord: Codable, Sendable {
     public let id: UUID
     public var revoked: Bool
-    public init(id: UUID = UUID(), revoked: Bool = false) { self.id = id; self.revoked = revoked }
+    public let uid: UInt32?
+    public init(id: UUID = UUID(), revoked: Bool = false, uid: UInt32? = nil) {
+        self.id = id; self.revoked = revoked; self.uid = uid
+    }
 }
 
 public struct Grant: Codable, Sendable {
@@ -42,13 +74,39 @@ public struct Grant: Codable, Sendable {
     public let callLimit: Int
     public var callsUsed: Int
     public var revoked: Bool
+    public let requiresApproval: Bool
 
     public init(id: UUID = UUID(), clientID: UUID, accountID: UUID, action: Action,
-                expiresAt: Date, callLimit: Int, callsUsed: Int = 0, revoked: Bool = false) {
+                expiresAt: Date, callLimit: Int, callsUsed: Int = 0, revoked: Bool = false,
+                requiresApproval: Bool = false) {
         self.id = id; self.clientID = clientID; self.accountID = accountID
         self.action = action; self.expiresAt = expiresAt; self.callLimit = callLimit
         self.callsUsed = callsUsed; self.revoked = revoked
+        self.requiresApproval = requiresApproval
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, clientID, accountID, action, expiresAt, callLimit, callsUsed, revoked, requiresApproval
+    }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id); clientID = try c.decode(UUID.self, forKey: .clientID)
+        accountID = try c.decode(UUID.self, forKey: .accountID); action = try c.decode(Action.self, forKey: .action)
+        expiresAt = try c.decode(Date.self, forKey: .expiresAt); callLimit = try c.decode(Int.self, forKey: .callLimit)
+        callsUsed = try c.decode(Int.self, forKey: .callsUsed); revoked = try c.decode(Bool.self, forKey: .revoked)
+        requiresApproval = try c.decode(Bool.self, forKey: .requiresApproval)
+    }
+}
+
+public struct PendingInvocation: Codable, Sendable, Identifiable {
+    public enum Status: String, Codable, Sendable { case waiting, approved, consumed, cancelled }
+    public let id: UUID
+    public let clientID: UUID
+    public let accountID: UUID
+    public let action: Action
+    public let grantID: UUID
+    public let expiresAt: Date
+    public var status: Status
 }
 
 public struct AuditEvent: Codable, Sendable {
@@ -63,11 +121,12 @@ public struct VaultState: Codable, Sendable {
     public static let maxAccounts = 128
     public static let maxClients = 128
     public static let maxGrants = 512
-    public var version: Int = 1
+    public var version: Int = 2
     public var accounts: [Account] = []
     public var clients: [ClientRecord] = []
     public var grants: [Grant] = []
     public var audit: [AuditEvent] = []
+    public var pending: [PendingInvocation] = []
     public init() {}
 
     public mutating func record(client: UUID, account: UUID?, action: Action?, outcome: String,
@@ -87,6 +146,8 @@ public struct GitHubProfile: Codable, Equatable, Sendable {
 public enum OperationResult: Equatable, Sendable {
     case demoReady
     case githubProfile(GitHubProfile)
+    case approvalRequired(UUID)
+    case humanStepRequired(UUID)
 }
 
 public protocol StateStore: Sendable {
@@ -106,4 +167,9 @@ public protocol SecretStore: Sendable {
 
 public protocol ServiceAdapter: Sendable {
     func execute(service: Service, credential: Data) async throws -> OperationResult
+}
+
+public protocol SessionServiceAdapter: ServiceAdapter {
+    func execute(sessionID: UUID, expiresAt: Date, service: Service, credential: Data) async throws -> OperationResult
+    func invalidate(sessionID: UUID) async
 }
