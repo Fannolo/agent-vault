@@ -1,0 +1,28 @@
+#!/bin/sh
+# TEMPLATE. Not run by development verification. Removes only what install-broker created.
+#   sudo AGENT_VAULT_UNINSTALL=dedicated-account sh uninstall-broker.sh.template [--delete-state] [--delete-account]
+# /private/var/db/agent-vault (seeds, state, broker.lock) is kept unless --delete-state is given.
+set -eu
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+[ "$(id -u)" -eq 0 ] || { echo "uninstall-broker: run as root" >&2; exit 1; }
+[ "${AGENT_VAULT_UNINSTALL:-}" = "dedicated-account" ] || {
+  echo "uninstall-broker: set AGENT_VAULT_UNINSTALL=dedicated-account to confirm" >&2; exit 1; }
+delete_state=no; delete_account=no
+for argument in "$@"; do
+  case "$argument" in
+    --delete-state) delete_state=yes ;;
+    --delete-account) delete_account=yes ;;
+    *) echo "uninstall-broker: unknown argument" >&2; exit 64 ;;
+  esac
+done
+label=dev.agentvault.broker
+launchctl bootout "system/$label" 2>/dev/null || true
+rm -f "/Library/LaunchDaemons/$label.plist" "/Library/PrivilegedHelperTools/$label" \
+      "/Library/Application Support/AgentVault/config.json"
+rmdir "/Library/Application Support/AgentVault" 2>/dev/null || true
+[ "$delete_state" = no ] || rm -rf /private/var/db/agent-vault
+if [ "$delete_account" = yes ]; then
+  dscl . -delete /Users/_agentvault 2>/dev/null || true
+  dscl . -delete /Groups/_agentvault 2>/dev/null || true
+fi
+echo "uninstall-broker: $label removed"

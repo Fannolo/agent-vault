@@ -100,15 +100,31 @@ private func remove(_ path: String) {
     #expect(throws: IPCError.invalidConfiguration) { try IPCConfiguration.load(contentsOf: link) }
 }
 
-@Test func productionTemplateValidatesOnceUIDsAreFilled() throws {
+@Test func deploymentTemplateIPCSectionValidatesOnceFilled() throws {
+    struct Deployment: Decodable { let ipc: IPCConfiguration; let approvalPublicKey: Data }
     let template = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .appendingPathComponent("../../deploy/ipc/ipc.json.template")
+        .appendingPathComponent("../../deploy/ipc/config.json.template")
+    let key = (Data([4]) + Data(repeating: 9, count: 64)).base64EncodedString()
     let text = try String(contentsOf: template, encoding: .utf8)
         .replacingOccurrences(of: "@BROKER_UID@", with: "260").replacingOccurrences(of: "@CLIENT_UID@", with: "501")
-    let configuration = try JSONDecoder().decode(IPCConfiguration.self, from: Data(text.utf8))
-    try configuration.validate(for: .broker, effectiveUID: 260)
-    try configuration.validate(for: .readClient, effectiveUID: 501)
-    var sameUID = configuration
+        .replacingOccurrences(of: "@APPROVAL_PUBLIC_KEY@", with: key)
+        .replacingOccurrences(of: "@BROKER_CDHASH@", with: String(repeating: "0", count: 40))
+        .replacingOccurrences(of: "@READ_CDHASH@", with: String(repeating: "1", count: 40))
+        .replacingOccurrences(of: "@ADMIN_CDHASH@", with: String(repeating: "2", count: 40))
+    let deployment = try JSONDecoder().decode(Deployment.self, from: Data(text.utf8))
+    #expect(deployment.approvalPublicKey.count == 65)
+    #expect(deployment.ipc.readServiceName == "dev.agentvault.broker.read")
+    try deployment.ipc.validate(for: .broker, effectiveUID: 260)
+    try deployment.ipc.validate(for: .adminClient, effectiveUID: 501)
+    var sameUID = deployment.ipc
     sameUID.brokerUID = 501
     #expect(throws: IPCError.invalidConfiguration) { try sameUID.validate(for: .readClient, effectiveUID: 501) }
+}
+
+@Test func protectedReaderAcceptsOnlyRootOwnedFilesInRootOwnedDirectories() throws {
+    #expect(try !IPCConfiguration.readProtectedFile(atPath: "/private/etc/hosts").isEmpty)
+    #expect(throws: IPCError.invalidConfiguration) { try IPCConfiguration.readProtectedFile(atPath: "/etc/hosts") }
+    let path = try temporaryFile(Data("{}".utf8))
+    defer { remove(path) }
+    #expect(throws: IPCError.invalidConfiguration) { try IPCConfiguration.readProtectedFile(atPath: path) }
 }

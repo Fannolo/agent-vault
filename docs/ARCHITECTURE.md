@@ -1,59 +1,39 @@
-# Architecture and current implementation
+# Architecture
 
-The target product has a signed credential broker, a private human app and a thin
-MCP bridge. Agents receive account metadata and action outcomes. Credentials,
-cookies, browser profiles and login state belong to the broker.
+The package graph enforces three roles, checked by `scripts/verify-boundaries.py`:
 
-The prototype implements the domain and authorization logic in `AgentVaultCore`.
-`Broker` reserves persistent call budget before reading a credential. It dispatches
-only the account's fixed action, then rechecks expiry and revocation before returning
-output. `KeychainStore` alone wraps `SecItemAdd`, `SecItemCopyMatching` and
-`SecItemDelete`. `FileStateStore` owns private metadata, grants and bounded audit
-events; it serializes threads and cooperating processes, refuses unsafe existing
-files and replaces state atomically.
+| Module | Responsibility | Secret-store access |
+|---|---|---|
+| Contracts | Closed DTOs and separate read/admin XPC protocols | None |
+| IPC | Peer code/UID authentication, bounded wire validation and empty probe | None |
+| Runtime | Protected installed configuration, material files and owner lease | Daemon material only |
+| Core | Policy, lifecycle journal, approval verifier, private Keychain and fixed API adapter | Broker only |
+| BrokerDaemon | Dedicated-user service; composes Core with authenticated IPC | Yes |
+| MCPTransport / MCPBridge | Bounded stdio and four fixed read tools | None |
+| Bridge | Installed read client; no caller-selected identity, state path or destination | None |
+| AppSupport / App | Secure enrollment forms, pairing, grants, approvals and audit export | Own approval signing key only |
+| Browser | Fixed ephemeral WebKit workflow library, verified on synthetic sites | Caller-supplied transient bytes; production disconnected |
 
-`AgentVaultCLI` owns developer commands, hidden terminal input and the MCP adapter.
-The official SDK owns transport and protocol lifecycle. The MCP surface has no
-grant mutation, raw-secret read, credential export, arbitrary command, URL, request
-header or browser-evaluation parameters. Unknown tool inputs fail closed.
+The signed bridge binds to the paired OS UID. `clientInfo` and tool arguments do not select
+identity. `accounts_list`, `action_run`, `request_resume` and `request_cancel` map to closed
+ReadRequest values. Enrollment, rotation, deletion, pairing, grants, revocation, approval,
+recovery and pruning are available only on the authenticated admin service and require a
+frozen single-use challenge signature.
 
-## Reconciliation with the design
+Core reserves attempt budget transactionally before reading a credential. An approved request
+is bound to its client, account, action and grant and is consumed before dispatch. Failed
+attempts still consume budget. Expiry and revocation are checked inside locked state access,
+after Keychain access, and at final completion. Per-account lifecycle guards plus the daemon's
+exclusive process lease prevent overlapping credential recovery/rotation.
 
-The implementation is the first domain milestone, not the complete hardened
-architecture. The CLI and MCP server currently run the core inside their process
-under the same user. A host-configured development client ID selects grants; it
-is not an authenticated installation identity. The human app, signed cross-account
-IPC and browser service are absent. Do not interpret Keychain-at-rest protection
-as confinement from same-user code.
+Production state is a version-2 HMAC envelope. Account lifecycle and approval fields are required;
+corruption and downgrade fail closed without overwriting the evidence. Interrupted intent is
+recovered using known Keychain IDs only. Version-1 developer state is not migrated automatically.
 
-Human authorization currently happens through explicit developer grant commands.
-Grants apply only to read-only actions. No per-call human-presence approval is
-implemented. Credentials enter through a TTY rather than a GUI. These are deliberate
-milestone limits, not equivalent implementations of the pending controls.
+Production browser deployment remains a separate architectural gate. A broker-linked web view
+needs a compatible isolated GUI host for human MFA/CAPTCHA. The current LaunchDaemon cannot
+vend that view across the DTO-only XPC channel. See BROWSER-DEPLOYMENT.md.
 
-The target grants bind authenticated clients to exact accounts, actions, resource
-constraints, expiry, budgets and approval rules. Approval freezes an invocation and
-cannot authorize edited inputs. Sessions remain broker-owned, bind to the grant and
-close on revocation. Client labels supplied by models are audit metadata only.
-
-## External effects
-
-Local reservation cannot guarantee exactly-once external effects across a crash.
-This version exposes only read-only operations. Future mutations must use provider
-idempotency or return an uncertain-outcome state for reconciliation before retrying.
-
-The browser milestone uses reviewed site workflows, exact origin validation and
-typed output. It never exports cookies, CDP endpoints or general scripting controls.
-Human MFA and CAPTCHA steps remain human steps.
-
-## Interfaces
-
-The domain is closed over `Service`, `Action` and `OperationResult`. `StateStore`
-provides a single transactional ownership boundary. `SecretStore` and
-`ServiceAdapter` permit synthetic tests without real credentials. Production
-dispatch uses compiled-in adapters; the agent cannot install executable recipes.
-The executable's Swift package exposes no reusable library product.
-
-Documentation references: [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports),
-[official Swift SDK](https://github.com/modelcontextprotocol/swift-sdk/tree/0.12.1),
-and [GitHub authenticated user endpoint](https://docs.github.com/en/rest/users/users#get-the-authenticated-user).
+Developer fixtures, preview software keys and the legacy same-user CLI are development tools,
+excluded from the signed review bundle. No existing browser profile, global MCP configuration,
+application, company document or user credential is changed by building and testing.

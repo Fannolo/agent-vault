@@ -1,58 +1,73 @@
-# Threat model
+# Threat model and measured guarantees
 
-## Current prototype
+Agent Vault exposes fixed read-only operations and safe metadata. No MCP operation returns a
+password, PIN, token, cookie, raw page, profile path, CDP endpoint, arbitrary URL, executable
+recipe or script. Every invocation checks a live account/action grant, reserves attempt budget,
+and checks authority again after credential access and before returning output.
 
-The prototype protects against routine credential disclosure through its implemented
-MCP tools: no secret-returning operation, no arbitrary network destination, no shell
-execution, typed outputs and fixed public error codes. Grants are checked on each
-invocation, not inferred from a successful initialization.
+## Installed design
 
-It **does not** protect against arbitrary code running as the same macOS user.
-Such a process may edit metadata, invoke developer commands, launch another
-development client context, access Keychain if authorized by macOS, or observe
-process/UI state. Launch client IDs and private filesystem permissions do not
-authenticate an individual agent installation. Root, administrator compromise and
-a compromised credential broker are also outside the current guarantee.
+The intended production broker runs as the hidden `_agentvault` user. Root owns its signed
+executable and configuration. Its private directory, explicit Keychain database and metadata
+integrity key belong to that dedicated UID. Startup refuses root, equal broker/client UIDs,
+unsafe ownership, permissive files, invalid code requirements or another live broker owner.
 
-The GitHub adapter trusts `api.github.com` and normal OS TLS validation. A service
-receiving a credential can misuse it. Output schemas discard unapproved fields;
-they do not prove that a malicious service cannot encode secrets into valid fields.
-Returned account data is authorized business output and may still be confidential.
+Read and admin are separate XPC services. Both endpoints check Apple Developer ID, exact code
+hash, role identifier and kernel effective UID. Clients complete an empty authenticated probe
+before transmitting any request, including enrollment credentials. A copied genuine bridge
+shares its original code identity; permissions belong to the paired OS user and bridge, not
+to an individual model, chat or host name.
 
-The Swift SDK is a pinned dependency, not audited here. The server uses stdio,
-not its OAuth or HTTP transports. General protocol resource exhaustion remains a
-separate hardening item. There is no production release, native code signing,
-notarization, entitlement isolation, protected approval UI or browser login service.
+Admin mutations require a single-use random challenge signed by the human app's protected
+P-256 key. The broker freezes the request and verifies the configured public key. The app
+requests fresh device-owner authentication for every signature and refuses unprotected or
+unverifiable keys. Public-key registration is a trusted installation ceremony; the public key
+alone is not hardware attestation. The approval key never stores service credentials.
 
-Enrollment updates Keychain and metadata in separate operations. A process crash
-between them can leave an orphaned Keychain item; crash-safe enrollment recovery,
-account deletion and rotation are tracked lifecycle work. Do not enroll durable
-production credentials in this prototype. Capacity limits keep normal metadata
-growth below the storage ceiling; they do not replace pruning or account lifecycle.
+## Verification limits
 
-## Target boundaries
+The dedicated-UID installation, real protected-key signing and notarization have not passed
+runtime verification. Same-UID signed fixtures demonstrate code and role rejection, not OS
+filesystem or process-memory isolation. **Do not enroll production passwords or PINs until the
+remaining gates in IMPLEMENTATION-PLAN.md pass.** The legacy `agent-vault` developer CLI runs
+Core in its own user process and retains no same-user confinement guarantee; it is excluded
+from distribution review bundles.
 
-The hardened broker must hold credentials and browser state outside the agent's
-OS privileges. Its IPC must authenticate the actual bridge/client principal and
-enrollment; signing a shared bridge does not identify the model behind it. Policy
-and trusted adapter code cannot reside in agent-writable workspaces. Per-call
-approval uses a protected human UI and freezes client, operation and inputs.
+The controlled WebKit library passed real loopback hostile-page tests. It uses ephemeral,
+separate data stores and fixed origins/recipes. It is not linked into the production daemon
+or human app: a system LaunchDaemon cannot present its human continuation view. Browser
+accounts and actions remain disabled in production. Live GitHub web selectors and CAPTCHA
+continuation are unverified.
 
-Revocation must invalidate pending permissions and local sessions. An external
-request already dispatched may complete. Audit retention and tamper evidence need
-an explicit design; the prototype's latest 1,000 events are local mutable history,
-not an immutable log or security witness.
+## Trusted parties and exclusions
 
-## Regression boundaries
+The OS, protected installer, selected publisher, authenticated human app, broker and fixed
+service endpoints are trusted. Root/administrator compromise, replaced installation policy,
+compromised signing authority plus a root-approved update, and a compromised broker are outside
+the guarantee. A service receiving credentials can misuse them or encode them into permitted
+output fields; typed schemas are not a proof of information-flow noninterference.
 
-- Missing, expired, revoked, wrong-client and wrong-account grants.
-- Concurrent reservations exceeding a budget, including separate processes.
-- Revocation while a provider request is in flight.
-- Corrupt state, symlinks, hard links and permissive files.
-- Raw secrets in errors, metadata, logs, hashes or output schemas.
-- Header injection, redirects and oversized provider output.
-- Unknown tool names and additional input keys, including impersonation fields.
-- Prompt-injected attempts to add destinations, install adapters or export sessions.
+Revocation cancels pending approvals and tears down local session state. It cannot recall an
+external request already dispatched. Cancellation after dispatch is refused rather than
+claiming the work stopped. An unreadable final policy state suppresses output and invalidates
+any adapter session. Operations are read-only; future writes require provider idempotency and
+an explicit uncertain-outcome/reconciliation design.
 
-Tests use synthetic credentials. Opt-in native tests delete only their own unique
-Keychain entries. Live user accounts must not be fixtures.
+## Storage, retention and resources
+
+Enrollment, rotation and deletion persist intent before mutating Keychain, retain item IDs
+across interruption, and recover under the daemon's exclusive owner lease. No automatic
+migration reads a user's existing Keychain or version-1 developer state. Production metadata
+requires an HMAC with an independent broker-only key and refuses unsigned downgrade. The latest
+1,000 audit events are bounded metadata. HMAC detects modification, not replay of an older
+authentic snapshot or deletion by a privileged attacker; audit is not an immutable witness.
+
+The MCP transport bounds input before SDK parsing: 64 KiB per line, depth 64, 16 queued and
+outstanding requests, strict JSON-RPC envelopes and duplicate-key/ID refusal. Notifications
+are limited to 8 KiB and 64/second with a burst of 16. Output is capped at 1 MiB with a write
+deadline. XPC bounds request/reply sizes, connections and concurrent handler calls. The pinned
+Swift SDK and dependencies are inventoried, not independently audited.
+
+Swift/Foundation may copy immutable credential buffers and strings. The design does not claim
+complete RAM zeroization. Native tests use unique synthetic namespaces and delete only their
+own entries; real credentials and business evidence are never fixtures.

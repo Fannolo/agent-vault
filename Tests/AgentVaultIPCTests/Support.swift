@@ -37,14 +37,14 @@ func developmentConfiguration(broker: String = pinned().broker, read: String = p
 }
 
 let productionRequirements = (
-    broker: #"anchor apple generic and identifier "com.bitetechnology.agentvault.broker" and certificate leaf[subject.OU] = "3JWAQ92CB4""#,
-    read: #"anchor apple generic and identifier "com.bitetechnology.agentvault.bridge" and certificate leaf[subject.OU] = "3JWAQ92CB4""#,
-    admin: #"anchor apple generic and identifier "com.bitetechnology.agentvault.app" and certificate leaf[subject.OU] = "3JWAQ92CB4""#
+    broker: #"anchor apple generic and identifier "dev.agentvault.broker" and certificate leaf[subject.OU] = "3JWAQ92CB4" and cdhash H"0000000000000000000000000000000000000000""#,
+    read: #"anchor apple generic and identifier "dev.agentvault.bridge" and certificate leaf[subject.OU] = "3JWAQ92CB4" and cdhash H"0000000000000000000000000000000000000000""#,
+    admin: #"anchor apple generic and identifier "dev.agentvault.app" and certificate leaf[subject.OU] = "3JWAQ92CB4" and cdhash H"0000000000000000000000000000000000000000""#
 )
 
 func productionConfiguration(brokerUID: UInt32 = 260, allowedUID: UInt32 = 501) -> IPCConfiguration {
-    IPCConfiguration(readServiceName: "com.bitetechnology.agentvault.read",
-                     adminServiceName: "com.bitetechnology.agentvault.admin",
+    IPCConfiguration(readServiceName: "dev.agentvault.broker.read",
+                     adminServiceName: "dev.agentvault.broker.admin",
                      brokerRequirement: productionRequirements.broker, readRequirement: productionRequirements.read,
                      adminRequirement: productionRequirements.admin, brokerUID: brokerUID, allowedUID: allowedUID,
                      development: false)

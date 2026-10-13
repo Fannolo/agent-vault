@@ -12,10 +12,16 @@ public actor Administration {
     private let broker: Broker
     private let publicKey: P256.Signing.PublicKey
     private let now: @Sendable () -> Date
+    private let allowedServices: [Service]
+    private let allowedClientUID: UInt32?
     private var frozen: [UUID: Frozen] = [:]
 
-    public init(broker: Broker, publicKey: Data, now: @escaping @Sendable () -> Date = { Date() }) throws {
+    public init(broker: Broker, publicKey: Data,
+                allowedServices: [Service] = [.demo, .github, .browserDemo, .githubWeb],
+                allowedClientUID: UInt32? = nil,
+                now: @escaping @Sendable () -> Date = { Date() }) throws {
         self.broker = broker; self.now = now
+        self.allowedServices = allowedServices; self.allowedClientUID = allowedClientUID
         do { self.publicKey = try P256.Signing.PublicKey(x963Representation: publicKey) }
         catch { throw VaultError.invalidInput }
     }
@@ -102,8 +108,11 @@ public actor Administration {
         case .recover, .prune: required = []
         }
         guard keys == required else { throw VaultError.invalidInput }
+        if let service = request.service {
+            guard let service = Service(rawValue: service.rawValue), allowedServices.contains(service) else { throw VaultError.invalidInput }
+        }
         if let credential = request.credential { guard !credential.isEmpty, credential.count <= 8192 else { throw VaultError.invalidInput } }
-        if let uid = request.uid { guard uid != 0 else { throw VaultError.invalidInput } }
+        if let uid = request.uid { guard uid != 0, allowedClientUID == nil || uid == allowedClientUID else { throw VaultError.invalidInput } }
         if let duration = request.duration { guard duration > 0, duration <= 86_400, duration.isFinite else { throw VaultError.invalidInput } }
         if let calls = request.callLimit { guard (1...10_000).contains(calls) else { throw VaultError.invalidInput } }
     }

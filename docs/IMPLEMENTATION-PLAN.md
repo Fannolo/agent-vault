@@ -1,5 +1,25 @@
 # Implementation plan
 
+## Current checkpoint: 13 October 2026
+
+| Workstream | Implemented | Remaining verification |
+|---|---|---|
+| Broker/IPC | Separate daemon/bridge, protected config, code+UID pins, private Keychain, owner lease | Privileged dedicated-UID install, file/process isolation and system-domain lookup |
+| Human app | Secure forms, pairing/grants, audit, exact pending approvals, protected-key backend | Provisioned Bite-signed protected key and real fresh user-presence signing |
+| Lifecycle | Durable enrollment/rotation/deletion intent, tracked IDs, recovery, pruning | Installed daemon interruption check |
+| Browser | Ephemeral fixed-flow library and real hostile loopback tests | Isolated GUI deployment and live GitHub selector/MFA validation; production disabled |
+| Protocol | Bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Independent review and host compatibility |
+| Distribution | Dependency inventory, signed review-bundle builder and install templates | Hardened installer review, provisioning, notarization and CI |
+
+The integrated local suite passed 147 tests. These include 36 Core tests, 35 IPC tests,
+real WebKit fixture tests, native-app flow tests, 13 bounded-stdio pipe tests, runtime file/lease
+checks and a real SDK client exercising all four bridge tools. Native Keychain checks are
+explicit opt-ins; their successful earlier run is separate from this default suite.
+
+No existing application, browser profile, host MCP configuration, company evidence or real
+service credential has been modified. No dedicated user, daemon or app has been installed.
+The complete plan is **not finished** while the runtime and distribution gates below remain open.
+
 ## Milestone 1: development core
 
 Implemented in the initial repository:
