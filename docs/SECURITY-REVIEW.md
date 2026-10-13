@@ -63,3 +63,45 @@ The reviewers identified different concrete defects and none contradicted anothe
 finding. Each fix was judged against the development milestone; missing production
 architecture was retained as open work. Targeted tests establish the behaviors they
 exercise, not a blanket absence of credential exposure.
+
+## Integrated review round 1 (13 October 2026)
+
+Claude Sonnet 5.5 independently reviewed source checkpoint `26b41aa` (source identical
+at `bcfbc10`) in a synthetic scratch copy. It reported no critical/high defect in its
+reviewed scope and three medium findings, plus approval/Keychain design weaknesses and
+low issues. This is model review, not independent security certification. The task was
+`agent-vault-claude-integrated-review-v1-20261013` in the T3 parent thread.
+
+| Finding | Response at `425c6af` | Evidence |
+|---|---|---|
+| Read traffic could starve human admin calls and probes | Independent admin handler gate; probe parsed before handler admission | `LoopbackXPCTests` saturation cases |
+| Read denials could evict all audit history | Required schema-3 administration ring (256), separate invocation ring (744); unknown account denials omitted | `AdministrationAuditTests` retention cases |
+| Enroll/rotate/delete/pair/approve/reject/recover/prune unlogged | Lifecycle stages recorded with state changes | `AdministrationAuditTests` coverage |
+| Nonce-only signatures and abbreviated prompts | Digest binds ID, nonce, expiry and operation metadata; app recomputes it; full scope prompts | `ApprovalIntentTests`, `AdminFlowTests` |
+| Private Keychain not unlocked after sleep | Explicit unlock before every access; own lock policy unchanged | Native explicit-lock/load test |
+| Ordinary failed rotation left account rotating | Compensating transaction; failed compensation keeps journal | Lifecycle failure/crash-image tests |
+| Seven-day UI grant exceeds broker maximum | Removed seven-day option | Grant prompt/duration test |
+| Suppressed output audited twice | Finish state recorded once | Lifecycle once-only audit test |
+| Waiting resume denied; short approval lifetime | Waiting returns same approval request; 120 seconds retained as explicit policy | Waiting-resume/expiry test |
+| Claims exceeded runtime proof | Docs distinguish implemented design and measured checks; stale shell-template guidance replaced | README, IPC, native app, plan |
+
+Credential content and credential-content hashes are deliberately excluded from the approval
+digest. The frozen actual credential remains private to the broker. The public key is not
+hardware attestation; the app explicitly labels its protected Keychain fallback. A compromised
+trusted app can choose misleading UI, which a metadata digest alone cannot prevent.
+
+The reviewer also flagged retroactive batch timestamps and weak evidence pointers in the
+append-only trail. New rows supersede the weak pointers and record the shared UID principal,
+protected fallback, 120-second policy, and changed admission design. Durable sanitized
+checkpoint and signed-bundle records now retain commands, observed summaries, log hashes,
+code signatures, artifact manifest and actual protected-key probe output. These are local
+verification records rather than externally attested results.
+
+Claude implementations integrated into this branch: IPC `9db3330`/`b359db8`, native UI/browser
+`3915960`/`a368d41`/`a3503ec`, installer `5fa3cb6`. They ran in separate worktrees. Root
+integration and verification used synthetic entries and temporary jobs only. No host plugin,
+dedicated account or privileged service was installed.
+
+Open gates: dedicated-UID system bootstrap and file/process isolation; real provisioned
+protected key/user presence; isolated GUI browser deployment and live selectors/MFA;
+notarization and target-host compatibility.

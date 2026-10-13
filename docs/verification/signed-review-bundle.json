@@ -1,0 +1,55 @@
+{
+  "protectedKeyProbe": {
+    "exitCode": 73,
+    "stderr": "cannot create a protected approval key (keychain status -34018)",
+    "stdoutBytes": 0
+  },
+  "signatures": [
+    {
+      "cdhash": "4b66430eb645d9ffb018d888c8ce054bbe4993d5",
+      "hardenedRuntime": true,
+      "identifier": "dev.agentvault.app",
+      "role": "app",
+      "teamIdentifier": "3JWAQ92CB4",
+      "verifyExit": 0
+    },
+    {
+      "cdhash": "b70de7ee3bce0cfc9e97645eb3b352f7237a896a",
+      "hardenedRuntime": true,
+      "identifier": "dev.agentvault.bridge",
+      "role": "bridge",
+      "teamIdentifier": "3JWAQ92CB4",
+      "verifyExit": 0
+    },
+    {
+      "cdhash": "0c763186730df9c40262302ce0c7f144f1ae4296",
+      "hardenedRuntime": true,
+      "identifier": "dev.agentvault.broker",
+      "role": "broker",
+      "teamIdentifier": "3JWAQ92CB4",
+      "verifyExit": 0
+    }
+  ],
+  "sourceManifest": {
+    "distributionReady": false,
+    "files": {
+      "AgentVault.app/Contents/Info.plist": "adaa5f95b85a21a775deb7719861373add1982ce6aa5eb4a9f9acb48e3356a58",
+      "AgentVault.app/Contents/MacOS/AgentVault": "38763539788d58c2172c3379c9ec5cc1fd86eaad27e46b749e8bc6e6155315fb",
+      "AgentVault.app/Contents/_CodeSignature/CodeResources": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b",
+      "agent-vault-bridge": "7547ce439f94ebaad18355b47a23f20ccb1dae5f185f1f4af4f372caff83a6ba",
+      "agent-vault-broker": "1394f93d84c44d03d2977d355534a41b39d8c1a06a0e6606c76e16fb6a02d4fd",
+      "deployment/agentvault_installer.py": "1ccf9e8d4c128f8a88732179ea5e372f73c717d1dadfa6f5d3a0084aa7706517",
+      "deployment/config.json.template": "972fb7edb23c14e9c743be70e3f440ae69987d14e938ec452228ba104f09bd2f",
+      "deployment/dev.agentvault.broker.plist.template": "cdc2ca3c99f91bcc464fb5307fd6ca4eaf915bb1f7ec13ae4125fb406fb30363",
+      "sbom.cdx.json": "542f4bd79adbd17942604cbf0f038e4017cc861874c744cf3616794eb4da7f2e"
+    },
+    "notarized": false,
+    "productionIsolationVerified": false,
+    "profileEmbedded": false,
+    "publisherTeam": "3JWAQ92CB4",
+    "sourceCommit": "425c6afd48b192551e19a9289f86db8c8e298da7",
+    "sourceDirty": false,
+    "version": "0.2.0"
+  },
+  "zipSha256": "9a1790ca7adc446b607cb4f66476d72e7ee9db520d68d1a82a0a99c962d2de16"
+}

@@ -1,8 +1,8 @@
 {
   "cleanup": {
-    "dev.agentvault.ipcproof.452ea3de.main": "removed",
-    "dev.agentvault.ipcproof.452ea3de.spoof": "removed",
-    "dev.agentvault.ipcproof.452ea3de.uid": "removed",
+    "dev.agentvault.ipcproof.08a758c8.main": "removed",
+    "dev.agentvault.ipcproof.08a758c8.spoof": "removed",
+    "dev.agentvault.ipcproof.08a758c8.uid": "removed",
     "work_dir_removed": true
   },
   "results": [
@@ -11,11 +11,11 @@
       "result": {
         "bridge": [
           "dev.agentvault.fixture.bridge",
-          "e2c4d343155523bd3f1229add44c02eea3bccce7"
+          "90fdee882a08acb577b88423011a146b884d32d1"
         ],
         "impostor": [
           "dev.agentvault.fixture.bridge",
-          "54d460110a5ba9dbe1d256bffc2e7cf3a38c6dc7"
+          "32507f44595df227e4d1da49698bf6783bb07137"
         ]
       },
       "scenario": "impostor copies the bridge signing identifier with a different cdhash"
@@ -144,6 +144,20 @@
     {
       "passed": true,
       "result": {
+        "outcome": "broker_rejected"
+      },
+      "scenario": "bridge refuses a genuine broker with an unexpected kernel UID"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "broker_rejected"
+      },
+      "scenario": "human app refuses a genuine broker with an unexpected kernel UID"
+    },
+    {
+      "passed": true,
+      "result": {
         "outcome": "invalid_configuration"
       },
       "scenario": "production configuration in a user-owned file is refused"
@@ -168,29 +182,29 @@
   "scope": "same-UID inter-process; separate broker UID unproven",
   "signing": {
     "app": {
-      "cdhash": "14b8d15b5f3fd013cc151b823a50f0da08f1e7dd",
+      "cdhash": "7b258a1894995c7037f6e87f366e7906548eb346",
       "identifier": "dev.agentvault.fixture.app",
-      "requirement": "identifier \"dev.agentvault.fixture.app\" and cdhash H\"14b8d15b5f3fd013cc151b823a50f0da08f1e7dd\""
+      "requirement": "identifier \"dev.agentvault.fixture.app\" and cdhash H\"7b258a1894995c7037f6e87f366e7906548eb346\""
     },
     "bridge": {
-      "cdhash": "e2c4d343155523bd3f1229add44c02eea3bccce7",
+      "cdhash": "90fdee882a08acb577b88423011a146b884d32d1",
       "identifier": "dev.agentvault.fixture.bridge",
-      "requirement": "identifier \"dev.agentvault.fixture.bridge\" and cdhash H\"e2c4d343155523bd3f1229add44c02eea3bccce7\""
+      "requirement": "identifier \"dev.agentvault.fixture.bridge\" and cdhash H\"90fdee882a08acb577b88423011a146b884d32d1\""
     },
     "broker": {
-      "cdhash": "9f227f78fae4eb9753093dfb99ad3579e6dbdb98",
+      "cdhash": "b00d6735a99401782829df271793e4c8668ae868",
       "identifier": "dev.agentvault.fixture.broker",
-      "requirement": "identifier \"dev.agentvault.fixture.broker\" and cdhash H\"9f227f78fae4eb9753093dfb99ad3579e6dbdb98\""
+      "requirement": "identifier \"dev.agentvault.fixture.broker\" and cdhash H\"b00d6735a99401782829df271793e4c8668ae868\""
     },
     "impostor-bridge": {
-      "cdhash": "54d460110a5ba9dbe1d256bffc2e7cf3a38c6dc7",
+      "cdhash": "32507f44595df227e4d1da49698bf6783bb07137",
       "identifier": "dev.agentvault.fixture.bridge",
-      "requirement": "identifier \"dev.agentvault.fixture.bridge\" and cdhash H\"54d460110a5ba9dbe1d256bffc2e7cf3a38c6dc7\""
+      "requirement": "identifier \"dev.agentvault.fixture.bridge\" and cdhash H\"32507f44595df227e4d1da49698bf6783bb07137\""
     },
     "impostor-broker": {
-      "cdhash": "102abd949b8b1790379b2b70fac66a2eed702fbd",
+      "cdhash": "2728b76fb986778a788ee8dbec81e30ebd758552",
       "identifier": "dev.agentvault.fixture.broker",
-      "requirement": "identifier \"dev.agentvault.fixture.broker\" and cdhash H\"102abd949b8b1790379b2b70fac66a2eed702fbd\""
+      "requirement": "identifier \"dev.agentvault.fixture.broker\" and cdhash H\"2728b76fb986778a788ee8dbec81e30ebd758552\""
     }
   },
   "uid": 501

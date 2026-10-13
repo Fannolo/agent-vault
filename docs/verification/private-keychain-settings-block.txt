@@ -1,0 +1,17 @@
+Observed native test stack while waiting for SecKeychainSetSettings. Test terminated; settings change removed. Explicit unlock/lock/load check subsequently passed. Symbols only; no memory contents.
+
+privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled()  (in AgentVaultPackageTests) + 1448  [0x102243ab4]  StorageTests.swift:148
+                                    881 PrivateKeychainStore.__allocating_init(path:password:)  (in AgentVaultPackageTests) + 80  [0x1021c3298]  PrivateKeychainStore.swift:0
+                                      881 PrivateKeychainStore.init(path:password:)  (in AgentVaultPackageTests) + 3012  [0x1021c3ea4]  PrivateKeychainStore.swift:57
+                                        881 SecKeychainSetSettings  (in Security) + 184  [0x186f17928]
+                                          881 Security::KeychainCore::KeychainImpl::setSettings(unsigned int, bool)  (in Security) + 420  [0x186ee7a50]
+                                            881 Security::CssmClient::DbImpl::setSettings(unsigned int, bool)  (in Security) + 56  [0x186e1f7cc]
+                                              881 CSSM_DL_PassThrough  (in Security) + 180  [0x186c6f06c]
+                                                881 cssm_PassThrough(cssm_dl_db_handle, unsigned int, void const*, void**)  (in Security) + 212  [0x186c6f21c]
+                                                  881 SSDLSession::PassThrough(long, unsigned int, void const*, void**)  (in Security) + 1396  [0x186c74364]
+                                                    881 SSDatabaseImpl::setSettings(unsigned int, bool)  (in Security) + 500  [0x186e0766c]
+                                                      881 Security::SecurityServer::ClientSession::encodeDb(unsigned int, Security::CssmData&, Security::Allocator&)  (in Security) + 220  [0x186f8bebc]
+                                                        881 mach_msg  (in libsystem_kernel.dylib) + 24  [0x1837e1fa8]
+                                                          881 mach_msg_overwrite  (in libsystem_kernel.dylib) + 484  [0x1837ea764]
+                                                            881 mach_msg2_internal  (in libsystem_kernel.dylib) + 76  [0x1837f43a0]
+                                                              881 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x1837e1c34]
