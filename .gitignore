@@ -1,0 +1,13 @@
+.build/
+.swiftpm/
+.DS_Store
+*.xcuserstate
+.env
+.env.*
+*.keychain*
+*.pem
+runtime/
+state.json
+*.log
+*.zip
+dist/

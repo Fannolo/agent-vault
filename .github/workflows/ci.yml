@@ -1,0 +1,20 @@
+name: build-and-test
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Check toolchain
+        run: swift --version
+      - name: Build and test pinned dependencies
+        run: swift test --force-resolved-versions
+      - name: Verify stdio MCP with synthetic data
+        run: python3 scripts/verify-mcp.py
+      - name: Build release executable
+        run: swift build -c release --force-resolved-versions
