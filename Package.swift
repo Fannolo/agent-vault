@@ -22,6 +22,11 @@ let package = Package(
         // Synthetic loopback websites used only by automated and GUI verification.
         .target(name: "AgentVaultBrowserFixture", linkerSettings: [.linkedFramework("Network")]),
         .testTarget(name: "AgentVaultBrowserTests",
-                    dependencies: ["AgentVaultBrowser", "AgentVaultBrowserFixture", "AgentVaultContracts"])
+                    dependencies: ["AgentVaultBrowser", "AgentVaultBrowserFixture", "AgentVaultContracts"]),
+        .target(name: "AgentVaultIPC", dependencies: ["AgentVaultContracts"], linkerSettings: [.linkedFramework("Security")]),
+        .target(name: "IPCFixtureKit", dependencies: ["AgentVaultIPC", "AgentVaultContracts"], path: "Tests/IPCFixtures/Kit"),
+        .executableTarget(name: "agent-vault-ipc-fixture", dependencies: ["IPCFixtureKit"], path: "Tests/IPCFixtures/Genuine"),
+        .executableTarget(name: "agent-vault-ipc-impostor", dependencies: ["IPCFixtureKit"], path: "Tests/IPCFixtures/Impostor"),
+        .testTarget(name: "AgentVaultIPCTests", dependencies: ["AgentVaultIPC", "AgentVaultContracts"])
     ]
 )
