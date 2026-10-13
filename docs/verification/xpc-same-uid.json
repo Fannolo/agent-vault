@@ -1,0 +1,197 @@
+{
+  "cleanup": {
+    "dev.agentvault.ipcproof.452ea3de.main": "removed",
+    "dev.agentvault.ipcproof.452ea3de.spoof": "removed",
+    "dev.agentvault.ipcproof.452ea3de.uid": "removed",
+    "work_dir_removed": true
+  },
+  "results": [
+    {
+      "passed": true,
+      "result": {
+        "bridge": [
+          "dev.agentvault.fixture.bridge",
+          "e2c4d343155523bd3f1229add44c02eea3bccce7"
+        ],
+        "impostor": [
+          "dev.agentvault.fixture.bridge",
+          "54d460110a5ba9dbe1d256bffc2e7cf3a38c6dc7"
+        ]
+      },
+      "scenario": "impostor copies the bridge signing identifier with a different cdhash"
+    },
+    {
+      "passed": true,
+      "result": {
+        "accounts": 1,
+        "login": "",
+        "outcome": "ok",
+        "status": "ok"
+      },
+      "scenario": "bridge reads accounts"
+    },
+    {
+      "passed": true,
+      "result": {
+        "accounts": 0,
+        "login": "uid-501",
+        "outcome": "ok",
+        "status": "ok"
+      },
+      "scenario": "broker binds the bridge's kernel UID"
+    },
+    {
+      "passed": true,
+      "result": {
+        "audit": 1,
+        "authorize": "applied",
+        "enroll": "fixture_holds_no_credentials",
+        "outcome": "ok",
+        "pendingStatus": "approved",
+        "replay": "unknown_challenge",
+        "snapshotUID": 501
+      },
+      "scenario": "human app completes snapshot, begin, authorize and replay refusal"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "connection_failed"
+      },
+      "scenario": "bridge cannot call the admin service"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "connection_failed"
+      },
+      "scenario": "human app cannot call the read service"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "connection_failed"
+      },
+      "scenario": "copied bridge signing identifier is refused"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "request_too_large"
+      },
+      "scenario": "raw oversize request gets request_too_large"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "invalid_request"
+      },
+      "scenario": "raw unknown-key request gets invalid_request"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "invalid_request"
+      },
+      "scenario": "raw unknown-operation request gets invalid_request"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "invalid_request"
+      },
+      "scenario": "raw null-value request gets invalid_request"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "xpc_error_4097"
+      },
+      "scenario": "admin selector on the read service is not dispatched"
+    },
+    {
+      "passed": true,
+      "result": {
+        "counts": {
+          "busy": 8,
+          "ok": 4
+        },
+        "outcome": "ok"
+      },
+      "scenario": "excess concurrency on one connection returns busy"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "connection_failed"
+      },
+      "scenario": "broker refuses an unexpected kernel UID"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "broker_rejected"
+      },
+      "scenario": "bridge refuses a spoofed broker"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "broker_rejected"
+      },
+      "scenario": "human app refuses a spoofed broker"
+    },
+    {
+      "passed": true,
+      "result": {
+        "outcome": "invalid_configuration"
+      },
+      "scenario": "production configuration in a user-owned file is refused"
+    },
+    {
+      "passed": true,
+      "result": {
+        "main": [
+          "authorize uid=501",
+          "begin enroll uid=501",
+          "begin prune uid=501",
+          "read accounts uid=501",
+          "read run uid=501",
+          "snapshot uid=501"
+        ],
+        "spoof": [],
+        "uid": []
+      },
+      "scenario": "only the genuine broker's handlers ran, each with the bound UID"
+    }
+  ],
+  "scope": "same-UID inter-process; separate broker UID unproven",
+  "signing": {
+    "app": {
+      "cdhash": "14b8d15b5f3fd013cc151b823a50f0da08f1e7dd",
+      "identifier": "dev.agentvault.fixture.app",
+      "requirement": "identifier \"dev.agentvault.fixture.app\" and cdhash H\"14b8d15b5f3fd013cc151b823a50f0da08f1e7dd\""
+    },
+    "bridge": {
+      "cdhash": "e2c4d343155523bd3f1229add44c02eea3bccce7",
+      "identifier": "dev.agentvault.fixture.bridge",
+      "requirement": "identifier \"dev.agentvault.fixture.bridge\" and cdhash H\"e2c4d343155523bd3f1229add44c02eea3bccce7\""
+    },
+    "broker": {
+      "cdhash": "9f227f78fae4eb9753093dfb99ad3579e6dbdb98",
+      "identifier": "dev.agentvault.fixture.broker",
+      "requirement": "identifier \"dev.agentvault.fixture.broker\" and cdhash H\"9f227f78fae4eb9753093dfb99ad3579e6dbdb98\""
+    },
+    "impostor-bridge": {
+      "cdhash": "54d460110a5ba9dbe1d256bffc2e7cf3a38c6dc7",
+      "identifier": "dev.agentvault.fixture.bridge",
+      "requirement": "identifier \"dev.agentvault.fixture.bridge\" and cdhash H\"54d460110a5ba9dbe1d256bffc2e7cf3a38c6dc7\""
+    },
+    "impostor-broker": {
+      "cdhash": "102abd949b8b1790379b2b70fac66a2eed702fbd",
+      "identifier": "dev.agentvault.fixture.broker",
+      "requirement": "identifier \"dev.agentvault.fixture.broker\" and cdhash H\"102abd949b8b1790379b2b70fac66a2eed702fbd\""
+    }
+  },
+  "uid": 501
+}
