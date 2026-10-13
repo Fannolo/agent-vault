@@ -14,6 +14,14 @@ let package = Package(
         .executableTarget(name: "AgentVaultCLI", dependencies: [
             "AgentVaultCore", .product(name: "MCP", package: "swift-sdk")
         ]),
-        .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCore"])
+        .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCore"]),
+        // Broker-linked WebKit component. Depends only on data contracts: it receives
+        // credential bytes from its caller and never links Core or any secret store.
+        .target(name: "AgentVaultBrowser", dependencies: ["AgentVaultContracts"],
+                linkerSettings: [.linkedFramework("WebKit"), .linkedFramework("AppKit")]),
+        // Synthetic loopback websites used only by automated and GUI verification.
+        .target(name: "AgentVaultBrowserFixture", linkerSettings: [.linkedFramework("Network")]),
+        .testTarget(name: "AgentVaultBrowserTests",
+                    dependencies: ["AgentVaultBrowser", "AgentVaultBrowserFixture", "AgentVaultContracts"])
     ]
 )
