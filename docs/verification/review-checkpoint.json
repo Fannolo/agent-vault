@@ -101,6 +101,18 @@
       "command": "python3 scripts/build-release.py --identity 'Developer ID Application: Bite Technology Limited (3JWAQ92CB4)' --review-only",
       "exitCode": 0,
       "evidence": "signed-review-bundle.json"
+    },
+    {
+      "name": "ui-preview",
+      "command": "AGENT_VAULT_UI_PREVIEW=1 AGENT_VAULT_UI_SCREENSHOTS=/tmp/agent-vault-review-ui .build/debug/AgentVaultApp",
+      "exitCode": 0,
+      "scope": "DEBUG synthetic software-key preview; no actual user-presence approval",
+      "screenshotsRendered": 9,
+      "inspected": [
+        "ui-approvalKey-preview.png",
+        "ui-sheet-grant-preview.png"
+      ],
+      "observedSummary": "Full SHA-256 fingerprint and preview warning visible; grant form defaults to per-call approval; no seven-day option"
     }
   ],
   "historical": {
