@@ -9,6 +9,7 @@ let package = Package(
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1")
     ],
     targets: [
+        .target(name: "AgentVaultContracts"),
         .target(name: "AgentVaultCore", linkerSettings: [.linkedFramework("Security")]),
         .executableTarget(name: "AgentVaultCLI", dependencies: [
             "AgentVaultCore", .product(name: "MCP", package: "swift-sdk")
