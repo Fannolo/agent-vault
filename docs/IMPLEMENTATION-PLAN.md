@@ -25,7 +25,9 @@ run separately. Production browser services remain disabled.
 
 CI on `0553119` failed three watchdog-order checks. The test now arms its cancellable
 fallback after the worker starts and proves revocation/snapshots finish while the worker
-remains blocked. Focused checks pass; updated CI is pending. Production timeout stays
+remains blocked. Focused checks and a fresh full 222-test run pass at `d6461db`;
+[the follow-up record](verification/ci-watchdog-r4.json) also verifies the recorder's
+private log permissions. Updated CI is pending. Production timeout stays
 five seconds. The last signed review bundle (`1e4a2ea`) predates this integration and
 does not prove the newer code; installed ownership, provisioning and notarization remain open.
 
