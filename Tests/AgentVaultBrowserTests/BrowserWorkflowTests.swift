@@ -175,13 +175,24 @@ struct BrowserWorkflowTests {
         #expect(h.trustedPosts.isEmpty)
     }
 
-    @Test func revokeBeforeSessionStartsStillWins() async throws {
+    @Test(.timeLimit(.minutes(1))) func revokeDuringContextCreationStillWins() async throws {
         let h = try await Harness.make(); defer { h.finish() }
+        let (entered, enteredSignal) = AsyncStream<Void>.makeStream()
+        let (released, releaseSignal) = AsyncStream<Void>.makeStream()
+        defer { enteredSignal.finish(); releaseSignal.finish() }
+        h.manager.testBeforeContextCreation = {
+            enteredSignal.yield()
+            for await _ in released { break }
+        }
         async let outcome = h.run()
-        await Task.yield()
+        for await _ in entered { break }
+        #expect(!h.manager.hasSession(accountID: h.account))
+        #expect(h.site.trusted.requests.isEmpty)
         h.manager.revoke(accountID: h.account)
+        releaseSignal.yield()
         #expect(await outcome == .failed(.sessionRevoked))
         #expect(h.trustedPosts.isEmpty)
+        #expect(!h.manager.hasSession(accountID: h.account))
     }
 
     @Test func accountsUseSeparateEphemeralDataStores() async throws {

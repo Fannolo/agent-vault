@@ -31,6 +31,9 @@ public final class BrowserSessionManager {
         guard contexts[accountID] == nil else { return .failed(.busy) }
         guard let credential = WebLoginCredential(credential) else { return .failed(.invalidCredential) }
         let epoch = revocations[accountID, default: 0]
+        #if DEBUG
+        await testBeforeContextCreation?()
+        #endif
         guard let context = await BrowserContext.make(accountID: accountID, policy: policy) else {
             return .failed(.sessionUnavailable)
         }
@@ -139,6 +142,8 @@ public final class BrowserSessionManager {
     }
 
     #if DEBUG
+    /// Stops fixture startup after capturing authority, before creating a context.
+    package var testBeforeContextCreation: (@MainActor () async -> Void)?
     /// Test-only window onto the web view for automated tests acting as the human.
     package func testWebView(accountID: UUID) -> WKWebView? { contexts[accountID]?.webView }
     #endif

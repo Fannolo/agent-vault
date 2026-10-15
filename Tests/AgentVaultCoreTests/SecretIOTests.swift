@@ -64,6 +64,14 @@ private struct IOFixture {
     let client: ClientRecord
     let grant: Grant
     let adapter: CountingAdapter
+    // Fixture accounts are not lifecycle operations under test. Seed them
+    // synchronously so setup cannot spend the short asynchronous I/O deadline.
+    func seedWebAccount() throws -> Account {
+        let account = Account(service: .githubWeb)
+        try store.save(syntheticWebCredential, for: account.credentialID)
+        try state.transaction { $0.accounts.append(account) }
+        return account
+    }
     static func make(timeout: TimeInterval = 1, webSessions: (any WebSessionExecutor)? = nil) async throws -> Self {
         let state = MemoryState(), store = StallingSecrets(), adapter = CountingAdapter()
         // Build the synchronous fake's known state before attaching the short I/O
@@ -126,6 +134,10 @@ private func releaseWatchdog(_ store: StallingSecrets) -> DispatchWorkItem {
     return watchdog
 }
 
+// Each test blocks real Dispatch workers. Serialize the cases so unrelated fake
+// stores do not exhaust the shared worker pool and time out another test's setup.
+@Suite(.serialized)
+struct SecretIOTests {
 @Test func recoveryReservesAdmissionBeforeDrainingAuthorizedReads() async throws {
     let f = try await IOFixture.make(timeout: 2)
     let retired = UUID()
@@ -343,7 +355,7 @@ private func releaseWatchdog(_ store: StallingSecrets) -> DispatchWorkItem {
 @Test func busyCredentialAdmissionPreservesAWebApprovalForRetry() async throws {
     let host = ScriptedWebHost(start: [.humanStep(.mfa)])
     let f = try await IOFixture.make(timeout: 2, webSessions: host)
-    let account = try await f.broker.enroll(service: .githubWeb, credential: syntheticWebCredential)
+    let account = try f.seedWebAccount()
     let grant = try await f.broker.grant(clientID: f.client.id, accountID: account.id,
                                        duration: 300, callLimit: 1, requiresApproval: true)
     guard case .approvalRequired(let request) = try await f.broker.run(clientID: f.client.id,
@@ -377,7 +389,7 @@ private func releaseWatchdog(_ store: StallingSecrets) -> DispatchWorkItem {
 func refusedHostAdmissionDoesNotLeakCredentialReadCapacity(hostAvailable: Bool) async throws {
     let host = ScriptedWebHost(start: [.humanStep(.mfa)])
     let f = try await IOFixture.make(timeout: 2, webSessions: hostAvailable ? host : nil)
-    let account = try await f.broker.enroll(service: .githubWeb, credential: syntheticWebCredential)
+    let account = try f.seedWebAccount()
     let grant = try await f.broker.grant(clientID: f.client.id, accountID: account.id, duration: 300, callLimit: 1)
     let active: BrowserRunID?
     if hostAvailable {
@@ -420,7 +432,7 @@ func refusedHostAdmissionDoesNotLeakCredentialReadCapacity(hostAvailable: Bool) 
 @Test func rotationIntentEndsAWebRunBeforeAnUncertainCredentialWrite() async throws {
     let host = ScriptedWebHost(start: [.humanStep(.mfa)])
     let f = try await IOFixture.make(timeout: 2, webSessions: host)
-    let account = try await f.broker.enroll(service: .githubWeb, credential: syntheticWebCredential)
+    let account = try f.seedWebAccount()
     _ = try await f.broker.grant(clientID: f.client.id, accountID: account.id, duration: 300, callLimit: 1)
     guard case .humanStepRequired(let run) = try await f.broker.run(clientID: f.client.id,
         accountID: account.id, action: .githubWebProfile) else { Issue.record("No browser run"); return }
@@ -635,4 +647,5 @@ private func blockedLifecycleIOCannotBlockClientRevocationOrSnapshot(_ kind: Sta
     try await recoverWhenReady(f.broker)
     #expect(try f.state.snapshot().accounts[0].retiredCredentialID == nil)
     #expect(f.store.ids == [journal.credentialID])
+}
 }

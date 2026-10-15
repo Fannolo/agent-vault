@@ -40,11 +40,29 @@ Round five (`agent-vault-integrated-browser-r4-review-v5-20261015`) reviewed fro
 `198786e`, reporting no High/Medium issue. It reproduced Low recovery-audit churn and
 confirmed the known missing Core dispatch deadline. It also flagged silent native-test
 skips, duplicate plist keys, status vocabulary drift and harness evidence limits. Corrections
-are in progress. It independently matched all tracked-file, log and auxiliary-evidence
+are tracked below. It independently matched all tracked-file, log and auxiliary-evidence
 hashes in the integration record. It used direct `swiftc` probes rather than a full SwiftPM
 test run; WebKit, App UI, XPC server internals, the JSON guard, the broader installer and
 the signed bundle were outside this round. Its documentation-lag flag refers to the frozen
 source, before the later committed checkpoint records and current top sections.
+
+R5-1 is corrected at `a494bc7`: no-op startup leaves metadata unchanged, and recovery
+retry representatives persist across process restarts until relevant lifecycle progress.
+The first observation is retained without retry counts or a latest-failure timestamp.
+An independent GPT-6.1-Sol judge verified bounded history and reset cases with three
+pure-state probes. R5-4 now uses explicit disabled-test traits, so the two native storage
+checks report skips in the default suite. An opt-in run is separate evidence.
+
+The two CI runs at `5b1fb9a` exposed separate fixture races. Three short-deadline web
+account setup operations could time out behind other tests' blocked Dispatch workers;
+those setups are now synchronous and the blocking I/O suite is serialized. Its 20 test
+declarations and each case's internal concurrency remain. The legacy WebKit startup
+revocation test used `Task.yield()` to guess ordering. A debug-only package seam now gates
+startup after epoch capture; revocation occurs before context creation is released.
+The focused tests pass. One intermediate full run ended with exit 1 and no diagnostic or
+summary; its log is retained and the cause is unknown. A full retry reported 224 tests
+with two explicit skips. The latest startup-gate change awaits final integrated recording
+and remote CI.
 
 Parent corrections for R5-5/R5-6 reject duplicate keys at every XML dictionary depth,
 including entity-equivalent keys, and derive CLI run replies and bridge-local failures
