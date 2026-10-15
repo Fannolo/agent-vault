@@ -9,6 +9,9 @@ enum ParserCorpus {
     static let githubSeed: UInt64 = 0x4749_5448_5542_465A
     static let mcpBytesSeed: UInt64 = 0x4D43_505F_4259_5445
     static let mcpStructureSeed: UInt64 = 0x4D43_505F_5348_4150
+    static let hostCommandSeed: UInt64 = 0x484F_5354_5F43_4D44
+    static let hostBytesSeed: UInt64 = 0x484F_5354_5F42_5954
+    static let hostReplySeed: UInt64 = 0x484F_5354_5F52_504C
     static let uuid = "00000000-0000-4000-8000-000000000001"
 }
 

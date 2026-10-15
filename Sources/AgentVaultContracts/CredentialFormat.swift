@@ -37,3 +37,8 @@ public struct WebLoginCredential: Sendable, CustomStringConvertible, CustomDebug
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 }
+
+extension WebLoginCredential: Equatable {
+    /// The canonical `username` LF `password` bytes that `init?(_:)` accepts.
+    public var bytes: Data { Data((username + "\n" + password).utf8) }
+}

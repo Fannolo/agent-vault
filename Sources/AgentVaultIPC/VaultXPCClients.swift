@@ -4,10 +4,13 @@ import Foundation
 /// Read-service client used by the MCP bridge. It carries no credential store; it can only
 /// send closed `ReadRequest` values to a broker that satisfies `brokerRequirement`.
 public final class VaultReadClient: Sendable {
+    /// How long the bridge waits for one read. Every broker-side step of a read, including
+    /// credential access and a browser host start, must finish inside it.
+    public static let defaultTimeout: TimeInterval = 30
     private let channel: Channel
 
     public init(configuration: IPCConfiguration, limits: IPCLimits = .standard,
-                timeout: TimeInterval = 30) throws(IPCError) {
+                timeout: TimeInterval = VaultReadClient.defaultTimeout) throws(IPCError) {
         try configuration.validate(for: .readClient)
         channel = Channel(configuration: configuration, limits: limits, timeout: timeout,
                           target: .service(configuration.readServiceName), protocol: VaultReadRPC.self,

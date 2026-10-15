@@ -121,6 +121,89 @@ import Testing
         #expect(f.callsUsed == 1)
     }
 
+    @Test func hungHostStartEndsAtTheBrokerDeadlineAndFreesItsSlots() async throws {
+        let windows = try LifecycleWindows(approval: 120, humanPause: 600, collect: 120, startReply: 0.2)
+        let f = try await WebFixture.make(start: [.profile(syntheticProfile), .humanStep(.mfa)], windows: windows,
+                                          realClock: true)
+        await f.host.startHold.arm()
+        let began = Date()
+        await #expect(throws: VaultError.upstreamUnavailable) { _ = try await f.run() }
+        #expect(Date().timeIntervalSince(began) < 1, "the initial call returns at the broker's own deadline")
+        #expect(f.audit == ["reserved", "web_timeout", "failed"])
+        // The account and live slots are free again; a new attempt is a new paid call.
+        await f.host.startHold.open()
+        #expect(try await f.startPausedRun() != BrowserRunID())
+        #expect(f.callsUsed == 2)
+        // The late reply created a context for the first run; it was ended, not delivered.
+        for _ in 0..<100 where f.host.openContexts != 1 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(f.host.openContexts == 1, "only the second run's context remains")
+    }
+
+    @Test func unansweredStartEndsAtItsDeadlineEvenWithoutAWaiter() async throws {
+        let windows = try LifecycleWindows(approval: 120, humanPause: 600, collect: 120, startReply: 60)
+        let f = try await WebFixture.make(start: [.humanStep(.mfa)], windows: windows)
+        await f.host.startHold.arm()
+        let call = Task { try await f.run() }
+        await f.host.startHold.waitUntilReached()
+        #expect(await f.broker.scheduledDeadlineCount == 1, "an unanswered start has its own deadline task")
+        call.cancel()
+        f.clock.advance(61)
+        _ = try await f.broker.pendingHumanSteps()
+        #expect(f.host.log.all.filter { $0 == "end" }.count == 1, "the sweep ends the context without the caller")
+        #expect(f.audit == ["reserved", "web_timeout"])
+        await f.host.startHold.open()
+        await #expect(throws: VaultError.upstreamUnavailable) { _ = try await call.value }
+        #expect(f.host.openContexts == 0, "the late context is ended")
+        #expect(f.audit == ["reserved", "web_timeout", "failed"])
+    }
+
+    @Test func hungReclassificationConcludesAtTheBrokerDeadline() async throws {
+        let windows = try LifecycleWindows(approval: 120, humanPause: 600, collect: 120, classifyReply: 0.2)
+        let f = try await WebFixture.make(start: [.humanStep(.mfa)], reclassify: [.profile(syntheticProfile)],
+                                          windows: windows, realClock: true)
+        let run = try await f.startPausedRun()
+        let connection = ContinuationConnectionID()
+        let lease = try await f.openHumanStep(run, connection: connection)
+        await f.host.reclassifyHold.arm()
+        let began = Date()
+        #expect(try await f.broker.concludeHumanStep(lease, connection: connection, decision: .finished) == .concluded)
+        #expect(Date().timeIntervalSince(began) < 1)
+        await #expect(throws: VaultError.upstreamUnavailable) { _ = try await f.resume(run) }
+        #expect(!f.host.contextOpen(run))
+        await f.host.reclassifyHold.open()
+        #expect(f.audit == ["reserved", "human_step_required", "web_timeout", "failed"])
+        #expect(f.callsUsed == 1, "polling, finishing and collecting reserve nothing")
+    }
+
+    @Test func clockJumpLeavingLessThanOneSecondOfGrantNeverDeliversTheSecret() async throws {
+        let f = try await WebFixture.make(start: [.humanStep(.mfa)], duration: 3600)
+        let started = AsyncStream.makeStream(of: Void.self)
+        f.secrets.blockNextLoad { started.continuation.yield() }
+        let call = Task { try await f.run() }
+        var iterator = started.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        f.clock.advance(3599.5)
+        f.secrets.releaseLoad()
+        await #expect(throws: VaultError.denied) { _ = try await call.value }
+        #expect(f.host.startCount == 0 && f.host.log.all.isEmpty)
+        #expect(f.audit == ["reserved", "response_suppressed"])
+    }
+
+    @Test func replyDeadlinesAreEnforcedByTheTransitionItself() throws {
+        let windows = try LifecycleWindows(approval: 120, humanPause: 600, collect: 120, startReply: 15, classifyReply: 10)
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let binding = RunBinding(client: UUID(), account: UUID(), action: .githubWebProfile, grant: UUID(), credential: UUID())
+        let run = BrowserRun(id: BrowserRunID(), binding: binding, grantExpiresAt: t0 + 3600)
+        let (dispatching, _) = run.applying(.credentialLoaded, now: t0, windows: windows)
+        #expect(dispatching?.phase.deadline == t0 + 15)
+        let late = dispatching!.applying(.host(.profile(syntheticProfile), epoch: 1), now: t0 + 15, windows: windows)
+        #expect(late.1 == [.audit("web_timeout"), .endHost], "a reply at the deadline is not applied")
+        let swept = dispatching!.applying(.clock(t0 + 15), now: t0 + 15, windows: windows)
+        #expect(swept.1 == [.audit("web_timeout"), .endHost])
+        #expect(dispatching!.applying(.hostReplyOverdue(epoch: 0), now: t0, windows: windows).1.isEmpty,
+                "an overdue notice for an older request changes nothing")
+    }
+
     @Test func revocationDuringCredentialLoadNeverReachesTheHost() async throws {
         let f = try await WebFixture.make(start: [.humanStep(.mfa)])
         let started = AsyncStream.makeStream(of: Void.self)
@@ -258,6 +341,26 @@ import Testing
         #expect(failure as? VaultError == .sessionLost)
         #expect(f.callsUsed == 1)
         #expect(f.audit == ["reserved", "human_step_required", "session_lost", "failed"])
+    }
+
+    @Test func lateLossOfAnOldConnectionEndsOnlyTheRunsItCarried() async throws {
+        let f = try await WebFixture.make(start: [.humanStep(.mfa), .humanStep(.captcha)])
+        let other = try await f.broker.enroll(service: .githubWeb, credential: syntheticWebCredential)
+        _ = try await f.broker.grant(clientID: f.client.id, accountID: other.id, duration: 3600, callLimit: 1)
+        let old = try await f.startPausedRun()
+        // The old connection died; a new run starts on its replacement before the notice arrives.
+        guard case .humanStepRequired(let new) = try await f.broker.run(
+            clientID: f.client.id, accountID: other.id, action: .githubWebProfile) else { Issue.record("no run"); return }
+        f.host.deliverLoss(of: [old])
+        var failure: (any Error)?
+        for _ in 0..<200 where failure == nil {
+            do { _ = try await f.resume(old); try await Task.sleep(for: .milliseconds(5)) }
+            catch { failure = error }
+        }
+        #expect(failure as? VaultError == .sessionLost)
+        #expect(try await f.broker.resume(new.uuid, clientID: f.client.id) == .humanStepRequired(new))
+        #expect(f.host.contextOpen(new))
+        #expect(try await f.broker.pendingHumanSteps().map(\.id.run) == [new])
     }
 
     @Test func brokerRestartForgetsRunsAndDoesNotRefund() async throws {

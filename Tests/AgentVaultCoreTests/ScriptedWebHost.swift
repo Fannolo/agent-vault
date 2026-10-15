@@ -42,12 +42,12 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
     private var starts = 0
     let log: EventLog
     let startHold = Hold(), reclassifyHold = Hold()
-    let losses: AsyncStream<Void>
-    private let lossSignal: AsyncStream<Void>.Continuation
+    let losses: AsyncStream<Set<BrowserRunID>>
+    private let lossSignal: AsyncStream<Set<BrowserRunID>>.Continuation
 
     init(start: [WebStep], reclassify: [WebStep] = [], log: EventLog = EventLog()) {
         startSteps = start; reclassifySteps = reclassify; self.log = log
-        (losses, lossSignal) = AsyncStream.makeStream(of: Void.self)
+        (losses, lossSignal) = AsyncStream.makeStream(of: Set<BrowserRunID>.self)
     }
 
     func start(_ run: BrowserRunID, workflow: WebWorkflow, credential: WebLoginCredential,
@@ -76,10 +76,24 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
         lock.withLock { open.remove(run); ended.append(run) }
     }
 
+    func showHuman(_ step: HumanStepID) async -> Bool { lock.withLock { open.contains(step.run) } }
+    func frame(_ step: HumanStepID, after: UInt64) async -> HumanFrame? { nil }
+    func input(_ step: HumanStepID, frame: UInt64, _ batch: HumanInputBatch) async -> Bool { false }
+
     /// The host process died: every context is gone.
     func lose() {
-        lock.withLock { open.removeAll() }
-        lossSignal.yield()
+        let lost = lock.withLock { () -> Set<BrowserRunID> in
+            defer { open.removeAll() }
+            return open
+        }
+        lossSignal.yield(lost)
+    }
+
+    /// Delivers a loss notice for a connection that carried exactly `runs`, possibly long after
+    /// that connection ended. Contexts created since then belong to a newer connection.
+    func deliverLoss(of runs: Set<BrowserRunID>) {
+        lock.withLock { open.subtract(runs) }
+        lossSignal.yield(runs)
     }
 
     var openContexts: Int { lock.withLock { open.count } }

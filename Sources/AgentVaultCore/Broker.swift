@@ -34,9 +34,9 @@ public actor Broker {
         self.recoveryDrainTimeout = .seconds(secretIOPolicy.timeout)
         if let losses = webSessions?.losses {
             Task { [weak self] in
-                for await _ in losses {
+                for await lost in losses {
                     guard let self else { return }
-                    await self.hostLost()
+                    await self.hostLost(lost)
                 }
             }
         }
@@ -350,12 +350,39 @@ public actor Broker {
             abandon(id)
             throw VaultError.secretUnavailable
         }
+        // The host needs at least one whole second of context; a clock jump past the grant is a loss of
+        // authority, decided before any secret leaves the broker.
+        let lifetime = min(LifecycleWindows.hostLifetimeCap, run.grantExpiresAt.timeIntervalSince(now()))
+        guard lifetime.isFinite, lifetime >= 1 else {
+            await apply(id, .authorityLost)
+            throw VaultError.denied
+        }
         await apply(id, .credentialLoaded)
         guard let dispatched = runs[id] else { throw VaultError.denied }
-        let lifetime = min(LifecycleWindows.hostLifetimeCap, dispatched.grantExpiresAt.timeIntervalSince(now()))
-        let step = await web.start(id, workflow: workflow, credential: credential, lifetime: lifetime)
-        await hostReplied(id, step, epoch: dispatched.epoch)
+        await awaitHost(id, epoch: dispatched.epoch, within: windows.startReply) {
+            await web.start(id, workflow: workflow, credential: credential, lifetime: lifetime)
+        }
         return try await collect(id)
+    }
+
+    /// Waits for one host request at most `window`, whatever the host does. The request itself
+    /// keeps running unowned: a late reply still reaches `hostReplied`, which ends any context it
+    /// created. The caller disappearing does not stop the deadline either.
+    private func awaitHost(_ id: BrowserRunID, epoch: UInt64, within window: TimeInterval,
+                           _ request: @escaping @Sendable () async -> WebStep) async {
+        let settled = Signal()
+        let timer = Task {
+            try? await Task.sleep(for: .seconds(window))
+            settled.fire()
+        }
+        Task { [weak self] in
+            let step = await request()
+            await self?.hostReplied(id, step, epoch: epoch)
+            settled.fire()
+        }
+        await settled.wait()
+        timer.cancel()
+        await apply(id, .hostReplyOverdue(epoch: epoch))
     }
 
     public func snapshot() throws -> VaultState { try state.snapshot() }
@@ -640,8 +667,9 @@ extension Broker {
         case .finished:
             await apply(run.id, .humanFinished(lease))
             guard let web, let classifying = runs[run.id] else { throw VaultError.denied }
-            let step = await web.reclassify(run.id)
-            await hostReplied(run.id, step, epoch: classifying.epoch)
+            await awaitHost(run.id, epoch: classifying.epoch, within: windows.classifyReply) {
+                await web.reclassify(run.id)
+            }
             switch runs[run.id]?.phase {
             case .concluded?: return .concluded
             case .awaitingHuman(let kind, _, _)?: return .humanStepRequired(kind)
@@ -724,8 +752,9 @@ extension Broker {
         for id in Array(runs.keys) { await apply(id, .clock(now())) }
     }
 
-    fileprivate func hostLost() async {
-        for id in Array(runs.keys) { await apply(id, .hostLost) }
+    /// Ends only the runs bound to the lost connection, so a late loss cannot touch newer runs.
+    fileprivate func hostLost(_ lost: Set<BrowserRunID>) async {
+        for id in lost { await apply(id, .hostLost) }
     }
 
     fileprivate func apply(_ id: BrowserRunID, _ event: RunEvent) async {
@@ -772,5 +801,33 @@ extension Broker {
         guard sweepTasks[id]?.deadline == date else { return }
         sweepTasks.removeValue(forKey: id)
         await apply(id, .clock(now()))
+    }
+}
+
+/// Fires once; every waiter, earlier or later, resumes.
+private final class Signal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func fire() {
+        let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            guard !fired else { return [] }
+            fired = true
+            defer { waiters = [] }
+            return waiters
+        }
+        for waiter in waiting { waiter.resume() }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let ready = lock.withLock { () -> Bool in
+                if fired { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if ready { continuation.resume() }
+        }
     }
 }

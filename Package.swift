@@ -36,7 +36,7 @@ let package = Package(
         ]),
         .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCore", "AgentVaultContracts"]),
         .testTarget(name: "AgentVaultParserFuzzTests", dependencies: [
-            "AgentVaultIPC", "AgentVaultMCPTransport", "AgentVaultCore", "AgentVaultContracts"
+            "AgentVaultIPC", "AgentVaultMCPTransport", "AgentVaultCore", "AgentVaultContracts", "AgentVaultWebHostProtocol"
         ], exclude: ["README.md"]),
         // Broker-linked WebKit component. Depends only on data contracts: it receives
         // credential bytes from its caller and never links Core or any secret store.
@@ -47,6 +47,14 @@ let package = Package(
         .testTarget(name: "AgentVaultBrowserTests",
                     dependencies: ["AgentVaultBrowser", "AgentVaultBrowserFixture", "AgentVaultContracts"]),
         .target(name: "AgentVaultIPC", dependencies: ["AgentVaultContracts", "AgentVaultJSON"], linkerSettings: [.linkedFramework("Security")]),
+        // Credential-bearing broker <-> web host wire. Linked only by the host link and the host:
+        // never by Core, the app or the MCP bridge (enforced by scripts/verify-boundaries.py).
+        .target(name: "AgentVaultWebHostProtocol", dependencies: ["AgentVaultContracts", "AgentVaultJSON", "AgentVaultIPC"]),
+        // The broker's client for the web host; implements Core's domain port over that wire.
+        .target(name: "AgentVaultWebHostLink", dependencies: ["AgentVaultCore", "AgentVaultWebHostProtocol", "AgentVaultIPC"]),
+        .testTarget(name: "AgentVaultWebHostLinkTests", dependencies: [
+            "AgentVaultWebHostLink", "AgentVaultWebHostProtocol", "AgentVaultCore", "AgentVaultContracts", "AgentVaultIPC"
+        ]),
         .target(name: "IPCFixtureKit", dependencies: ["AgentVaultIPC", "AgentVaultContracts"], path: "Tests/IPCFixtures/Kit"),
         .executableTarget(name: "agent-vault-ipc-fixture", dependencies: ["IPCFixtureKit"], path: "Tests/IPCFixtures/Genuine"),
         .executableTarget(name: "agent-vault-ipc-impostor", dependencies: ["IPCFixtureKit"], path: "Tests/IPCFixtures/Impostor"),

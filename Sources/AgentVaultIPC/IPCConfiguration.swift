@@ -88,10 +88,7 @@ public struct IPCConfiguration: Codable, Sendable, Equatable {
         let requirements = [brokerRequirement, readRequirement, adminRequirement]
         guard Set(requirements).count == 3 else { throw .invalidConfiguration }
         for text in requirements {
-            guard let canonical = Self.canonicalRequirement(text),
-                  Self.isConjunction(canonical), satisfiesModePin(canonical) else {
-                throw .invalidConfiguration
-            }
+            guard Self.isPinnedRequirement(text, development: development) else { throw .invalidConfiguration }
         }
         guard brokerUID != 0, allowedUID != 0, effectiveUID != 0,
               brokerUID != UInt32.max, allowedUID != UInt32.max else { throw .invalidConfiguration }
@@ -100,13 +97,17 @@ public struct IPCConfiguration: Codable, Sendable, Equatable {
         guard effectiveUID == expected else { throw .invalidConfiguration }
     }
 
-    private func satisfiesModePin(_ canonical: String) -> Bool {
+    /// A requirement that compiles, is a pure conjunction and pins the code for its mode:
+    /// a cdhash in development; Apple anchor, identifier, team and cdhash in production.
+    /// Every XPC role, including the browser host link, uses this one rule.
+    public static func isPinnedRequirement(_ text: String, development: Bool) -> Bool {
+        guard let canonical = canonicalRequirement(text), isConjunction(canonical) else { return false }
         if development { return canonical.contains("cdhash H\"") }
         return canonical.contains("anchor apple generic") && canonical.contains("identifier \"") && canonical.contains("cdhash H\"")
             && canonical.contains("certificate leaf[subject.OU] = ")
     }
 
-    private static func isServiceName(_ name: String) -> Bool {
+    public static func isServiceName(_ name: String) -> Bool {
         guard (3...128).contains(name.utf8.count), name.contains("."),
               let first = name.utf8.first, isAlphanumeric(first) else { return false }
         return name.utf8.allSatisfy { isAlphanumeric($0) || $0 == UInt8(ascii: ".") || $0 == UInt8(ascii: "-") }
