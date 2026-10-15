@@ -2,28 +2,49 @@ import Foundation
 
 public actor Broker {
     private let state: any StateStore
-    private let secrets: any SecretStore
+    private let secretIO: SecretIOExecutor
     private let adapter: any ServiceAdapter
     private let now: @Sendable () -> Date
     private var lifecycleMutations: Set<UUID> = []
+    private var recoveryInProgress = false
 
     public init(state: any StateStore, secrets: any SecretStore,
                 adapter: any ServiceAdapter = FixedServiceAdapter(),
-                now: @escaping @Sendable () -> Date = { Date() }) {
-        self.state = state; self.secrets = secrets; self.adapter = adapter; self.now = now
+                now: @escaping @Sendable () -> Date = { Date() },
+                secretIOPolicy: SecretIOPolicy = .standard) {
+        self.state = state; self.secretIO = SecretIOExecutor(store: secrets, policy: secretIOPolicy)
+        self.adapter = adapter; self.now = now
     }
 
-    public func enroll(service: Service, credential: Data) throws -> Account {
+    public func enroll(service: Service, credential: Data) async throws -> Account {
         guard !credential.isEmpty, credential.count <= 8192 else { throw VaultError.invalidInput }
         if service == .github { try GitHubAdapter.validateCredential(credential) }
         var account = Account(service: service, lifecycle: .enrolling)
+        try beginLifecycle(account.id)
+        defer { lifecycleMutations.remove(account.id) }
         try state.transaction {
             guard $0.accounts.count < VaultState.maxAccounts else { throw VaultError.stateUnavailable }
             $0.accounts.append(account)
             $0.recordAdministration(account: account.id, action: service.action, outcome: "enrollment_started", at: now())
         }
         // Persist intent before Keychain mutation so a crash never loses the item ID.
-        try secrets.save(credential, for: account.credentialID)
+        do { try await secretIO.save(credential, id: account.credentialID, account: account.id) }
+        catch {
+            let failure = secretFailure(error)
+            recordLifecycleFailure(account: account.id, action: service.action, operation: "enrollment", failure: failure)
+            if !failure.isUncertain {
+                do {
+                    if failure.operationStarted {
+                        try await secretIO.delete(id: account.credentialID, account: account.id)
+                    }
+                    try removeAccountRecord(account.id, outcome: "enrollment_aborted")
+                } catch {
+                    recordLifecycleFailure(account: account.id, action: service.action,
+                                           operation: "enrollment_compensation", failure: secretFailure(error))
+                }
+            }
+            throw failure.publicError
+        }
         account.lifecycle = .active
         try state.transaction {
             guard let index = $0.accounts.firstIndex(where: { $0.id == account.id && $0.lifecycle == .enrolling })
@@ -190,6 +211,7 @@ public actor Broker {
     }
 
     private func execute(clientID: UUID, accountID: UUID, action: Action, approvedRequest: UUID?) async throws -> OperationResult {
+        guard !recoveryInProgress else { throw VaultError.busy }
         let permit: (Account, UUID)? = try state.transaction { state in
             let timestamp = now()
             guard state.clients.contains(where: { $0.id == clientID && !$0.revoked }),
@@ -223,10 +245,13 @@ public actor Broker {
         guard let (account, grantID) = permit else { throw VaultError.denied }
         var finishAttempted = false
         do {
-            let credential = try secrets.load(for: account.credentialID)
+            let credential = try await secretIO.load(id: account.credentialID, account: account.id)
             // Keychain access may block on a human prompt. Recheck before dispatch.
             let current = try state.snapshot()
             guard current.clients.contains(where: { $0.id == clientID && !$0.revoked }),
+                  current.accounts.contains(where: {
+                      $0.id == accountID && $0.lifecycle == .active && $0.credentialID == account.credentialID
+                  }),
                   current.grants.contains(where: { $0.id == grantID && !$0.revoked && $0.expiresAt > now() }) else {
                 throw VaultError.denied
             }
@@ -251,7 +276,7 @@ public actor Broker {
             }
             // An unreadable final policy state is also a loss of authority.
             await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: grantID)
-            throw (error as? VaultError) ?? VaultError.upstreamUnavailable
+            throw (error as? SecretIOFailure)?.publicError ?? (error as? VaultError) ?? VaultError.upstreamUnavailable
         }
     }
 
@@ -265,7 +290,7 @@ public actor Broker {
 
     public func rotate(accountID: UUID, credential: Data) async throws {
         guard !credential.isEmpty, credential.count <= 8192 else { throw VaultError.invalidInput }
-        guard lifecycleMutations.insert(accountID).inserted else { throw VaultError.busy }
+        try beginLifecycle(accountID)
         defer { lifecycleMutations.remove(accountID) }
         let staged = UUID()
         let original: Account = try state.transaction { state in
@@ -278,12 +303,20 @@ public actor Broker {
                                        outcome: "rotation_started", at: now())
             return state.accounts[i]
         }
-        do { try secrets.save(credential, for: staged) }
+        do { try await secretIO.save(credential, id: staged, account: accountID) }
         catch {
-            // A returned error is not a process crash: remove the tracked stage and
-            // restore the original. Any failed compensation leaves its journal.
-            try? abortFailedRotation(accountID: accountID, staged: staged, original: original)
-            throw error
+            let failure = secretFailure(error)
+            recordLifecycleFailure(account: accountID, action: original.service.action, operation: "rotation", failure: failure)
+            if !failure.isUncertain {
+                do {
+                    try await abortFailedRotation(accountID: accountID, staged: staged, original: original,
+                                                  deleteStage: failure.operationStarted)
+                } catch {
+                    recordLifecycleFailure(account: accountID, action: original.service.action,
+                                           operation: "rotation_compensation", failure: secretFailure(error))
+                }
+            }
+            throw failure.publicError
         }
         let sessions = try state.transaction { state in
             guard let i = state.accounts.firstIndex(where: { $0.id == accountID && $0.stagedCredentialID == staged }) else { throw VaultError.stateUnavailable }
@@ -296,7 +329,12 @@ public actor Broker {
             return state.grants.filter { $0.accountID == accountID }.map(\.id)
         }
         for session in sessions { await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: session) }
-        try secrets.delete(for: original.credentialID)
+        do { try await secretIO.delete(id: original.credentialID, account: accountID) }
+        catch {
+            let failure = secretFailure(error)
+            recordLifecycleFailure(account: accountID, action: original.service.action, operation: "retirement", failure: failure)
+            throw failure.publicError
+        }
         try state.transaction { state in
             guard let i = state.accounts.firstIndex(where: { $0.id == accountID && $0.retiredCredentialID == original.credentialID })
             else { throw VaultError.stateUnavailable }
@@ -307,7 +345,7 @@ public actor Broker {
     }
 
     public func deleteAccount(_ id: UUID) async throws {
-        guard lifecycleMutations.insert(id).inserted else { throw VaultError.busy }
+        try beginLifecycle(id)
         defer { lifecycleMutations.remove(id) }
         let account = try state.transaction { state in
             guard let i = state.accounts.firstIndex(where: { $0.id == id }) else { throw VaultError.invalidInput }
@@ -321,21 +359,28 @@ public actor Broker {
         for grant in try state.snapshot().grants where grant.accountID == id {
             await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: grant.id)
         }
-        try removeCredentialItems(account)
+        do { try await removeCredentialItems(account) }
+        catch {
+            let failure = secretFailure(error)
+            recordLifecycleFailure(account: id, action: account.service.action, operation: "deletion", failure: failure)
+            throw failure.publicError
+        }
         try removeAccountRecord(id, outcome: "deletion_completed")
     }
 
     // Called by the single broker owner before accepting connections.
-    public func recoverInterruptedLifecycle() throws {
-        guard lifecycleMutations.isEmpty else { throw VaultError.busy }
+    public func recoverInterruptedLifecycle() async throws {
+        guard lifecycleMutations.isEmpty, !recoveryInProgress, secretIO.isIdle else { throw VaultError.busy }
+        recoveryInProgress = true
+        defer { recoveryInProgress = false }
         try state.transaction { $0.recordAdministration(outcome: "recovery_started", at: now()) }
         for account in try state.snapshot().accounts {
             switch account.lifecycle {
             case .enrolling, .deleting:
-                try removeCredentialItems(account)
+                try await recoverSecretItems(account)
                 try removeAccountRecord(account.id, outcome: account.lifecycle == .enrolling ? "enrollment_recovered" : "deletion_recovered")
             case .rotating:
-                if let staged = account.stagedCredentialID { try secrets.delete(for: staged) }
+                if let staged = account.stagedCredentialID { try await recoverSecretItem(staged, account: account) }
                 try state.transaction { state in
                     if let i = state.accounts.firstIndex(where: { $0.id == account.id }) {
                         state.accounts[i].stagedCredentialID = nil; state.accounts[i].lifecycle = .active
@@ -345,7 +390,7 @@ public actor Broker {
                 }
             case .active:
                 if let retired = account.retiredCredentialID {
-                    try secrets.delete(for: retired)
+                    try await recoverSecretItem(retired, account: account)
                     try state.transaction { state in
                         if let i = state.accounts.firstIndex(where: { $0.id == account.id }) {
                             state.accounts[i].retiredCredentialID = nil
@@ -371,14 +416,14 @@ public actor Broker {
         }
     }
 
-    private func removeCredentialItems(_ account: Account) throws {
+    private func removeCredentialItems(_ account: Account) async throws {
         for id in Set([account.credentialID, account.stagedCredentialID, account.retiredCredentialID].compactMap { $0 }) {
-            try secrets.delete(for: id)
+            try await secretIO.delete(id: id, account: account.id)
         }
     }
 
-    private func abortFailedRotation(accountID: UUID, staged: UUID, original: Account) throws {
-        try secrets.delete(for: staged)
+    private func abortFailedRotation(accountID: UUID, staged: UUID, original: Account, deleteStage: Bool) async throws {
+        if deleteStage { try await secretIO.delete(id: staged, account: accountID) }
         try state.transaction { state in
             guard let i = state.accounts.firstIndex(where: {
                 $0.id == accountID && $0.lifecycle == .rotating && $0.stagedCredentialID == staged &&
@@ -388,6 +433,38 @@ public actor Broker {
             state.accounts[i].lifecycle = .active
             state.recordAdministration(account: accountID, action: original.service.action,
                                        outcome: "rotation_aborted", at: now())
+        }
+    }
+
+    private func beginLifecycle(_ account: UUID) throws {
+        guard !recoveryInProgress, !secretIO.hasPendingWrite(account: account),
+              lifecycleMutations.insert(account).inserted else { throw VaultError.busy }
+    }
+
+    private func secretFailure(_ error: any Error) -> SecretIOFailure {
+        (error as? SecretIOFailure) ?? .operationFailed((error as? VaultError) ?? .secretUnavailable)
+    }
+
+    private func recordLifecycleFailure(account: UUID, action: Action, operation: String, failure: SecretIOFailure) {
+        let outcome = operation + (failure.isUncertain ? "_uncertain" : "_failed")
+        try? state.transaction { $0.recordAdministration(account: account, action: action, outcome: outcome, at: now()) }
+    }
+
+    private func recoverSecretItems(_ account: Account) async throws {
+        do { try await removeCredentialItems(account) }
+        catch {
+            let failure = secretFailure(error)
+            recordLifecycleFailure(account: account.id, action: account.service.action, operation: "recovery", failure: failure)
+            throw failure.publicError
+        }
+    }
+
+    private func recoverSecretItem(_ id: UUID, account: Account) async throws {
+        do { try await secretIO.delete(id: id, account: account.id) }
+        catch {
+            let failure = secretFailure(error)
+            recordLifecycleFailure(account: account.id, action: account.service.action, operation: "recovery", failure: failure)
+            throw failure.publicError
         }
     }
 
@@ -404,6 +481,7 @@ public actor Broker {
         return try state.transaction { state in
             let timestamp = now()
             let allowed = state.clients.contains(where: { $0.id == client && !$0.revoked }) &&
+                state.accounts.contains(where: { $0.id == account && $0.lifecycle == .active }) &&
                 state.grants.contains(where: { $0.id == grant && !$0.revoked && $0.expiresAt > timestamp })
             state.record(client: client, account: account, action: action,
                          outcome: allowed ? (succeeded ? "completed" : "failed") : "response_suppressed",

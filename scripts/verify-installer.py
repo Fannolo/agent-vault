@@ -35,6 +35,8 @@ MUTATIONS = [
      ["SignatureTests.test_payload_swapped_after_snapshot_is_not_installed"]),
     ("debugger entitlement accepted", [("require(not found.get_task_allow,", "require(True,")],
      ["SignatureTests.test_unsigned_or_misattributed_payloads_are_refused"]),
+    ("unsafe code entitlements accepted", [("require(not found.unsafe_entitlements,", "require(True,")],
+     ["SignatureTests.test_code_protection_exceptions_are_refused_before_install"]),
     ("partial account adopted", [("require(complete or journal == uid,", "require(True,")],
      ["AccountTests.test_partial_account_is_completed_only_with_the_journal"]),
     ("approval key replaced silently", [("require(args.replace_approval_key == old_fingerprint,", "require(True,")],

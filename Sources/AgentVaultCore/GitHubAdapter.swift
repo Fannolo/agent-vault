@@ -1,4 +1,5 @@
 import Foundation
+import AgentVaultJSON
 
 public struct FixedServiceAdapter: ServiceAdapter {
     public init() {}
@@ -73,6 +74,7 @@ public struct GitHubAdapter: Sendable {
     public static func decodeProfile(_ body: Data) throws -> GitHubProfile {
         guard body.count <= 65_536 else { throw VaultError.invalidResponse }
         do {
+            try JSONObjectGuard.validate(body)
             let value = try JSONDecoder().decode(GitHubProfile.self, from: body)
             guard value.id > 0, value.login.range(of: "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
                                                   options: .regularExpression) != nil else {

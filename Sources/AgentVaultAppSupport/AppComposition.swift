@@ -4,11 +4,10 @@ import Foundation
 
 /// The single place where the app's transport and signer are chosen.
 ///
-/// Production uses the hardware-protected signer and, until the authenticated admin channel is
-/// linked here, a transport that fails closed. DEBUG builds can opt into an in-memory preview
+/// Production uses the protected signer and authenticated admin channel, failing closed when
+/// installation or authentication is unavailable. DEBUG builds can opt into an in-memory preview
 /// broker with a software key; that code is compiled out of release builds.
 public enum AppComposition {
-    /// Replace `UnavailableTransport` with the admin XPC transport when the IPC module lands.
     @MainActor public static func makeModel(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppModel {
         #if DEBUG
         if environment["AGENT_VAULT_UI_PREVIEW"] == "1" { return previewModel() }

@@ -351,6 +351,13 @@ class SignatureTests(SandboxCase):
         self.write_payload(b"v9", register=False)
         self.refuses("has no valid signature")
 
+    def test_code_protection_exceptions_are_refused_before_install(self):
+        for entitlement in av.UNSAFE_ENTITLEMENTS:
+            with self.subTest(entitlement=entitlement):
+                self.inspector.register(b"bridge-v1", "dev.agentvault.bridge", unsafe_entitlements=(entitlement,))
+                self.refuses("unsafe entitlements")
+                self.inspector.register(b"bridge-v1", "dev.agentvault.bridge")
+
     def test_payload_swapped_after_snapshot_is_not_installed(self):
         evil = os.path.join(self.payload, "agent-vault-broker")
 
@@ -699,6 +706,13 @@ class RealCodesignTests(unittest.TestCase):
             handle.write(plistlib.dumps({"com.apple.security.get-task-allow": True}))
         debug = self.signed("debug", "--options", "runtime", "--entitlements", entitlements)
         self.assertTrue(av.CodeInspector().identity(debug).get_task_allow)
+
+    def test_real_code_protection_exceptions_are_detected(self):
+        entitlements = os.path.join(self.tmp, "unsafe.plist")
+        with open(entitlements, "wb") as handle:
+            handle.write(plistlib.dumps({key: True for key in av.UNSAFE_ENTITLEMENTS}))
+        path = self.signed("unsafe", "--options", "runtime", "--entitlements", entitlements)
+        self.assertEqual(av.CodeInspector().identity(path).unsafe_entitlements, av.UNSAFE_ENTITLEMENTS)
 
     def test_unsigned_and_tampered_code_is_refused(self):
         path = self.signed("tampered", "--options", "runtime")

@@ -135,6 +135,15 @@ public struct VaultState: Codable, Sendable {
 
     public mutating func record(client: UUID, account: UUID?, action: Action?, outcome: String,
                                 at timestamp: Date) {
+        // Unapproved requests, cancellations and denials are representatives,
+        // not attempt counts. A real reservation/terminal event resets the tuple.
+        let representatives: Set<String> = ["denied", "approval_requested", "approval_cancelled"]
+        if representatives.contains(outcome) {
+            for event in audit.reversed() where event.clientID == client && event.accountID == account && event.action == action {
+                guard representatives.contains(event.outcome) else { break }
+                if event.outcome == outcome { return }
+            }
+        }
         audit.append(.init(timestamp: timestamp, clientID: client, accountID: account,
                            action: action, outcome: outcome))
         if audit.count > Self.maxInvocationAudit { audit.removeFirst(audit.count - Self.maxInvocationAudit) }

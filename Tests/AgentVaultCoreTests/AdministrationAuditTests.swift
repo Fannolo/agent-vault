@@ -24,7 +24,7 @@ private func auditBytes(_ events: [AuditEvent]) throws -> Data {
         }
     }
     let state = try f.state.snapshot()
-    #expect(state.audit.count == VaultState.maxInvocationAudit)
+    #expect(state.audit.map(\.outcome) == ["denied"])
     #expect(try auditBytes(state.adminAudit) == before)
     #expect(state.adminAudit.contains { $0.outcome == "grant_created" })
     #expect(state.adminAudit.contains { $0.outcome == "grant_revoked" })
@@ -43,7 +43,7 @@ private func auditBytes(_ events: [AuditEvent]) throws -> Data {
         try await f.broker.cancelInvocation(id, clientID: f.client.id)
     }
     let state = try f.state.snapshot()
-    #expect(state.audit.count == VaultState.maxInvocationAudit)
+    #expect(state.audit.map(\.outcome) == ["approval_requested", "approval_cancelled"])
     #expect(try auditBytes(state.adminAudit) == before)
     #expect(f.secrets.reads == 0)
 }
@@ -93,7 +93,7 @@ private func auditBytes(_ events: [AuditEvent]) throws -> Data {
     try store.transaction { state in
         state.clients.append(.init(id: client))
         for _ in 0..<300 { state.recordAdministration(client: client, outcome: "client_paired", at: timestamp) }
-        for _ in 0..<2000 { state.record(client: client, account: nil, action: nil, outcome: "denied", at: timestamp) }
+        for _ in 0..<2000 { state.record(client: client, account: nil, action: nil, outcome: "completed", at: timestamp) }
     }
     let restored = try FileStateStore(directory: root).snapshot()
     #expect(restored.adminAudit.count == VaultState.maxAdministrationAudit)
@@ -101,6 +101,20 @@ private func auditBytes(_ events: [AuditEvent]) throws -> Data {
     #expect(restored.adminAudit.count + restored.audit.count == 1000)
     #expect(throws: VaultError.stateUnavailable) { try store.transaction { $0.adminAudit.append($0.adminAudit[0]) } }
     #expect(try store.snapshot().adminAudit.count == VaultState.maxAdministrationAudit)
+}
+
+@Test func completedWorkSurvives800ExhaustedGrantDenials() async throws {
+    let f = try await Fixture.make(calls: 1)
+    #expect(try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) == .demoReady)
+    for _ in 0..<800 {
+        await #expect(throws: VaultError.denied) {
+            _ = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
+        }
+    }
+    let state = try f.state.snapshot()
+    #expect(state.audit.map(\.outcome) == ["reserved", "completed", "denied"])
+    #expect(state.grants.first { $0.id == f.grant.id }?.callsUsed == 1)
+    #expect(f.secrets.reads == 1)
 }
 
 @Test func schemaThreeRequiresAdministrationHistoryAndRefusesVersionTwo() throws {

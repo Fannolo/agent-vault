@@ -76,9 +76,9 @@ def main():
         details = run("/usr/bin/codesign", "-d", "--verbose=4", str(path), capture_output=True, text=True).stderr
         require("runtime" in details and f"TeamIdentifier={TEAM}" in details, "signature lacks hardened runtime or expected publisher")
         declared = run("/usr/bin/codesign", "-d", "--entitlements", "-", str(path), capture_output=True).stdout
-        if declared:
-            claims = plistlib.loads(declared)
-            require(not claims.get("com.apple.security.get-task-allow") and not claims.get("get-task-allow"), "debugger entitlement is forbidden")
+        claims = plistlib.loads(declared) if declared.strip() else {}
+        expected = plistlib.loads(entitlements_path.read_bytes()) if path == app and entitlements else {}
+        require(claims == expected, "signed entitlements differ from this role's exact declared policy")
     shutil.copytree(ROOT / "deploy/ipc", output / "deployment")
     run("python3", "scripts/generate-sbom.py", str(output / "sbom.cdx.json"))
     commit = run("git", "rev-parse", "HEAD", capture_output=True, text=True).stdout.strip()

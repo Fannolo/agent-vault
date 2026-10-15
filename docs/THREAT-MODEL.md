@@ -64,7 +64,10 @@ migration reads a user's existing Keychain or version-1 developer state. Product
 requires an HMAC with an independent broker-only key and refuses unsigned downgrade. The latest
 audit history is bounded metadata: 256 reserved administration entries and 744 invocation
 entries in schema 3. Agent traffic cannot evict the administration partition; administration
-traffic can still evict older administration entries. HMAC detects modification, not replay of an older
+traffic can still evict older administration entries. Repeated denials and unapproved-request
+events for the same client/account/action are coalesced until a real reservation or terminal
+event resets that tuple. They are representative events, not exact attempt counts. Completed
+calls remain subject to bounded retention. HMAC detects modification, not replay of an older
 authentic snapshot or deletion by a privileged attacker; audit is not an immutable witness.
 
 The MCP transport bounds input before SDK parsing: 64 KiB per line, depth 64, 16 queued and
@@ -78,7 +81,16 @@ authentication probes do not consume those handler slots. Pending invocation app
 a 120-second lifetime; waiting resumes report that approval is still required. The dedicated
 broker's explicit Keychain is unlocked with its private seed before every access, including
 after sleep or an explicit lock. Its lock policy stays unchanged: changing it required a GUI
-authorization prompt in the native check. No Keychain setting or search list is changed.
+authorization hypothesis that was not confirmed: the native trace showed a blocked Security
+framework call, but no dialog was observed. The settings change was removed. No Keychain
+setting or search list is changed.
+
+Synchronous credential operations run off the broker actor with at most four actual operations
+and no waiting queue. Calls have a five-second deadline; a timed-out operation retains its slot
+and pending-write guard until it really finishes. Late results are discarded. Uncertain writes
+retain lifecycle journals and cannot race recovery or another mutation. This keeps metadata
+revocation responsive to a stalled credential store; it does not cancel an operation inside
+Security.framework. The private database password remains in broker memory for explicit unlocks.
 
 Swift/Foundation may copy immutable credential buffers and strings. The design does not claim
 complete RAM zeroization. Native tests use unique synthetic namespaces and delete only their

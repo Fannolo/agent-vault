@@ -88,7 +88,9 @@ You need these:
   AgentVault.app/Contents/MacOS/AgentVault --print-approval-public-key > approval-key.json
   ```
 
-  Pass the export's `sha256Fingerprint` as `--approval-key-sha256`. The installer
+  Open the app's Approval Key screen and independently compare its displayed SHA-256
+  fingerprint with the export. Pass the fingerprint read from the app as
+  `--approval-key-sha256`, rather than copying it from the file you are checking. The installer
   recomputes the fingerprint from the key and refuses a mismatch. It also refuses fixture
   keys, keys without user presence and points that are not on P-256.
 
@@ -230,6 +232,5 @@ references. A test requires the installer's output to equal them, and the Swift
   placed. Later replacement is caught only by the admin service's cdhash pin.
 - The approval key's protection is the app's own claim in the export. The installer
   cannot attest hardware protection.
-- The app does not display the key fingerprint yet. The `--approval-key-sha256` check
-  only proves that the file is intact. It does not compare the key with a second,
-  independent display.
+- The app displays the public-key fingerprint, but the installer cannot establish that
+  the operator compared that display with the export. This is a trusted installation step.

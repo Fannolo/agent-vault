@@ -1,4 +1,5 @@
 import AgentVaultContracts
+import AgentVaultJSON
 import Foundation
 
 /// Size, count and value bounds applied on both sides of the connection.
@@ -137,6 +138,8 @@ enum WireCodec {
     private static func flatObject<T: Decodable>(_ data: Data, as type: T.Type,
                                                  limits: IPCLimits) throws(IPCError) -> (Set<String>, T) {
         guard data.count <= limits.maxRequestBytes else { throw .requestTooLarge }
+        do { try JSONObjectGuard.validate(data) }
+        catch { throw .invalidRequest }
         let decoder = decoder()
         guard case .object(let fields)? = try? decoder.decode(JSONTree.self, from: data),
               fields.values.allSatisfy({ if case .scalar = $0 { true } else { false } }),
@@ -164,8 +167,10 @@ enum WireCodec {
 
     /// Parses a reply envelope, accepting only the kinds a given call may return.
     static func decodeReply(_ data: Data, allowed: Set<ReplyKind>, limits: IPCLimits) -> Result<Envelope, IPCError> {
-        guard data.count <= limits.maxReplyBytes,
-              case .object(let fields)? = try? decoder().decode(JSONTree.self, from: data),
+        guard data.count <= limits.maxReplyBytes else { return .failure(.malformedReply) }
+        do { try JSONObjectGuard.validate(data) }
+        catch { return .failure(.malformedReply) }
+        guard case .object(let fields)? = try? decoder().decode(JSONTree.self, from: data),
               fields.count == 1, let (key, tree) = fields.first,
               let kind = ReplyKind(rawValue: key), allowed.union([.error]).contains(kind),
               shape(kind).admits(tree) else { return .failure(.malformedReply) }

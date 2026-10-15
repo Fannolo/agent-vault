@@ -95,7 +95,7 @@ private final class CrashImageSecrets: SecretStore, @unchecked Sendable {
     #expect(try restoredState.snapshot().adminAudit.contains { $0.outcome == "rotation_recovered" })
 }
 
-@Test func interruptedEnrollmentKeepsEvidenceAndRecoveryDeletesOnlyTrackedItem() async throws {
+@Test func failedEnrollmentCompensatesWithoutDeletingUnrelatedItems() async throws {
     let state = MemoryState(), secrets = InterruptedSecrets()
     let broker = Broker(state: state, secrets: secrets)
     let unrelated = UUID()
@@ -104,12 +104,52 @@ private final class CrashImageSecrets: SecretStore, @unchecked Sendable {
     await #expect(throws: VaultError.secretUnavailable) {
         _ = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-enrollment".utf8))
     }
-    #expect(try state.snapshot().accounts.map(\.lifecycle) == [.enrolling])
-    #expect(secrets.ids.count == 2)
-    // A replacement broker represents process restart using the same stores.
-    try await Broker(state: state, secrets: secrets).recoverInterruptedLifecycle()
     #expect(try state.snapshot().accounts.isEmpty)
     #expect(secrets.ids == [unrelated])
+    #expect(try state.snapshot().adminAudit.contains { $0.outcome == "enrollment_failed" })
+    #expect(try state.snapshot().adminAudit.contains { $0.outcome == "enrollment_aborted" })
+}
+
+@Test func enrollmentCrashImageSurvivesLiveCompensationAndRecoversOnlyTrackedItem() async throws {
+    let liveRoot = try privateDirectory(), crashRoot = try privateDirectory()
+    defer {
+        try? FileManager.default.removeItem(at: liveRoot)
+        try? FileManager.default.removeItem(at: crashRoot)
+    }
+    let state = try FileStateStore(directory: liveRoot), unrelated = UUID()
+    let secrets = CrashImageSecrets(state: state), broker = Broker(state: state, secrets: secrets)
+    try secrets.save(Data("SYNTHETIC-unrelated".utf8), for: unrelated)
+    secrets.captureNextSave()
+    await #expect(throws: VaultError.secretUnavailable) {
+        _ = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-enrollment".utf8))
+    }
+    #expect(try state.snapshot().accounts.isEmpty)
+    #expect(secrets.ids == [unrelated])
+    let image = try #require(secrets.crashImage)
+    #expect(try JSONDecoder().decode(VaultState.self, from: image.metadata).accounts[0].lifecycle == .enrolling)
+    let path = crashRoot.appendingPathComponent("state.json")
+    try image.metadata.write(to: path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
+    let restored = try FileStateStore(directory: crashRoot)
+    let restoredSecrets = CrashImageSecrets(state: restored, items: image.secrets)
+    try await Broker(state: restored, secrets: restoredSecrets).recoverInterruptedLifecycle()
+    #expect(try restored.snapshot().accounts.isEmpty)
+    #expect(restoredSecrets.ids == [unrelated])
+}
+
+@Test func failedEnrollmentCleanupKeepsItsJournalUntilRecoverySucceeds() async throws {
+    let state = MemoryState(), secrets = InterruptedSecrets()
+    let broker = Broker(state: state, secrets: secrets)
+    secrets.interruptNextSave(); secrets.interruptNextDelete()
+    await #expect(throws: VaultError.secretUnavailable) {
+        _ = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-enrollment".utf8))
+    }
+    #expect(try state.snapshot().accounts[0].lifecycle == .enrolling)
+    #expect(secrets.ids.count == 1)
+    #expect(try state.snapshot().adminAudit.contains { $0.outcome == "enrollment_compensation_failed" })
+    try await broker.recoverInterruptedLifecycle()
+    #expect(try state.snapshot().accounts.isEmpty)
+    #expect(secrets.ids.isEmpty)
 }
 
 @Test func failedRotationRestoresOriginalImmediatelyAndSuccessfulRotationRevokesOldGrant() async throws {

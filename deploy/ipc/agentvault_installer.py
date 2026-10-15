@@ -38,6 +38,13 @@ BROKER_IDS = range(200, 400)
 MAX_PAYLOAD_BYTES = 256 * 1024 * 1024
 MAX_PAYLOAD_ENTRIES = 4096
 MAX_CONFIG_BYTES = 16_384
+UNSAFE_ENTITLEMENTS = (
+    "com.apple.security.cs.allow-dyld-environment-variables",
+    "com.apple.security.cs.disable-library-validation",
+    "com.apple.security.cs.allow-unsigned-executable-memory",
+    "com.apple.security.cs.allow-jit",
+    "com.apple.security.cs.disable-executable-page-protection",
+)
 
 Path = Tuple[str, ...]
 CONFIG_DIR: Path = ("Library", "Application Support", "AgentVault")
@@ -345,6 +352,7 @@ class CodeIdentity:
     cdhash: str
     hardened: bool
     get_task_allow: bool
+    unsafe_entitlements: Tuple[str, ...] = ()
 
 
 class CodeInspector:
@@ -359,7 +367,8 @@ class CodeInspector:
         flags = re.search(r"flags=0x[0-9a-f]+\(([^)]*)\)", fields.get("CodeDirectory v", ""))
         return CodeIdentity(fields.get("Identifier", ""), fields.get("TeamIdentifier", ""),
                             fields.get("CDHash", ""), bool(flags and "runtime" in flags.group(1).split(",")),
-                            bool(claims.get("com.apple.security.get-task-allow") or claims.get("get-task-allow")))
+                            bool(claims.get("com.apple.security.get-task-allow") or claims.get("get-task-allow")),
+                            tuple(key for key in UNSAFE_ENTITLEMENTS if claims.get(key)))
 
     def satisfies(self, path: str, text: str) -> bool:
         return run_command(["/usr/bin/codesign", "--verify", "--strict", "--deep", "-R=" + text, path],
@@ -692,6 +701,7 @@ class Installer:
         require(found.team == TEAM, f"{program.source} is not signed by team {TEAM}")
         require(found.hardened, f"{program.source} lacks the hardened runtime")
         require(not found.get_task_allow, f"{program.source} allows debugger attachment (get-task-allow)")
+        require(not found.unsafe_entitlements, f"{program.source} weakens code protection with unsafe entitlements")
         require(re.fullmatch(r"[0-9a-f]{40}", found.cdhash) is not None, f"{program.source} has no SHA-256 cdhash")
         require(pinned is None or found.cdhash == pinned, f"{program.source} is not the pinned code")
         require(self.host.inspector.satisfies(path, requirement(program.identifier, found.cdhash)),
