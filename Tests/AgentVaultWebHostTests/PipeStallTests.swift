@@ -20,8 +20,8 @@ private struct StalledReader {
         chmod(binary.path, 0o755)
     }
 
-    func pipe() throws -> ChromiumPipe {
-        try ChromiumPipe(binary: binary, runDirectory: directory, onEvent: { _ in }, onExit: {})
+    func pipe(makeGroup: @Sendable (pid_t) -> OwnedGroup = { OwnedGroup($0) }) throws -> ChromiumPipe {
+        try ChromiumPipe(binary: binary, runDirectory: directory, onEvent: { _ in }, onExit: {}, makeGroup: makeGroup)
     }
 
     func remove() { try? FileManager.default.removeItem(at: directory) }
@@ -95,6 +95,45 @@ private func reaped(_ pipe: ChromiumPipe, within seconds: Double = 3) -> Bool {
 }
 
 @Suite(.serialized) struct OwnedGroupTests {
+    @Test func failedExitObservationKillsAndReapsTheOwnedChild() throws {
+        let reader = try StalledReader(); defer { reader.remove() }
+        let pipe = try reader.pipe { OwnedGroup($0, observeExit: { _ in false }) }
+        defer { StalledReader.release(pipe) }
+        #expect(reaped(pipe), "observer failure must end the child without waiting for its 20 s lifetime")
+        #expect(!pipe.signalGroup(SIGKILL))
+    }
+
+    @Test func interruptedWaitRetriesBeforeReportingTheChildReaped() throws {
+        let reader = try StalledReader(); defer { reader.remove() }
+        let calls = ReapCalls()
+        let pipe = try reader.pipe { OwnedGroup($0, observeExit: { _ in false }, reap: { id in
+            if calls.next() == 1 { return .interrupted }
+            return OwnedGroup.waitForChild(id)
+        }) }
+        defer { StalledReader.release(pipe) }
+        #expect(reaped(pipe))
+        #expect(calls.count == 2, "EINTR cannot count as a completed wait")
+        #expect(!pipe.signalGroup(SIGKILL))
+    }
+
+    @Test(arguments: [OwnedGroup.ReapResult.noChild, .failed])
+    func anUnconfirmedWaitNeitherClaimsReapedNorSignalsAgain(_ failure: OwnedGroup.ReapResult) throws {
+        let reader = try StalledReader(); defer { reader.remove() }
+        let calls = ReapCalls()
+        let pipe = try reader.pipe { OwnedGroup($0, observeExit: { _ in false }, reap: { id in
+            // Actually reap our child so fault injection cannot leak it. Report uncertainty
+            // to the handle to check its fail-closed state independently of that cleanup.
+            guard case .reaped = OwnedGroup.waitForChild(id) else { return .failed }
+            _ = calls.next()
+            return failure
+        }) }
+        let deadline = Date().addingTimeInterval(3)
+        while calls.count == 0 && Date() < deadline { usleep(20_000) }
+        #expect(calls.count == 1)
+        #expect(!pipe.signalGroup(SIGKILL), "ownership cannot be assumed after ECHILD or a failed wait")
+        #expect(!pipe.isReaped, "only a confirmed wait may report successful cleanup")
+    }
+
     @Test func aStoppedBrowserIsNeitherExitedNorReapedUntilItIsKilled() async throws {
         let reader = try StalledReader(); defer { reader.remove() }
         let pipe = try reader.pipe(); defer { StalledReader.release(pipe) }
@@ -106,6 +145,13 @@ private func reaped(_ pipe: ChromiumPipe, within seconds: Double = 3) -> Bool {
         #expect(reaped(pipe), "killed through the owned handle, then reaped")
         #expect(!pipe.signalGroup(SIGKILL), "after reaping, the handle never signals again")
     }
+}
+
+private final class ReapCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func next() -> Int { lock.withLock { value += 1; return value } }
+    var count: Int { lock.withLock { value } }
 }
 
 @Suite(.serialized) struct LaunchBarrierTests {

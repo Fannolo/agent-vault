@@ -121,7 +121,8 @@ final class ChromiumPipe: @unchecked Sendable {
     /// Starts `binary` with a private user data directory under `runDirectory`, which must be a
     /// 0700 directory owned by this user. HOME and TMPDIR also point inside it.
     init(binary: URL, runDirectory: URL, onEvent: @escaping @Sendable (CDPEvent) -> Void,
-         onExit: @escaping @Sendable () -> Void) throws {
+         onExit: @escaping @Sendable () -> Void,
+         makeGroup: @Sendable (pid_t) -> OwnedGroup = { OwnedGroup($0) }) throws {
         self.onEvent = onEvent; self.onExit = onExit
         var info = stat()
         guard lstat(runDirectory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == geteuid(),
@@ -160,7 +161,7 @@ final class ChromiumPipe: @unchecked Sendable {
         close(toChild[0]); close(fromChild[1])
         guard status == 0 else { close(toChild[1]); close(fromChild[0]); throw CDPError.closed }
         processGroup = pid; commands = toChild[1]; replies = fromChild[0]
-        owned = OwnedGroup(pid)
+        owned = makeGroup(pid)
         // A browser that stops reading must never block a writer past its deadline.
         _ = fcntl(commands, F_SETFL, fcntl(commands, F_GETFL) | O_NONBLOCK)
         signal(SIGPIPE, SIG_IGN)
@@ -303,24 +304,33 @@ final class ChromiumPipe: @unchecked Sendable {
 ///
 /// The leader is a child of this process, so its PID, and with it the group ID, cannot be reused
 /// until it is reaped, and it is reaped only here, under `lock`. Signalling under the same lock
-/// while `reaped` is false therefore can only reach this browser's processes.
+/// while ownership is pinned therefore can only reach this browser's processes.
 final class OwnedGroup: @unchecked Sendable {
+    enum ReapResult: Sendable { case reaped, interrupted, noChild, failed }
+    private enum Ownership { case pinned, reaped, unavailable }
     let id: pid_t
     private let lock = NSLock()
-    private var reaped = false
+    private var ownership = Ownership.pinned
+    private let observeExit: @Sendable (pid_t) -> Bool
+    private let reap: @Sendable (pid_t) -> ReapResult
 
-    init(_ leader: pid_t) { id = leader }
+    init(_ leader: pid_t, observeExit: (@Sendable (pid_t) -> Bool)? = nil,
+         reap: (@Sendable (pid_t) -> ReapResult)? = nil) {
+        id = leader
+        self.observeExit = observeExit ?? Self.waitForExit
+        self.reap = reap ?? Self.waitForChild
+    }
 
     /// Returns `false` once the leader is reaped: the group ID may then belong to someone else.
     @discardableResult
     func signal(_ signal: Int32 = SIGKILL) -> Bool {
         lock.withLock {
-            guard !reaped else { return false }
+            guard ownership == .pinned else { return false }
             return Darwin.kill(-id, signal) == 0
         }
     }
 
-    var isReaped: Bool { lock.withLock { reaped } }
+    var isReaped: Bool { lock.withLock { ownership == .reaped } }
 
     /// Waits for the leader to exit without reaping it, ends any member it left behind while the
     /// group ID is still pinned, then reaps it. Holds itself alive until then.
@@ -328,20 +338,38 @@ final class OwnedGroup: @unchecked Sendable {
         let reaper = Thread { [self] in
             // Not `waitid(WEXITED | WNOWAIT)`: measured on macOS 15, it also returns for a stopped
             // child. A kqueue exit event fires only on exit and does not reap.
-            guard waitForExit() else { return }
+            // A failed watcher also tears down the owned group; it cannot abandon the child.
+            _ = observeExit(id)
             lock.withLock {
                 _ = Darwin.kill(-id, SIGKILL)
-                var status: Int32 = 0
-                _ = waitpid(id, &status, 0)
-                reaped = true
+                while true {
+                    switch reap(id) {
+                    case .interrupted: continue
+                    case .reaped: ownership = .reaped
+                    // ECHILD means ownership can no longer be proved. Never signal again or
+                    // claim a successful reap; an unexpected wait failure is equally uncertain.
+                    case .noChild, .failed: ownership = .unavailable
+                    }
+                    return
+                }
             }
         }
         reaper.stackSize = 1 << 16
         reaper.start()
     }
 
-    /// Blocks until the leader exits; `false` if exit cannot be observed (then nothing is reaped).
-    private func waitForExit() -> Bool {
+    static func waitForChild(_ id: pid_t) -> ReapResult {
+        var status: Int32 = 0
+        if waitpid(id, &status, 0) == id { return .reaped }
+        switch errno {
+        case EINTR: return .interrupted
+        case ECHILD: return .noChild
+        default: return .failed
+        }
+    }
+
+    /// Blocks until exit; a failed observer makes the caller kill and reap instead.
+    private static func waitForExit(_ id: pid_t) -> Bool {
         let queue = kqueue()
         guard queue >= 0 else { return false }
         defer { close(queue) }
