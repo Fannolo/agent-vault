@@ -277,6 +277,23 @@ private func batch(_ events: HumanInput...) -> HumanInputBatch { HumanInputBatch
         #expect(try await r.f.resume(run) == .humanStepRequired(run))
     }
 
+    @Test(arguments: [HumanStepDecision.finished, .cancel])
+    func aClosedConnectionCannotConcludeBeforeItsClosedCallback(_ decision: HumanStepDecision) async throws {
+        let (r, run) = try await Relay.make()
+        let liveness = Liveness()
+        let connection = ContinuationConnectionID(minted: UUID(), isOpen: { liveness.isOpen })
+        let lease = try await r.open(try await r.step(), on: connection)
+        liveness.close()
+        await #expect(throws: VaultError.denied) {
+            _ = try await r.broker.concludeHumanStep(ContinuationLeaseID(lease), connection: connection, decision: decision)
+        }
+        #expect(try await r.f.resume(run) == .humanStepRequired(run))
+        #expect(r.f.host.contextOpen(run))
+        #expect(await r.broker.relayCount == 1, "only the delayed close callback may remove this lease")
+        await r.broker.continuationConnectionClosed(connection)
+        #expect(await r.broker.relayCount == 0)
+    }
+
     @Test func anOpenThatTheHostCannotShowGrantsNoLeaseAndKeepsThePause() async throws {
         let (r, run) = try await Relay.make()
         r.f.host.refuseToShow()

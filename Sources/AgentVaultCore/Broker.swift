@@ -765,7 +765,7 @@ extension Broker {
     public func concludeHumanStep(_ lease: ContinuationLeaseID, connection: ContinuationConnectionID,
                                   decision: HumanStepDecision) async throws -> HumanStepProgress {
         await sweep()
-        guard let run = runs.values.first(where: { $0.lease?.id == lease }),
+        guard connection.isOpen, let run = runs.values.first(where: { $0.lease?.id == lease }),
               run.lease?.connection == connection else { throw VaultError.denied }
         guard isAuthorized(run) else {
             await apply(run.id, .authorityLost)
