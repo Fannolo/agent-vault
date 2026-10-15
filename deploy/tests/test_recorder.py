@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import stat
 from pathlib import Path
 import subprocess
 import sys
@@ -66,15 +67,19 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(record["sourceUnchanged"])
         self.assertTrue(record["logDirectory"].startswith("verification-logs/"))
+        self.assertEqual(stat.S_IMODE((self.repo / record["logDirectory"]).stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((self.repo / "verification-logs").stat().st_mode), 0o700)
         for entry in record["checks"]:
             log = self.repo / entry["log"]
             self.assertFalse(Path(entry["log"]).is_absolute())
             self.assertEqual(entry["logSha256"], hashlib.sha256(log.read_bytes()).hexdigest())
             self.assertTrue(entry["passed"])
+            self.assertEqual(stat.S_IMODE(log.stat().st_mode), 0o600)
         aux = record["checks"][1]
         self.assertEqual(aux["evidence"], {"results": [1]})
         evidence = self.repo / aux["evidenceFile"]["path"]
         self.assertEqual(aux["evidenceFile"]["sha256"], hashlib.sha256(evidence.read_bytes()).hexdigest())
+        self.assertEqual(stat.S_IMODE(evidence.stat().st_mode), 0o600)
         self.assertNotIn(str(self.repo), json.dumps(record["checks"]))
         self.assertEqual(record["checks"][0]["observedSummary"], ["Ran 1 test", "OK"])
 

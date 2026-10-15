@@ -120,6 +120,12 @@ private func waitForRecoveryStart(_ broker: Broker) async throws {
     }
 }
 
+private func releaseWatchdog(_ store: StallingSecrets) -> DispatchWorkItem {
+    let watchdog = DispatchWorkItem { store.release() }
+    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 5, execute: watchdog)
+    return watchdog
+}
+
 @Test func recoveryReservesAdmissionBeforeDrainingAuthorizedReads() async throws {
     let f = try await IOFixture.make(timeout: 2)
     let retired = UUID()
@@ -236,16 +242,16 @@ private func waitForRecoveryStart(_ broker: Broker) async throws {
 }
 
 @Test func blockedSecretReadCannotBlockRevocationOrMetadataSnapshots() async throws {
-    let f = try await IOFixture.make(timeout: 2)
+    let f = try await IOFixture.make(timeout: 10)
     f.store.stall(.load)
     defer { f.store.release(4) }
-    DispatchQueue.global().asyncAfter(deadline: .now() + 1) { f.store.release() }
     let run = Task { try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) }
     try await f.store.waitForStarts(1)
-    let start = ContinuousClock.now
+    let watchdog = releaseWatchdog(f.store)
+    defer { watchdog.cancel() }
     try await f.broker.revokeGrant(f.grant.id)
     #expect(try await f.broker.snapshot().grants.first { $0.id == f.grant.id }?.revoked == true)
-    #expect(ContinuousClock.now - start < .milliseconds(250))
+    // Prove ordering, rather than making the test depend on runner scheduling speed.
     #expect(f.store.finishes == 0)
     f.store.release()
     await #expect(throws: VaultError.denied) { _ = try await run.value }
@@ -592,19 +598,18 @@ func refusedHostAdmissionDoesNotLeakCredentialReadCapacity(hostAvailable: Bool) 
 
 @Test(arguments: [StallingSecrets.Kind.save, .delete])
 private func blockedLifecycleIOCannotBlockClientRevocationOrSnapshot(_ kind: StallingSecrets.Kind) async throws {
-    let f = try await IOFixture.make(timeout: 2)
+    let f = try await IOFixture.make(timeout: 10)
     f.store.stall(kind)
     defer { f.store.release(4) }
-    DispatchQueue.global().asyncAfter(deadline: .now() + 1) { f.store.release() }
     let operation = Task {
         if kind == .save { try await f.broker.rotate(accountID: f.account.id, credential: Data("SYNTHETIC-new".utf8)) }
         else { try await f.broker.deleteAccount(f.account.id) }
     }
     try await f.store.waitForStarts(1)
-    let start = ContinuousClock.now
+    let watchdog = releaseWatchdog(f.store)
+    defer { watchdog.cancel() }
     try await f.broker.revokeClient(f.client.id)
     #expect(try await f.broker.snapshot().clients.first { $0.id == f.client.id }?.revoked == true)
-    #expect(ContinuousClock.now - start < .milliseconds(250))
     #expect(f.store.finishes == 0)
     f.store.release()
     try await operation.value

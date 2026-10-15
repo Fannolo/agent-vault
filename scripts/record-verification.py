@@ -89,7 +89,8 @@ def run_check(name, run_dir):
         env["AGENT_VAULT_KEYCHAIN_TEST"] = "1"
     check = {"name": name, "argv": argv, "log": str(relative / log.name)}
     started = time.monotonic()
-    with log.open("wb") as handle:
+    with log.open("xb") as handle:
+        os.fchmod(handle.fileno(), 0o600)
         try:
             check["exitCode"] = subprocess.run(argv, cwd=ROOT, env=env, stdout=handle,
                                                stderr=subprocess.STDOUT).returncode
@@ -106,6 +107,7 @@ def run_check(name, run_dir):
         if not evidence.exists():
             check.setdefault("error", "the check wrote no evidence file")
         else:
+            evidence.chmod(0o600)
             data = evidence.read_bytes()
             check["evidenceFile"] = {"path": str(relative / evidence.name), "sha256": sha256(data)}
             try:
@@ -130,8 +132,11 @@ def main(argv=None):
     if subprocess.run(["git", "check-ignore", "-q", LOGS + "/"], cwd=ROOT).returncode != 0:
         parser.error(f"{LOGS}/ must be git-ignored so retained logs are never committed")
     started = datetime.now(timezone.utc)
-    run_dir = ROOT / LOGS / f"{started.strftime('%Y%m%dT%H%M%S.%fZ')}-{output.stem}"
-    run_dir.mkdir(parents=True, exist_ok=False)
+    logs = ROOT / LOGS
+    logs.mkdir(mode=0o700, exist_ok=True)
+    logs.chmod(0o700)
+    run_dir = logs / f"{started.strftime('%Y%m%dT%H%M%S.%fZ')}-{output.stem}"
+    run_dir.mkdir(mode=0o700, exist_ok=False)
     record = {
         "scope": "Local synthetic checks; not installed isolation, production browser or notarization proof",
         "clockNote": "Wall-clock observations are local metadata, not an attestation of command order",

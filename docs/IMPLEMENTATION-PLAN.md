@@ -11,6 +11,28 @@
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
+Current integration `198786e` passed 222 tests in ten suites, plus MCP, boundaries,
+48 installer tests in each Python mode with 14 guard mutations, five release tests,
+nine cleanup tests, eight recorder tests, two separate native Keychain checks, 20
+same-UID XPC scenarios and eight XPC mutations. The
+[current record](verification/browser-u0-r4-integration.json) includes full source hashes,
+cache-reuse limits and durable local raw-log paths/hashes. Logs are ignored and private.
+
+U0 and the round-four recovery/release fixes are integrated. Three independently
+reproduced browser Medium defects were corrected and independently retested. Human opens
+now bind a preexisting step token. U1/U2 implementation and a new Claude Sonnet review
+run separately. Production browser services remain disabled.
+
+CI on `0553119` failed three watchdog-order checks. The test now arms its cancellable
+fallback after the worker starts and proves revocation/snapshots finish while the worker
+remains blocked. Focused checks pass; updated CI is pending. Production timeout stays
+five seconds. The last signed review bundle (`1e4a2ea`) predates this integration and
+does not prove the newer code; installed ownership, provisioning and notarization remain open.
+
+### Earlier verification snapshots
+
+The following notes describe earlier source checkpoints; their records are preserved.
+
 The round-three integrated checkpoint `83971b7` passed 190 tests, including real
 WebKit fixtures, native-app flows, bounded stdio, runtime file/lease checks and a real SDK
 client exercising all four bridge tools. Native Keychain checks are explicit opt-ins;

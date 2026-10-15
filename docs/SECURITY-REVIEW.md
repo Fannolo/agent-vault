@@ -1,6 +1,49 @@
 # Implementation security reviews
 
-## Current follow-up: 15 October 2026
+## Browser lifecycle and round-four follow-up: 15 October 2026
+
+Integration `198786e` passed 222 Swift tests and all ten recorded checks. The
+[record](verification/browser-u0-r4-integration.json) retains source hashes and local log
+paths/hashes. Raw logs stay in ignored `verification-logs/` with owner-only access; earlier
+temporary logs, including the failed cleanup run, have also been retained there.
+
+Claude Sonnet 5.5 round four confirmed the R3 fixes at `83971b7`, finding no High or
+Medium defect in that scope. Its Low findings and evidence gaps were addressed as follows:
+
+| Finding | Response | Limit |
+|---|---|---|
+| R4-1: reads can starve recovery | `520a4dc` closes admission before a bounded async drain; cancellation and failure release the gate | Stuck native workers still need completion or restart |
+| R4-2: deprecated extraction and malformed XML | `9a0cabb` shares a supported XML reader between builder/installer, cross-checks XML/plain emptiness and refuses malformed/binary/non-dictionary results | The cross-check compares emptiness, not two parsed dictionaries |
+| R4-6/R4-8: volatile logs and incomplete failure/cache evidence | `7f73b0a` retains local logs/JSON by path/hash, records failed starts and JSON errors, and states cache reuse | Records are local observations, not external attestations or clean-build claims |
+| R4-7: missing cleanup detail and unchecked harness exit | `198786e` records probe/bootout status, unload latency and removal errors; mutation gates also check the expected exit | The earlier failure's cause remains unknown; not-found status 113 is observed platform behavior |
+
+The round-four reviewer reported 30 temporary GUI-domain jobs despite the brief excluding
+live jobs, and reported removing them. That experiment was outside the agreed review
+method and is not installed-isolation proof. The next review explicitly forbids repeating it.
+
+Claude Opus 5.5 implemented U0 at `8db3925`, integrated at `8c69601`. An independent
+GPT-6.1-Sol judge reproduced three Medium defects before acceptance: late classification
+bypassing the human-pause deadline, uncertain rotation retaining an unauthorized context,
+and untracked timers accumulating after collection. Parent fixes check the original pause
+deadline before applying a host reply, tear down at rotation intent before the save, and
+own/cancel/reuse one timer per retained run. The judge independently verified four focused
+corrections, including stale signed opens across challenges of the same kind. A preexisting
+`HumanStepID` now binds every open to its run and step epoch. The accepted judge snapshot
+preceded R4 recovery; the full 222-test integration covers that merge.
+
+CI at `0553119` still failed three fixture-watchdog ordering checks: the one-second release
+could fire before the assertion on a loaded runner. The fixtures now arm a cancellable
+watchdog after the worker starts and prove revocation/snapshots finish while it remains
+blocked. Focused checks pass; new CI is pending. Production timeout remains five seconds.
+
+Round five (`agent-vault-integrated-browser-r4-review-v5-20261015`) reviews frozen
+`198786e`; no verdict has returned. U1 must qualify host-loss events by connection/affected
+runs and fit host deadlines within the read transport budget. Actual host, human frame/input
+relay, independent OS egress, private-UID/daemon proof, protected-key signing, notarization
+and target-host compatibility remain open. Production browser services stay disabled.
+These are bounded model reviews, not security certification.
+
+## Round three: 15 October 2026
 
 Claude Sonnet 5.5 reviewed `d39b1c2` (documentation at `fe7f1dc`) in an independent,
 synthetic scratch export. It reran 181 Swift tests and 40 installer tests in both Python
