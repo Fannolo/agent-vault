@@ -212,7 +212,7 @@ public actor Broker {
 
     private func execute(clientID: UUID, accountID: UUID, action: Action, approvedRequest: UUID?) async throws -> OperationResult {
         guard !recoveryInProgress else { throw VaultError.busy }
-        let permit: (Account, UUID)? = try state.transaction { state in
+        let permit: (Account, UUID, SecretIOExecutor.ReadReservation)? = try state.transaction { state in
             let timestamp = now()
             guard state.clients.contains(where: { $0.id == clientID && !$0.revoked }),
                   let account = state.accounts.first(where: { $0.id == accountID && $0.lifecycle == .active }),
@@ -228,24 +228,32 @@ public actor Broker {
                 }
                 return nil
             }
+            let pendingIndex: Int?
             if state.grants[index].requiresApproval {
                 guard let approvedRequest,
-                      let pendingIndex = state.pending.firstIndex(where: {
+                      let approvedIndex = state.pending.firstIndex(where: {
                           $0.id == approvedRequest && $0.clientID == clientID && $0.accountID == accountID &&
                           $0.action == action && $0.grantID == state.grants[index].id &&
                           $0.status == .approved && $0.expiresAt > timestamp
                       }) else { return nil }
-                state.pending[pendingIndex].status = .consumed
-            } else if approvedRequest != nil { return nil }
-            // Reserve before dispatch; attempted calls consume budget even if the provider fails.
+                pendingIndex = approvedIndex
+            } else {
+                guard approvedRequest == nil else { return nil }
+                pendingIndex = nil
+            }
+            // No actor suspension or credential work occurs inside the transaction.
+            // Admission must succeed before spending a single-use approval or budget.
+            let reservation = try secretIO.reserveRead(account: account.id)
+            if let pendingIndex { state.pending[pendingIndex].status = .consumed }
+            // Admitted attempts consume budget even if credential access or the provider fails.
             state.grants[index].callsUsed += 1
             state.record(client: clientID, account: accountID, action: action, outcome: "reserved", at: timestamp)
-            return (account, state.grants[index].id)
+            return (account, state.grants[index].id, reservation)
         }
-        guard let (account, grantID) = permit else { throw VaultError.denied }
+        guard let (account, grantID, reservation) = permit else { throw VaultError.denied }
         var finishAttempted = false
         do {
-            let credential = try await secretIO.load(id: account.credentialID, account: account.id)
+            let credential = try await reservation.load(id: account.credentialID)
             // Keychain access may block on a human prompt. Recheck before dispatch.
             let current = try state.snapshot()
             guard current.clients.contains(where: { $0.id == clientID && !$0.revoked }),

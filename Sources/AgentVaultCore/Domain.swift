@@ -135,6 +135,9 @@ public struct VaultState: Codable, Sendable {
 
     public mutating func record(client: UUID, account: UUID?, action: Action?, outcome: String,
                                 at timestamp: Date) {
+        // Only paired clients own retention partitions. Arbitrary denied identities
+        // must not manufacture partitions or displace an authenticated client's history.
+        guard clients.contains(where: { $0.id == client }) else { return }
         // Unapproved requests, cancellations and denials are representatives,
         // not attempt counts. A real reservation/terminal event resets the tuple.
         let representatives: Set<String> = ["denied", "approval_requested", "approval_cancelled"]
@@ -146,7 +149,18 @@ public struct VaultState: Codable, Sendable {
         }
         audit.append(.init(timestamp: timestamp, clientID: client, accountID: account,
                            action: action, outcome: outcome))
-        if audit.count > Self.maxInvocationAudit { audit.removeFirst(audit.count - Self.maxInvocationAudit) }
+        while audit.count > Self.maxInvocationAudit {
+            let registered = Set(clients.map(\.id))
+            if let retired = audit.firstIndex(where: { !registered.contains($0.clientID) }) {
+                audit.remove(at: retired)
+            } else {
+                let counts = Dictionary(grouping: audit, by: \.clientID).mapValues(\.count)
+                let largest = counts.values.max()!
+                // Ties evict the oldest event across the equally largest histories.
+                let oldest = audit.firstIndex { counts[$0.clientID] == largest }!
+                audit.remove(at: oldest)
+            }
+        }
     }
 
     public mutating func recordAdministration(client: UUID = VaultState.administrationPrincipal,

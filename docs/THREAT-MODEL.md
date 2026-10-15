@@ -66,8 +66,15 @@ audit history is bounded metadata: 256 reserved administration entries and 744 i
 entries in schema 3. Agent traffic cannot evict the administration partition; administration
 traffic can still evict older administration entries. Repeated denials and unapproved-request
 events for the same client/account/action are coalesced until a real reservation or terminal
-event resets that tuple. They are representative events, not exact attempt counts. Completed
-calls remain subject to bounded retention. HMAC detects modification, not replay of an older
+event resets that tuple. They are representative events, not exact attempt counts. Invocation
+overflow evicts the oldest entry from the registered client with the largest retained history,
+using the oldest entry across tied clients. With at most 128 registered clients, a client that
+has accumulated five entries retains at least its latest five while it remains registered;
+unused capacity is shared. One client's successful flood cannot erase another client's smaller
+history. This floor applies while the registered population is stable; trusted administration
+can prune clients and change that population. Unregistered callers do not create entries or
+retention partitions, and existing history from pruned clients is evicted first under pressure. Completed calls remain subject to
+this bounded retention. HMAC detects modification, not replay of an older
 authentic snapshot or deletion by a privileged attacker; audit is not an immutable witness.
 
 The MCP transport bounds input before SDK parsing: 64 KiB per line, depth 64, 16 queued and
@@ -86,8 +93,13 @@ removed. No Keychain
 setting or search list is changed.
 
 Synchronous credential operations run off the broker actor with at most four actual operations
-and no waiting queue. Calls have a five-second deadline; a timed-out operation retains its slot
-and pending-write guard until it really finishes. Late results are discarded. Uncertain writes
+and no waiting queue. Reads reserve at most three slots, leaving one slot available to lifecycle
+writes even when agent reads stall. After authorization checks, a read slot is reserved in the
+same synchronous metadata transaction before consuming approval or attempt budget. A capacity
+refusal leaves both intact for retry; an admitted attempt spends budget even if credential
+access fails. Unused reservations are released when their metadata transaction fails, and each
+reservation can start only one read. Calls have a five-second deadline; a timed-out operation
+retains its slot and pending-write guard until it really finishes. Late results are discarded. Uncertain writes
 retain lifecycle journals and cannot race recovery or another mutation. This keeps metadata
 revocation responsive to a stalled credential store; it does not cancel an operation inside
 Security.framework. The private database password remains in broker memory for explicit unlocks.

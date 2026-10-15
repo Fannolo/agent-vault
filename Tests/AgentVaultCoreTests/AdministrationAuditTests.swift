@@ -117,6 +117,90 @@ private func auditBytes(_ events: [AuditEvent]) throws -> Data {
     #expect(f.secrets.reads == 1)
 }
 
+@Test func successfulClientFloodPreservesAnotherClientsSmallHistory() async throws {
+    let f = try await Fixture.make(calls: 10_000)
+    let victim = try await f.broker.registerClient()
+    _ = try await f.broker.grant(clientID: victim.id, accountID: f.account.id, duration: 60, callLimit: 3)
+    for _ in 0..<3 {
+        #expect(try await f.broker.run(clientID: victim.id, accountID: f.account.id, action: .demoStatus) == .demoReady)
+    }
+    let victimBefore = try auditBytes(f.state.snapshot().audit.filter { $0.clientID == victim.id })
+    let administrationBefore = try auditBytes(f.state.snapshot().adminAudit)
+    for _ in 0..<400 {
+        #expect(try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) == .demoReady)
+    }
+    let state = try f.state.snapshot()
+    #expect(state.audit.count == VaultState.maxInvocationAudit)
+    #expect(try auditBytes(state.audit.filter { $0.clientID == victim.id }) == victimBefore)
+    #expect(try auditBytes(state.adminAudit) == administrationBefore)
+    #expect(state.grants.first { $0.id == f.grant.id }?.callsUsed == 400)
+}
+
+@Test func invocationRetentionSharesCapacityAcross128RegisteredClients() throws {
+    let root = try privateDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try FileStateStore(directory: root), timestamp = Date()
+    var before = VaultState()
+    before.clients = (0..<VaultState.maxClients).map { _ in .init() }
+    for client in before.clients {
+        for index in 0..<10 {
+            before.record(client: client.id, account: nil, action: nil, outcome: "completed_\(index)", at: timestamp)
+        }
+    }
+    let noisy = before.clients[0].id
+    let protectedFloor = VaultState.maxInvocationAudit / VaultState.maxClients
+    for client in before.clients {
+        let outcomes = before.audit.filter { $0.clientID == client.id }.map(\.outcome)
+        #expect(outcomes.count >= protectedFloor)
+        #expect(outcomes.last == "completed_9")
+    }
+    var hammered = before
+    for _ in 0..<2000 { hammered.record(client: noisy, account: nil, action: nil, outcome: "completed", at: timestamp) }
+    // Unpaired UUIDs do not create retention partitions, even through the data model API.
+    for _ in 0..<2000 { hammered.record(client: UUID(), account: nil, action: nil, outcome: "denied", at: timestamp) }
+    // Hold the store's global process lock only for persistence, not the synthetic flood.
+    try store.transaction { $0 = hammered }
+    let after = try FileStateStore(directory: root).snapshot()
+    #expect(after.audit.count == VaultState.maxInvocationAudit)
+    for client in before.clients where client.id != noisy {
+        let protectedHistory = Array(before.audit.filter { $0.clientID == client.id }.suffix(protectedFloor))
+        let retained = after.audit.filter { $0.clientID == client.id }
+        #expect(retained.count >= protectedFloor)
+        #expect(try auditBytes(Array(retained.suffix(protectedFloor))) == auditBytes(protectedHistory))
+    }
+    #expect(after.audit.allSatisfy { event in after.clients.contains { $0.id == event.clientID } })
+}
+
+@Test func prunedClientHistoryCannotCreateUnboundedProtectedPartitions() throws {
+    var state = VaultState()
+    let timestamp = Date(), current = ClientRecord()
+    // Existing history may outlive a revoked client removed by prune, or originate
+    // from schema-3 writers that recorded unpaired denials before this policy.
+    state.clients = (0..<VaultState.maxClients).map { _ in .init() }
+    for client in state.clients {
+        for _ in 0..<6 { state.record(client: client.id, account: nil, action: nil, outcome: "completed", at: timestamp) }
+    }
+    state.clients = [current]
+    for _ in 0..<VaultState.maxInvocationAudit {
+        state.record(client: current.id, account: nil, action: nil, outcome: "completed", at: timestamp)
+    }
+    #expect(state.audit.count == VaultState.maxInvocationAudit)
+    #expect(state.audit.allSatisfy { $0.clientID == current.id })
+}
+
+@Test func unregisteredClientDenialsCannotDisplacePairedClientAudit() async throws {
+    let f = try await Fixture.make(calls: 1)
+    #expect(try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) == .demoReady)
+    let before = try auditBytes(f.state.snapshot().audit)
+    for _ in 0..<1000 {
+        await #expect(throws: VaultError.denied) {
+            _ = try await f.broker.run(clientID: UUID(), accountID: f.account.id, action: .demoStatus)
+        }
+    }
+    #expect(try auditBytes(f.state.snapshot().audit) == before)
+    #expect(f.secrets.reads == 1)
+}
+
 @Test func schemaThreeRequiresAdministrationHistoryAndRefusesVersionTwo() throws {
     let root = try privateDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
