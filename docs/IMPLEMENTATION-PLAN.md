@@ -20,16 +20,20 @@ cache-reuse limits and durable local raw-log paths/hashes. Logs are ignored and 
 
 U0 and the round-four recovery/release fixes are integrated. Three independently
 reproduced browser Medium defects were corrected and independently retested. Human opens
-now bind a preexisting step token. U1/U2 implementation and a new Claude Sonnet review
-run separately. Production browser services remain disabled.
+now bind a preexisting step token. U1/U2 implementation runs separately. Claude Sonnet
+round five found no High/Medium issue at `198786e`; recovery audit retry churn and a
+missing Core dispatch deadline remain Low issues being corrected. Production browser
+services remain disabled.
 
 CI on `0553119` failed three watchdog-order checks. The test now arms its cancellable
 fallback after the worker starts and proves revocation/snapshots finish while the worker
 remains blocked. Focused checks and a fresh full 222-test run pass at `d6461db`;
 [the follow-up record](verification/ci-watchdog-r4.json) also verifies the recorder's
 private log permissions. Updated CI is pending. Production timeout stays
-five seconds. The last signed review bundle (`1e4a2ea`) predates this integration and
-does not prove the newer code; installed ownership, provisioning and notarization remain open.
+five seconds. A new signed review bundle from clean `5955f50` passed all three hardened
+Bite signatures, exact review entitlements, manifest hashes and the signed installer sandbox.
+[Its record](verification/signed-review-bundle-r4.json) does not prove later changes,
+installed ownership, provisioning, protected-key signing or notarization.
 
 ### Earlier verification snapshots
 

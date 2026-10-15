@@ -36,8 +36,22 @@ could fire before the assertion on a loaded runner. The fixtures now arm a cance
 watchdog after the worker starts and prove revocation/snapshots finish while it remains
 blocked. Focused checks pass; new CI is pending. Production timeout remains five seconds.
 
-Round five (`agent-vault-integrated-browser-r4-review-v5-20261015`) reviews frozen
-`198786e`; no verdict has returned. U1 must qualify host-loss events by connection/affected
+Round five (`agent-vault-integrated-browser-r4-review-v5-20261015`) reviewed frozen
+`198786e`, reporting no High/Medium issue. It reproduced Low recovery-audit churn and
+confirmed the known missing Core dispatch deadline. It also flagged silent native-test
+skips, duplicate plist keys, status vocabulary drift and harness evidence limits. Corrections
+are in progress. It independently matched all tracked-file, log and auxiliary-evidence
+hashes in the integration record. It used direct `swiftc` probes rather than a full SwiftPM
+test run; WebKit, App UI, XPC server internals, the JSON guard, the broader installer and
+the signed bundle were outside this round. Its documentation-lag flag refers to the frozen
+source, before the later committed checkpoint records and current top sections.
+
+Clean `5955f50` was rebuilt and verified with Bite Developer ID. The
+[artifact record](verification/signed-review-bundle-r4.json) includes all three hardened
+signatures, exact review entitlements, file hashes and a signed installer sandbox pass.
+It has no provisioning profile, notarization or new protected-key probe.
+
+U1 must qualify host-loss events by connection/affected
 runs and fit host deadlines within the read transport budget. Actual host, human frame/input
 relay, independent OS egress, private-UID/daemon proof, protected-key signing, notarization
 and target-host compatibility remain open. Production browser services stay disabled.

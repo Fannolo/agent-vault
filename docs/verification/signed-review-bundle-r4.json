@@ -1,0 +1,124 @@
+{
+  "checks": [
+    {
+      "argv": [
+        "python3",
+        "scripts/build-release.py",
+        "--identity",
+        "4F97C1070E4658CCEED1A1DCB0367C7B78325716",
+        "--review-only"
+      ],
+      "elapsedSeconds": 12.39,
+      "exitCode": 0,
+      "log": "verification-logs/20261015T142212.797140Z-signed-review-r4/build.log",
+      "logSha256": "08105da5d5105ecd6b96af06ad7d16e913a28e1047b673db4fa04db5b97355c5",
+      "name": "build",
+      "observedSummary": [
+        "Build complete! (9.85s)"
+      ]
+    },
+    {
+      "argv": [
+        "python3",
+        "scripts/verify-installer.py",
+        "--signed-payload",
+        "dist/AgentVault-review"
+      ],
+      "elapsedSeconds": 11.389,
+      "exitCode": 0,
+      "log": "verification-logs/20261015T142212.797140Z-signed-review-r4/installer-sandbox.log",
+      "logSha256": "3ebfbafb76874214ebae7f8d6f90972638b442eddd6b9a6bdd94d4cb2d013bef",
+      "name": "installer-sandbox",
+      "observedSummary": [
+        "tests -O: optimize=1 isolated=1 | Ran 48 tests in 2.278s | OK",
+        "tests default: optimize=0 isolated=1 | Ran 48 tests in 2.397s | OK",
+        "mutation 'ancestors not checked': caught",
+        "mutation 'hard links accepted': caught",
+        "mutation 'source inspected instead of snapshot': caught",
+        "mutation 'debugger entitlement accepted': caught",
+        "mutation 'unsafe code entitlements accepted': caught",
+        "mutation 'unknown role entitlements accepted': caught",
+        "mutation 'entitlement output forms not cross-checked': caught",
+        "mutation 'malformed entitlements escape the refusal path': caught",
+        "mutation 'partial account adopted': caught",
+        "mutation 'approval key replaced silently': caught",
+        "mutation 'no restart after interruption': caught",
+        "mutation 'private directory built in place': caught",
+        "mutation 'sandbox allowed as root': caught",
+        "mutation 'payload links followed': caught",
+        "  install: exit 0: installed: account _agentvault uid 200, broker seeds, dev.agentvault.broker, agent-vault-bridge, AgentVault.app, config.json, LaunchDaemon plist, daemon restarted",
+        "  verify: exit 0: verified: installed files, pins, seeds and plist match",
+        "  install: exit 0: installed: already current",
+        "  uninstall: exit 0: removed: daemon stopped, LaunchDaemon plist, dev.agentvault.broker, agent-vault-bridge, AgentVault.app, config.json; kept /private/var/db/agent-vault and the _agentvault account",
+        "  rerun reported no changes: True",
+        "verify-installer: passed"
+      ]
+    }
+  ],
+  "finishedAt": "2026-10-15T14:22:36.858288+00:00",
+  "limits": [
+    "Account ownership and launchd are simulated in installer sandbox",
+    "No protected-key/user-presence or private-UID isolation proof",
+    "Production browser deployment and MCP-host compatibility remain open"
+  ],
+  "passed": true,
+  "protectedKeyProbe": {
+    "reason": "No matching Developer ID provisioning profile; earlier -34018 probe is historical.",
+    "runOnThisArtifact": false
+  },
+  "scope": "Developer ID review artifact; not notarized or installed",
+  "signatures": [
+    {
+      "cdhash": "e05a281fc6773ae9c292af1b3ff584962e1a2204",
+      "entitlements": {},
+      "hardenedRuntime": true,
+      "identifier": "dev.agentvault.app",
+      "role": "app",
+      "teamIdentifier": "3JWAQ92CB4",
+      "verifyExit": 0
+    },
+    {
+      "cdhash": "11692b93e8f99767990bf678b892bf681f0ec4a1",
+      "entitlements": {},
+      "hardenedRuntime": true,
+      "identifier": "dev.agentvault.bridge",
+      "role": "bridge",
+      "teamIdentifier": "3JWAQ92CB4",
+      "verifyExit": 0
+    },
+    {
+      "cdhash": "5144b0e6fc090d1b2003b86a49a32324a0379134",
+      "entitlements": {},
+      "hardenedRuntime": true,
+      "identifier": "dev.agentvault.broker",
+      "role": "broker",
+      "teamIdentifier": "3JWAQ92CB4",
+      "verifyExit": 0
+    }
+  ],
+  "sourceCommit": "5955f5075425fbe56eb59f3f0fab4116c0ca737f",
+  "sourceManifest": {
+    "distributionReady": false,
+    "files": {
+      "AgentVault.app/Contents/Info.plist": "adaa5f95b85a21a775deb7719861373add1982ce6aa5eb4a9f9acb48e3356a58",
+      "AgentVault.app/Contents/MacOS/AgentVault": "a8ba10ec1e62cd5ad01a2b6d3754825c4a6a500c8a92e2e4517a4f040b83ff55",
+      "AgentVault.app/Contents/_CodeSignature/CodeResources": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b",
+      "agent-vault-bridge": "b5cdcf0e52e93ec40099255f0319fdb6faaa6f884096742cdce387040b847cb3",
+      "agent-vault-broker": "090eb82842a22c8e3ca59a5d0c0727a7d9af44219eb4e1396337b1bba021aa83",
+      "deployment/agentvault_installer.py": "d11dc6f51e4483aa6a05451f064c972c29811f66da1e3273ed809bd547ee115e",
+      "deployment/config.json.template": "972fb7edb23c14e9c743be70e3f440ae69987d14e938ec452228ba104f09bd2f",
+      "deployment/dev.agentvault.broker.plist.template": "cdc2ca3c99f91bcc464fb5307fd6ca4eaf915bb1f7ec13ae4125fb406fb30363",
+      "sbom.cdx.json": "542f4bd79adbd17942604cbf0f038e4017cc861874c744cf3616794eb4da7f2e"
+    },
+    "notarized": false,
+    "productionIsolationVerified": false,
+    "profileEmbedded": false,
+    "publisherTeam": "3JWAQ92CB4",
+    "sourceCommit": "5955f5075425fbe56eb59f3f0fab4116c0ca737f",
+    "sourceDirty": false,
+    "version": "0.2.0"
+  },
+  "sourceUnchanged": true,
+  "startedAt": "2026-10-15T14:22:12.797820+00:00",
+  "zipSha256": "2e4ed6d020878563eac4c81c50a8baeaff2bfb5c52024459d7cd290d0ad591ae"
+}
