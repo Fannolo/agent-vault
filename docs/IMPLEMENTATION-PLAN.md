@@ -11,27 +11,34 @@
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
+Current source `676d687` passed all eight selected checks in the
+[latest record](verification/recovery-audit-ci-r5-retry.json): the Swift runner reports
+224 tests in eleven suites with two explicit native-test skips; the separate native
+opt-in ran both bodies successfully. MCP, boundaries, 49 installer tests per Python mode
+and 15 guard mutations, five release, nine cleanup and eight recorder checks passed.
+Source remained unchanged. The earlier interrupted record is preserved. These use local
+incremental build caches and synthetic data, and do not establish installed isolation.
+
 Verified baseline `198786e` reported 222 tests in ten suites, plus MCP, boundaries,
 48 installer tests in each Python mode with 14 guard mutations, five release tests,
 nine cleanup tests, eight recorder tests, two separate native Keychain checks, 20
 same-UID XPC scenarios and eight XPC mutations. The
-[current record](verification/browser-u0-r4-integration.json) includes full source hashes,
+[baseline record](verification/browser-u0-r4-integration.json) includes full source hashes,
 cache-reuse limits and durable local raw-log paths/hashes. Logs are ignored and private.
 
 U0 and the round-four recovery/release fixes are integrated. Three independently
 reproduced browser Medium defects were corrected and independently retested. Human opens
-now bind a preexisting step token. U1/U2 implementation runs separately. Claude Sonnet
+now bind a preexisting step token. U1/U2 and U3/U4 implementation runs separately. Claude Sonnet
 round five found no High/Medium issue at `198786e`. Recovery audit retry churn is fixed
 at `a494bc7`; the missing Core dispatch deadline is in the separate, unaccepted U1 unit.
-Production browser
-services remain disabled.
+Production browser services remain disabled. U1 is not integrated while review findings
+about cancellation, retained run IDs and verifier process cleanup are corrected.
 
-CI on `0553119` failed three watchdog-order checks. The test now arms its cancellable
-fallback after the worker starts and proves revocation/snapshots finish while the worker
-remains blocked. Focused checks and a fresh full 222-test run pass at `d6461db`;
-[the follow-up record](verification/ci-watchdog-r4.json) also verifies the recorder's
-private log permissions. Updated CI is pending. Production timeout stays
-five seconds. A new signed review bundle from clean `5955f50` passed all three hardened
+The two CI runs at `5b1fb9a` failed synthetic I/O setup and a yield-based browser-start
+ordering assertion. The blocked-worker cases are now serialized, unrelated account setup
+is synchronous, and the startup test uses an explicit debug-only gate. Full local
+verification passes; updated CI is pending. Production timeout stays five seconds.
+A new signed review bundle from clean `5955f50` passed all three hardened
 Bite signatures, exact review entitlements, manifest hashes and the signed installer sandbox.
 [Its record](verification/signed-review-bundle-r4.json) does not prove later changes,
 installed ownership, provisioning, protected-key signing or notarization.
@@ -39,6 +46,12 @@ installed ownership, provisioning, protected-key signing or notarization.
 ### Earlier verification snapshots
 
 The following notes describe earlier source checkpoints; their records are preserved.
+
+CI on `0553119` failed three watchdog-order checks. The test now arms its cancellable
+fallback after the worker starts and proves revocation/snapshots finish while the worker
+remains blocked. Focused checks and a full 222-test run passed at `d6461db`;
+[the follow-up record](verification/ci-watchdog-r4.json) also verified the recorder's
+private log permissions. That correction did not address the later `5b1fb9a` fixture races.
 
 The round-three integrated checkpoint `83971b7` passed 190 tests, including real
 WebKit fixtures, native-app flows, bounded stdio, runtime file/lease checks and a real SDK

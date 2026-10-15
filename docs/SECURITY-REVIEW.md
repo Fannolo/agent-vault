@@ -61,8 +61,7 @@ revocation test used `Task.yield()` to guess ordering. A debug-only package seam
 startup after epoch capture; revocation occurs before context creation is released.
 The focused tests pass. One intermediate full run ended with exit 1 and no diagnostic or
 summary; its log is retained and the cause is unknown. A full retry reported 224 tests
-with two explicit skips. The latest startup-gate change awaits final integrated recording
-and remote CI.
+with two explicit skips. Final integrated recording follows below; remote CI is pending.
 
 A subsequent clean-source recording at `3f8c68b` also exited 1 without a test diagnostic;
 [the failed record](verification/recovery-audit-ci-r5.json) is preserved. Inspection found
@@ -71,7 +70,12 @@ timeout. That pattern can terminate independent test runners in other worktrees;
 log records executing the timeout branch. It must be replaced with owned-child cleanup
 before any further mutation run. The interrupted root runs are not passes, and this is
 separate from the two remote CI fixture failures. No unrelated application termination
-has been observed. A fresh complete record is required after the verifier correction.
+has been observed. After the worker replaced that broad command in its working copy,
+the [fresh record](verification/recovery-audit-ci-r5-retry.json) on unchanged `676d687`
+passed all eight checks. The runner reports 224 tests in eleven suites, including two
+explicit skips; a separate opt-in shows both named native test bodies passed. This does
+not retroactively prove a signal-delivery cause for the interrupted runs. The separate
+U1 verifier correction and its owned-child regression are still under review.
 
 Parent corrections for R5-5/R5-6 reject duplicate keys at every XML dictionary depth,
 including entity-equivalent keys, and derive CLI run replies and bridge-local failures
