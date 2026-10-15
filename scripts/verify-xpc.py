@@ -21,6 +21,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 UID = os.getuid()
@@ -103,12 +104,22 @@ class Harness:
         return record
 
     def cleanup(self):
+        pending = []
         for label in self.labels:
             subprocess.run(["launchctl", "bootout", f"{DOMAIN}/{label}"], capture_output=True)
-            gone = subprocess.run(["launchctl", "print", f"{DOMAIN}/{label}"], capture_output=True).returncode != 0
+            deadline = time.monotonic() + 3
+            while True:
+                gone = subprocess.run(["launchctl", "print", f"{DOMAIN}/{label}"], capture_output=True).returncode != 0
+                if gone or time.monotonic() >= deadline:
+                    break
+                time.sleep(0.05)
             self.cleanup_record[label] = "removed" if gone else "STILL LOADED"
-        self.labels = []
-        shutil.rmtree(self.work, ignore_errors=True)
+            if not gone:
+                pending.append(label)
+        self.labels = pending
+        # Preserve the executable and diagnostics if a job is still loaded.
+        if not pending:
+            shutil.rmtree(self.work, ignore_errors=True)
         self.cleanup_record["work_dir_removed"] = not self.work.exists()
 
     # Scenarios

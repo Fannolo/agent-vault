@@ -1,25 +1,34 @@
 # Implementation plan
 
-## Current checkpoint: 13 October 2026
+## Current checkpoint: 15 October 2026
 
 | Workstream | Implemented | Remaining verification |
 |---|---|---|
 | Broker/IPC | Separate daemon/bridge, protected config, code+UID pins, private Keychain, owner lease | Privileged dedicated-UID install, file/process isolation and system-domain lookup |
 | Human app | Secure forms, pairing/grants, audit, exact pending approvals, protected-key backend | Provisioned Bite-signed protected key and real fresh user-presence signing |
-| Lifecycle | Durable enrollment/rotation/deletion intent, tracked IDs, recovery, pruning | Installed daemon interruption check |
-| Browser | Ephemeral fixed-flow library and real hostile loopback tests | Isolated GUI deployment and live GitHub selector/MFA validation; production disabled |
-| Protocol | Bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Independent review and host compatibility |
+| Lifecycle | Durable intent/recovery, bounded off-actor I/O, read capacity before approval/budget spend, administration reserve | Installed daemon interruption check |
+| Browser | Ephemeral fixed-flow fixture library; separate headless-host design selected | Broker run lifecycle unit in progress; host, human continuation, installed sandbox/egress and live selectors/MFA remain; production disabled |
+| Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
-The review-fix integrated local suite passed 161 tests. These include 44 Core tests and 38 IPC tests,
-real WebKit fixture tests, native-app flow tests, 13 bounded-stdio pipe tests, runtime file/lease
-checks and a real SDK client exercising all four bridge tools. Native Keychain checks are
-explicit opt-ins; their successful earlier run is separate from this default suite.
+The previous integrated checkpoint `d39b1c2` passed 181 tests. The round-three core fixes
+(`060e9ce`, worker `d7c4341`) passed 190 tests in their isolated worktree, including real
+WebKit fixtures, native-app flows, bounded stdio, runtime file/lease checks and a real SDK
+client exercising all four bridge tools. Native Keychain checks are explicit opt-ins;
+their successful earlier run is separate from this default suite. Root integration and
+new CI results are pending; the initial CI runs failed four short test-setup deadlines,
+whose fixtures have now been corrected without changing the production five-second limit.
 
-The installer passed 38 tests both normally and with Python optimizations, 10 guard mutations,
-and install/verify/retry/uninstall against a signed payload in its non-root sandbox. Account
-creation and launchd are simulated there. Current verification artifacts and limits are in
-[the checkpoint record](verification/review-checkpoint.json).
+The installer passed 42 tests both normally and with Python optimizations, 12 guard mutations,
+and install/verify/retry/uninstall against the signed `fe7f1dc` payload in its non-root
+sandbox. Account creation and launchd are simulated there. Three real ad hoc signature
+tests exercise entitled and unentitled release checks. The current
+[release-check record](verification/release-entitlements-r3.json) hashes all tracked files.
+Historical checkpoint records remain in `docs/verification`; each names its own source.
+
+The repeated cross-process check passed 20 scenarios; one of eight guard mutations failed
+cleanup despite the expected refusal changes. Its failed record is retained. The fixture
+now waits for confirmed unload and preserves diagnostics on failure; rerun is pending.
 
 No existing application, browser profile, host MCP configuration, company evidence or real
 service credential has been modified. No dedicated user, daemon or app has been installed.

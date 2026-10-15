@@ -24,5 +24,7 @@ jobs:
         run: python3 scripts/verify-installer.py
       - name: Verify signed release entitlement checks
         run: python3 -I deploy/tests/test_release.py
+      - name: Verify cross-process fixture cleanup
+        run: python3 -I deploy/tests/test_xpc_cleanup.py
       - name: Build release executable
         run: swift build -c release --force-resolved-versions

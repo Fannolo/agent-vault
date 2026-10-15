@@ -10,17 +10,34 @@ said two Medium and three Low. No High issue was reported in that bounded review
 
 | ID | Finding | Response |
 |---|---|---|
-| R3-1, Medium | Busy secret-read admission consumes budget and approval before any execution | Core fix in progress: reserve capacity before state mutation |
-| R3-2, Medium | Successful calls can evict other clients' invocation history | Core fix in progress: fair client retention within the global bound |
+| R3-1, Medium | Busy secret-read admission consumes budget and approval before any execution | Read reservation precedes approval/budget mutation; failed persistence releases unused reservations |
+| R3-2, Medium | Successful calls can evict other clients' invocation history | Fair eviction within 744 entries; latest five protected per registered client under stable membership |
 | R3-3, Medium | Release builder parses a text entitlement dump as a plist | Explicit XML output; real entitled and unentitled signatures tested |
 | R3-4, Low | Installer denylist omits the debugger entitlement | Exact per-role entitlement policy, including refusal of unknown and temporary capabilities |
-| R3-5, Low | Agent secret reads can occupy all administration I/O slots | Core fix in progress: reserve administration capacity |
+| R3-5, Low | Agent secret reads can occupy all administration I/O slots | Reads use at most three of four actual slots; timed-out workers retain capacity |
 
 Release/installer response evidence: `deploy/tests/test_release.py` (three real ad hoc
 signature tests); 42 installer tests in normal and optimized Python modes; 12 guard
 mutations; signed sandbox install/verify/retry/uninstall using the `fe7f1dc` review
 payload. Accounts and launchd are simulated in that sandbox. These checks do not prove
 that a provisioned app can create its protected key.
+
+The core response (`060e9ce`, originally worker commit `d7c4341`) passed 190 tests, MCP
+verification and boundary verification in the isolated worker worktree. Tests cover retry
+with the same human approval after busy admission, failed state persistence without a
+reservation leak, four actual workers, administration under stalled reads, successful-call
+floods and 128-client retention. The initial GitHub runs failed four short-deadline fixtures
+during setup. Fixtures now seed their synchronous fake before constructing the broker,
+wait for actual worker starts and use two-second stall deadlines; production stays at five
+seconds. A fresh integration/CI run is still required.
+
+The new clean-source recorder hashes all tracked files, including deploy, scripts, package
+metadata and docs. [Release-check evidence](verification/release-entitlements-r3.json)
+names its source commit. The first repeated cross-process run passed 20 scenarios, while
+one of eight defense mutations failed its cleanup predicate despite the expected scenario
+failures. [That failed run is retained](verification/xpc-json-guard-r3.json). No fixture jobs
+remained loaded on inspection. Cleanup now waits a bounded time for unload, preserves files
+if a job remains and records each mutation's cleanup details; rerun remains required.
 
 Round 2 had identified synchronous Keychain calls blocking the broker actor and denial
 floods evicting invocation history. `d39b1c2` moved actual I/O to four bounded workers

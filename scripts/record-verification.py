@@ -18,6 +18,7 @@ CHECKS = {
     "boundaries": [sys.executable, "scripts/verify-boundaries.py"],
     "installer": [sys.executable, "scripts/verify-installer.py"],
     "release-entitlements": [sys.executable, "-I", "deploy/tests/test_release.py"],
+    "xpc-cleanup": [sys.executable, "-I", "deploy/tests/test_xpc_cleanup.py"],
     "xpc": [sys.executable, "scripts/verify-xpc.py"],
     "xpc-mutations": [sys.executable, "scripts/verify-xpc-mutations.py"],
     "native-keychain": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter",
@@ -65,6 +66,10 @@ def main():
     }
     for name in args.checks:
         log = logs / (name + ".log")
+        argv = list(CHECKS[name])
+        evidence = logs / (name + ".json") if name in ("xpc", "xpc-mutations") else None
+        if evidence:
+            argv += ["--evidence", str(evidence)]
         env = os.environ.copy()
         env.pop("AGENT_VAULT_KEYCHAIN_TEST", None)
         env.pop("AGENT_VAULT_NETWORK_TEST", None)
@@ -72,15 +77,17 @@ def main():
             env["AGENT_VAULT_KEYCHAIN_TEST"] = "1"
         started = time.monotonic()
         with log.open("wb") as handle:
-            result = subprocess.run(CHECKS[name], cwd=ROOT, env=env, stdout=handle,
+            result = subprocess.run(argv, cwd=ROOT, env=env, stdout=handle,
                                     stderr=subprocess.STDOUT)
         content = log.read_bytes()
         lines = content.decode(errors="replace").splitlines()
         summaries = [line for line in lines if line.startswith(("✔ Test run", "Ran ", "OK", "FAILED",
                      "PASS", "FAIL", "tests ", "mutation ", "verify-installer:"))]
-        record["checks"].append({"name": name, "argv": CHECKS[name], "exitCode": result.returncode,
+        record["checks"].append({"name": name, "argv": argv, "exitCode": result.returncode,
                                  "elapsedSeconds": round(time.monotonic() - started, 3),
                                  "logSha256": sha256(content), "observedSummary": summaries[-64:]})
+        if evidence and evidence.exists():
+            record["checks"][-1]["evidence"] = json.loads(evidence.read_text())
         print(f"{name}: exit {result.returncode}; log {log}", flush=True)
         if result.returncode:
             break

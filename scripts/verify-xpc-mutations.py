@@ -7,6 +7,7 @@ the expected scenarios fail. Two mutations remove one of the two server requirem
 layers; they must keep every scenario passing, because each layer enforces alone.
 The working tree is never modified.
 """
+import argparse
 import json
 from pathlib import Path
 import shutil
@@ -63,6 +64,9 @@ def mutate(path, old, new):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--evidence", type=Path, help="retain each mutation's cleanup and scenario results")
+    args = parser.parse_args()
     work = Path(tempfile.mkdtemp(prefix="agentvault-xpc-mutations-"))
     tree = work / "tree"
     report = []
@@ -74,24 +78,30 @@ def main():
             mutate(target, old, new)
             evidence = work / "evidence.json"
             evidence.unlink(missing_ok=True)
-            subprocess.run([sys.executable, str(tree / "scripts/verify-xpc.py"), "--evidence", str(evidence)],
-                           cwd=tree, capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(tree / "scripts/verify-xpc.py"), "--evidence", str(evidence)],
+                                    cwd=tree, capture_output=True, text=True)
             target.write_text(original)
             if not evidence.exists():
-                report.append({"mutation": name, "ok": False, "failed": ["harness produced no evidence"]})
+                report.append({"mutation": name, "ok": False, "failed": ["harness produced no evidence"],
+                               "harnessExitCode": result.returncode, "diagnostics": (result.stdout + result.stderr)[-4000:]})
             else:
                 record = json.loads(evidence.read_text())
                 failed = {r["scenario"] for r in record["results"] if not r["passed"]}
                 clean = all(v in ("removed", True) for v in record["cleanup"].values())
                 report.append({"mutation": name, "ok": failed == expected and clean,
-                               "failed": sorted(failed), "expected": sorted(expected)})
+                               "failed": sorted(failed), "expected": sorted(expected),
+                               "harnessExitCode": result.returncode, "cleanup": record["cleanup"]})
             print(f"{'PASS' if report[-1]['ok'] else 'FAIL'}  {name}: failed={report[-1]['failed']}")
+            if not report[-1]["ok"]:
+                print("diagnostics:", json.dumps(report[-1], sort_keys=True))
     finally:
         shutil.rmtree(work, ignore_errors=True)
         # SwiftPM leaves empty lock files in TMPDIR named after the scratch path.
         mangled = str(tree.resolve()).replace("/", "_")
         for lock in Path(tempfile.gettempdir()).glob(f"{mangled}*.lock"):
             lock.unlink(missing_ok=True)
+    if args.evidence:
+        args.evidence.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if not all(r["ok"] for r in report):
         sys.exit(1)
     print(f"{len(report)}/{len(report)} mutations behaved as expected")
