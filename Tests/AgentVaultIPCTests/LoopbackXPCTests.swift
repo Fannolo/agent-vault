@@ -50,6 +50,44 @@ import Testing
         #expect(events.uids.sorted() == [1, 2], "the read is cancelled; the admin mutation is not")
     }
 
+    @Test func handlerFinishingBeforeRegistrationIsNotRetained() {
+        let work = CancellableWork()
+        let key = work.reserve()
+        let task = Task<Void, Never> {}
+        work.complete(key)
+        #expect(work.register(key, task), "a finished task needs no cancellation")
+        #expect(work.retained == (0, 0))
+        #expect(work.invalidate().isEmpty)
+    }
+
+    @Test func registrationAfterInvalidationCancelsTheHandler() {
+        let work = CancellableWork()
+        let key = work.reserve()
+        #expect(work.invalidate().isEmpty)
+        #expect(!work.register(key, Task<Void, Never> {}), "the dispatcher must cancel it")
+        #expect(work.retained == (0, 0))
+        // A handler dispatched after invalidation is also cancelled at registration.
+        let late = work.reserve()
+        #expect(!work.register(late, Task<Void, Never> {}))
+        work.complete(key); work.complete(late)
+        #expect(work.retained == (0, 0))
+    }
+
+    @Test func registeredRunningHandlerIsCancelledOnceAndThenForgotten() async {
+        let work = CancellableWork()
+        let key = work.reserve()
+        let task = Task<Void, Never> { try? await Task.sleep(for: .seconds(5)) }
+        #expect(work.register(key, task))
+        #expect(work.retained == (1, 1))
+        let cancelled = work.invalidate()
+        #expect(cancelled.count == 1)
+        cancelled.forEach { $0.cancel() }
+        await task.value
+        #expect(task.isCancelled && work.retained == (0, 0))
+        work.complete(key)
+        #expect(work.retained == (0, 0))
+    }
+
     @Test func maximalSnapshotCrossesXPC() async throws {
         let loop = Loopback(snapshot: { _ in maximalSnapshot() })
         let snapshot = try await loop.adminClient().snapshot()

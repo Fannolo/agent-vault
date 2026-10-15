@@ -133,15 +133,13 @@ final class ReplyOnce: @unchecked Sendable {
 }
 
 /// State bound to one accepted connection.
-final class Peer: @unchecked Sendable {
+final class Peer: Sendable {
     let uid: UInt32
     let limits: IPCLimits
     private let connectionInFlight: Gate
     private let serviceInFlight: Gate
     private let cancelsOnInvalidation: Bool
-    private let lock = NSLock()
-    private var running: [UUID: Task<Void, Never>] = [:]
-    private var invalidated = false
+    let work = CancellableWork()
 
     init(uid: UInt32, limits: IPCLimits, connectionInFlight: Gate, serviceInFlight: Gate,
          cancelsOnInvalidation: Bool = false) {
@@ -152,12 +150,8 @@ final class Peer: @unchecked Sendable {
 
     /// The connection is gone. For a read peer, its in-flight handlers are cancelled.
     func connectionInvalidated() {
-        let tasks = lock.withLock { () -> [Task<Void, Never>] in
-            invalidated = true
-            defer { running = [:] }
-            return cancelsOnInvalidation ? Array(running.values) : []
-        }
-        for task in tasks { task.cancel() }
+        guard cancelsOnInvalidation else { return }
+        for task in work.invalidate() { task.cancel() }
     }
 
     /// Validates size and shape before allocating capacity, then runs `work` off the XPC queue.
@@ -181,26 +175,68 @@ final class Peer: @unchecked Sendable {
             connectionInFlight.release()
             return reply.send(WireCodec.errorReply(.busy))
         }
-        let uid = uid, key = UUID()
+        let uid = uid, registry = self.work
+        // Reserved before the task exists, so completion and invalidation can each happen first.
+        let key = cancelsOnInvalidation ? registry.reserve() : nil
         let task = Task {
             let data = await work(uid, input)
             self.release()
-            _ = self.lock.withLock { self.running.removeValue(forKey: key) }
+            if let key { registry.complete(key) }
             reply.send(data)
         }
-        guard cancelsOnInvalidation else { return }
-        let late = lock.withLock { () -> Bool in
-            if invalidated { return true }
-            running[key] = task
-            return false
-        }
-        if late { task.cancel() }
+        if let key, !registry.register(key, task) { task.cancel() }
     }
 
     private func release() {
         connectionInFlight.release()
         serviceInFlight.release()
     }
+}
+
+/// Handler tasks of one connection that must be cancelled when it goes away.
+///
+/// Each task's key is reserved before the task starts. The task completes its key; the dispatcher
+/// registers the task only while its key is still reserved. Any order of finish, register and
+/// invalidate leaves nothing retained, and a task registered after invalidation is cancelled.
+final class CancellableWork: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reserved: Set<UUID> = []
+    private var tasks: [UUID: Task<Void, Never>] = [:]
+    private var invalidated = false
+
+    /// A key for one task. After invalidation the work still runs, but is cancelled at registration.
+    func reserve() -> UUID {
+        let key = UUID()
+        lock.withLock { if !invalidated { reserved.insert(key) } }
+        return key
+    }
+
+    /// Returns `false` if the task must be cancelled because its connection is already gone.
+    func register(_ key: UUID, _ task: Task<Void, Never>) -> Bool {
+        lock.withLock {
+            if invalidated { return false }
+            guard reserved.contains(key) else { return true }   // already finished: nothing to keep
+            tasks[key] = task
+            return true
+        }
+    }
+
+    func complete(_ key: UUID) {
+        lock.withLock {
+            reserved.remove(key)
+            tasks.removeValue(forKey: key)
+        }
+    }
+
+    func invalidate() -> [Task<Void, Never>] {
+        lock.withLock {
+            invalidated = true
+            defer { tasks = [:]; reserved = [] }
+            return Array(tasks.values)
+        }
+    }
+
+    var retained: (reserved: Int, tasks: Int) { lock.withLock { (reserved.count, tasks.count) } }
 }
 
 final class ReadEndpoint: NSObject, VaultReadRPC {

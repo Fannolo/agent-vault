@@ -26,6 +26,11 @@ TEST_TIMEOUT = 90
 TERM_GRACE = 5
 
 M = [
+ ("finished handler retained", "Sources/AgentVaultIPC/VaultXPCServer.swift",
+  "            guard reserved.contains(key) else { return true }   // already finished: nothing to keep\n", "",
+  "handlerFinishingBeforeRegistrationIsNotRetained"),
+ ("late registration survives invalidation", "Sources/AgentVaultIPC/VaultXPCServer.swift",
+  "            if invalidated { return false }\n", "", "registrationAfterInvalidationCancelsTheHandler"),
  ("cancelled caller keeps waiting", "Sources/AgentVaultCore/Broker.swift",
   "        await withTaskCancellationHandler { await settled.wait() } onCancel: { settled.fire() }\n        timer.cancel()\n        if Task.isCancelled { return true }",
   "        await settled.wait()\n        timer.cancel()", "cancelledInitialCallerLeavesNoPausedRunOrContext"),
