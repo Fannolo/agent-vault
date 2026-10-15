@@ -11,7 +11,7 @@
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
-Current integration `198786e` passed 222 tests in ten suites, plus MCP, boundaries,
+Verified baseline `198786e` reported 222 tests in ten suites, plus MCP, boundaries,
 48 installer tests in each Python mode with 14 guard mutations, five release tests,
 nine cleanup tests, eight recorder tests, two separate native Keychain checks, 20
 same-UID XPC scenarios and eight XPC mutations. The
@@ -21,8 +21,9 @@ cache-reuse limits and durable local raw-log paths/hashes. Logs are ignored and 
 U0 and the round-four recovery/release fixes are integrated. Three independently
 reproduced browser Medium defects were corrected and independently retested. Human opens
 now bind a preexisting step token. U1/U2 implementation runs separately. Claude Sonnet
-round five found no High/Medium issue at `198786e`; recovery audit retry churn and a
-missing Core dispatch deadline remain Low issues being corrected. Production browser
+round five found no High/Medium issue at `198786e`. Recovery audit retry churn is fixed
+at `a494bc7`; the missing Core dispatch deadline is in the separate, unaccepted U1 unit.
+Production browser
 services remain disabled.
 
 CI on `0553119` failed three watchdog-order checks. The test now arms its cancellable

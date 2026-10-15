@@ -64,6 +64,15 @@ summary; its log is retained and the cause is unknown. A full retry reported 224
 with two explicit skips. The latest startup-gate change awaits final integrated recording
 and remote CI.
 
+A subsequent clean-source recording at `3f8c68b` also exited 1 without a test diagnostic;
+[the failed record](verification/recovery-audit-ci-r5.json) is preserved. Inspection found
+that the separate U1 mutation verifier called `pkill -f AgentVaultPackageTests` after a
+timeout. That pattern can terminate independent test runners in other worktrees; the U1
+log records executing the timeout branch. It must be replaced with owned-child cleanup
+before any further mutation run. The interrupted root runs are not passes, and this is
+separate from the two remote CI fixture failures. No unrelated application termination
+has been observed. A fresh complete record is required after the verifier correction.
+
 Parent corrections for R5-5/R5-6 reject duplicate keys at every XML dictionary depth,
 including entity-equivalent keys, and derive CLI run replies and bridge-local failures
 from the shared contract. The installer adds a mutation for the duplicate-key guard.
