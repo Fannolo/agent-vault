@@ -27,6 +27,10 @@ ROOT = Path(__file__).resolve().parent.parent
 UID = os.getuid()
 DOMAIN = f"gui/{UID}"
 ID_PREFIX = "dev.agentvault.fixture"
+UNLOAD_WAIT_SECONDS = 3
+# launchctl print's status for a service the domain does not have. Any other failure
+# leaves the unload unconfirmed, so the job's files are kept.
+NOT_FOUND = 113
 
 
 class Harness:
@@ -104,23 +108,37 @@ class Harness:
         return record
 
     def cleanup(self):
-        pending = []
+        """Record per label how bootout went and how long unload took. Causes are not inferred."""
+        pending, labels = [], dict(self.cleanup_record.get("labels", {}))
         for label in self.labels:
-            subprocess.run(["launchctl", "bootout", f"{DOMAIN}/{label}"], capture_output=True)
-            deadline = time.monotonic() + 3
+            target = f"{DOMAIN}/{label}"
+            started = time.monotonic()
+            bootout = subprocess.run(["launchctl", "bootout", target], capture_output=True, text=True)
+            polls = 0
             while True:
-                gone = subprocess.run(["launchctl", "print", f"{DOMAIN}/{label}"], capture_output=True).returncode != 0
-                if gone or time.monotonic() >= deadline:
+                probe = subprocess.run(["launchctl", "print", target], capture_output=True, text=True)
+                polls += 1
+                elapsed = time.monotonic() - started
+                if probe.returncode == NOT_FOUND or elapsed >= UNLOAD_WAIT_SECONDS:
                     break
                 time.sleep(0.05)
-            self.cleanup_record[label] = "removed" if gone else "STILL LOADED"
-            if not gone:
+            entry = {"status": "removed" if probe.returncode == NOT_FOUND else
+                     "STILL LOADED" if probe.returncode == 0 else "UNCONFIRMED",
+                     "bootoutExitCode": bootout.returncode, "bootoutStderr": (bootout.stderr or "").strip()[-300:],
+                     "printExitCode": probe.returncode, "polls": polls, "seconds": round(elapsed, 3)}
+            labels[label] = entry
+            if entry["status"] != "removed":
                 pending.append(label)
         self.labels = pending
-        # Preserve the executable and diagnostics if a job is still loaded.
-        if not pending:
-            shutil.rmtree(self.work, ignore_errors=True)
-        self.cleanup_record["work_dir_removed"] = not self.work.exists()
+        errors = []
+        # Preserve the executables, plists and stderr files if a job may still be loaded.
+        if not pending and self.work.exists():
+            shutil.rmtree(self.work, onerror=lambda func, path, info: errors.append(
+                f"{func.__name__} {os.path.relpath(path, self.work)}: {info[1]}"))
+        self.cleanup_record = {"labels": labels, "workDirRemoved": not self.work.exists(), "workDirErrors": errors}
+        if self.work.exists():
+            self.cleanup_record["retainedWorkDir"] = str(self.work)
+        self.cleanup_record["clean"] = not pending and not self.work.exists()
 
     # Scenarios
 
@@ -234,7 +252,7 @@ def main():
         harness.cleanup()
 
     failed = [r["scenario"] for r in harness.results if not r["passed"]]
-    clean = all(v in ("removed", True) for v in harness.cleanup_record.values())
+    clean = harness.cleanup_record["clean"]
     print("cleanup:", json.dumps(harness.cleanup_record, sort_keys=True))
     if args.evidence:
         Path(args.evidence).write_text(json.dumps({

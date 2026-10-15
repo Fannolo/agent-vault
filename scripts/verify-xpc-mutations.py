@@ -3,7 +3,8 @@
 
 Copies the source tree (without .build or .git) to a private temporary directory,
 disables one defense at a time there, reruns scripts/verify-xpc.py and checks that
-the expected scenarios fail. Two mutations remove one of the two server requirement
+exactly the expected scenarios fail, the harness exit status agrees and every fixture
+job was confirmed unloaded and its files removed. Two mutations remove one of the two server requirement
 layers; they must keep every scenario passing, because each layer enforces alone.
 The working tree is never modified.
 """
@@ -63,6 +64,24 @@ def mutate(path, old, new):
     path.write_text(text)
 
 
+def assess(name, expected, returncode, evidence, output):
+    """A mutation behaves only if exactly its scenarios fail, the harness exit status says so,
+    and every fixture job was confirmed unloaded and removed."""
+    report = {"mutation": name, "expected": sorted(expected), "harnessExitCode": returncode,
+              "expectedHarnessExitCode": 1 if expected else 0}
+    try:
+        record = json.loads(evidence.read_text())
+        failed = {r["scenario"] for r in record["results"] if not r["passed"]}
+        report.update(failed=sorted(failed), cleanup=record["cleanup"])
+        report["ok"] = (failed == expected and record["cleanup"].get("clean") is True
+                        and returncode == report["expectedHarnessExitCode"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        report.update(failed=[f"harness evidence unusable: {type(error).__name__}"], ok=False)
+    if not report["ok"]:
+        report["diagnostics"] = output[-4000:]
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--evidence", type=Path, help="retain each mutation's cleanup and scenario results")
@@ -81,16 +100,7 @@ def main():
             result = subprocess.run([sys.executable, str(tree / "scripts/verify-xpc.py"), "--evidence", str(evidence)],
                                     cwd=tree, capture_output=True, text=True)
             target.write_text(original)
-            if not evidence.exists():
-                report.append({"mutation": name, "ok": False, "failed": ["harness produced no evidence"],
-                               "harnessExitCode": result.returncode, "diagnostics": (result.stdout + result.stderr)[-4000:]})
-            else:
-                record = json.loads(evidence.read_text())
-                failed = {r["scenario"] for r in record["results"] if not r["passed"]}
-                clean = all(v in ("removed", True) for v in record["cleanup"].values())
-                report.append({"mutation": name, "ok": failed == expected and clean,
-                               "failed": sorted(failed), "expected": sorted(expected),
-                               "harnessExitCode": result.returncode, "cleanup": record["cleanup"]})
+            report.append(assess(name, expected, result.returncode, evidence, result.stdout + result.stderr))
             print(f"{'PASS' if report[-1]['ok'] else 'FAIL'}  {name}: failed={report[-1]['failed']}")
             if not report[-1]["ok"]:
                 print("diagnostics:", json.dumps(report[-1], sort_keys=True))
@@ -100,9 +110,10 @@ def main():
         mangled = str(tree.resolve()).replace("/", "_")
         for lock in Path(tempfile.gettempdir()).glob(f"{mangled}*.lock"):
             lock.unlink(missing_ok=True)
-    if args.evidence:
-        args.evidence.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    if not all(r["ok"] for r in report):
+        # Written even when a mutation run raises, so completed results are kept.
+        if args.evidence:
+            args.evidence.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    if len(report) != len(MUTATIONS) or not all(r["ok"] for r in report):
         sys.exit(1)
     print(f"{len(report)}/{len(report)} mutations behaved as expected")
 
