@@ -11,13 +11,12 @@
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
-The previous integrated checkpoint `d39b1c2` passed 181 tests. The round-three core fixes
-(`060e9ce`, worker `d7c4341`) passed 190 tests in their isolated worktree, including real
+The round-three integrated checkpoint `83971b7` passed 190 tests, including real
 WebKit fixtures, native-app flows, bounded stdio, runtime file/lease checks and a real SDK
 client exercising all four bridge tools. Native Keychain checks are explicit opt-ins;
-their successful earlier run is separate from this default suite. Root integration and
-new CI results are pending; the initial CI runs failed four short test-setup deadlines,
-whose fixtures have now been corrected without changing the production five-second limit.
+their two successful native checks are separate from this default suite. New CI results
+are pending; the initial CI runs failed four short test-setup deadlines, whose fixtures
+have now been corrected without changing the production five-second limit.
 
 The installer passed 42 tests both normally and with Python optimizations, 12 guard mutations,
 and install/verify/retry/uninstall against the signed `fe7f1dc` payload in its non-root
@@ -26,9 +25,15 @@ tests exercise entitled and unentitled release checks. The current
 [release-check record](verification/release-entitlements-r3.json) hashes all tracked files.
 Historical checkpoint records remain in `docs/verification`; each names its own source.
 
-The repeated cross-process check passed 20 scenarios; one of eight guard mutations failed
-cleanup despite the expected refusal changes. Its failed record is retained. The fixture
-now waits for confirmed unload and preserves diagnostics on failure; rerun is pending.
+The repeated cross-process check passed 20 scenarios; one of eight guard mutations initially
+failed cleanup despite the expected refusal changes. Its failed record is retained. After
+adding confirmed-unload waiting and cleanup diagnostics, all 20 scenarios and eight guard
+mutations passed, with fixture jobs and directories removed. Two cleanup behavior checks,
+the MCP checks, module boundaries, installer checks and release entitlement checks also
+passed against unchanged source. [The integration record](verification/integration-r3.json)
+contains the commands, results, log hashes and complete tracked-file hashes. These are
+same-UID process checks; installed private-UID isolation remains unproven. A fresh Claude
+Sonnet follow-up review of the fixes is running.
 
 No existing application, browser profile, host MCP configuration, company evidence or real
 service credential has been modified. No dedicated user, daemon or app has been installed.

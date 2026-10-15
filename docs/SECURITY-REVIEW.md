@@ -29,7 +29,7 @@ reservation leak, four actual workers, administration under stalled reads, succe
 floods and 128-client retention. The initial GitHub runs failed four short-deadline fixtures
 during setup. Fixtures now seed their synchronous fake before constructing the broker,
 wait for actual worker starts and use two-second stall deadlines; production stays at five
-seconds. A fresh integration/CI run is still required.
+seconds. The fresh root integration run at `83971b7` also passed 190 tests; new CI is pending.
 
 The new clean-source recorder hashes all tracked files, including deploy, scripts, package
 metadata and docs. [Release-check evidence](verification/release-entitlements-r3.json)
@@ -37,7 +37,12 @@ names its source commit. The first repeated cross-process run passed 20 scenario
 one of eight defense mutations failed its cleanup predicate despite the expected scenario
 failures. [That failed run is retained](verification/xpc-json-guard-r3.json). No fixture jobs
 remained loaded on inspection. Cleanup now waits a bounded time for unload, preserves files
-if a job remains and records each mutation's cleanup details; rerun remains required.
+if a job remains and records each mutation's cleanup details. The rerun passed all 20
+scenarios and eight mutations with confirmed cleanup. The
+[integration record](verification/integration-r3.json) includes those details and all nine
+successful check exits (including two separate native Keychain opt-ins). A new Claude
+Sonnet review, `agent-vault-security-followup-review-v4-20261015`, is running against the
+fixes and evidence trail; it has not yet returned a verdict.
 
 Round 2 had identified synchronous Keychain calls blocking the broker actor and denial
 floods evicting invocation history. `d39b1c2` moved actual I/O to four bounded workers
