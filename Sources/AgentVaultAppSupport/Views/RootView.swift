@@ -33,7 +33,7 @@ public struct RootView: View {
         NavigationSplitView {
             List(AppSection.allCases, selection: Binding(get: { model.selection }, set: { model.selection = $0 ?? .accounts })) { section in
                 Label(section.title, systemImage: section.symbol)
-                    .badge(section == .requests ? (model.snapshot?.pending.count ?? 0) : 0)
+                    .badge(section == .requests ? (model.snapshot?.pending.count ?? 0) + model.humanSteps.count : 0)
                     .tag(section)
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190)
@@ -59,6 +59,10 @@ public struct RootView: View {
             case .pair: PairSheet(model: model)
             case .grant: GrantSheet(model: model, clients: model.snapshot?.clients ?? [], accounts: model.snapshot?.accounts ?? [])
             }
+        }
+        .sheet(item: Binding(get: { model.humanStep }, set: { if $0 == nil { Task { await model.dismissHumanStep() } } })) { step in
+            HumanStepView(model: step) { Task { await model.dismissHumanStep() } }
+                .interactiveDismissDisabled()
         }
         .task { await model.refresh() }
     }

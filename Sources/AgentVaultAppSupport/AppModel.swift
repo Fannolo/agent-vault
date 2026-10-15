@@ -34,21 +34,26 @@ public final class AppModel {
     public var sheet: AppSheet?
     /// Identifier of the client created by the last pairing, for the pairing sheet.
     public private(set) var lastPairedClientID: UUID?
+    /// The open human-step window, if any. Only one step is shown at a time.
+    public private(set) var humanStep: HumanStepModel?
 
     public let features: AppFeatures
     private let transport: VaultAdminTransport
     private let signer: ApprovalSigning
     private let service: AdminAuthorizationService
+    private let now: @Sendable () -> Date
 
     public init(transport: VaultAdminTransport, signer: ApprovalSigning, features: AppFeatures = .production,
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.transport = transport
         self.signer = signer
         self.features = features
+        self.now = now
         service = AdminAuthorizationService(transport: transport, signer: signer, now: now)
     }
 
     public var pendingItems: [PendingItem] { (snapshot?.pending ?? []).map(PendingItem.init) }
+    public var humanSteps: [HumanStepSummary] { snapshot?.humanSteps ?? [] }
 
     // MARK: Reads
 
@@ -170,6 +175,49 @@ public final class AppModel {
         var request = AdminRequest(operation: .rejectInvocation)
         request.requestID = pending.id
         return await run(request, success: "Request rejected.")
+    }
+
+    /// Signs an open for exactly this step (fresh user presence), then shows it. The summary is
+    /// built from the step the snapshot listed, and the broker refuses any other step.
+    @discardableResult
+    public func openHumanStep(_ step: HumanStepSummary) async -> Bool {
+        guard !isBusy, humanStep == nil else { return false }
+        guard step.expiresAt > now() else {
+            notice = Notice(kind: .failure, text: "This sign-in step has expired.")
+            return false
+        }
+        var request = AdminRequest(operation: .openHumanStep)
+        request.requestID = step.runID
+        request.accountID = step.accountID
+        request.stepEpoch = step.epoch
+        request.humanStepKind = step.kind
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let outcome = try await service.perform(request, summary: AdminSummary.text(for: request, snapshot: snapshot))
+            guard let lease = outcome.id else {
+                notice = Notice(kind: .failure, text: "The broker did not open the step. Refresh before retrying.")
+                return false
+            }
+            let model = HumanStepModel(step: step, lease: lease, transport: transport, now: now)
+            humanStep = model
+            model.start()
+            return true
+        } catch let failure as AdminFailure {
+            notice = Notice(kind: .failure, text: Self.describe(failure))
+            return false
+        } catch {
+            notice = Notice(kind: .failure, text: "The step could not be opened. Refresh the broker state before retrying.")
+            return false
+        }
+    }
+
+    /// Ends the window. A step that is still live is closed, which keeps the pause for a later open.
+    public func dismissHumanStep() async {
+        guard let model = humanStep else { return }
+        humanStep = nil
+        await model.close()
+        await refresh()
     }
 
     public func exportAudit(to url: URL) {

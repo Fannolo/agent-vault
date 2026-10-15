@@ -22,6 +22,12 @@ public enum ScreenshotTour {
             model.sheet = nil
             try? await Task.sleep(for: .milliseconds(500))
         }
+        model.selection = .requests
+        if let step = model.humanSteps.first, await model.openHumanStep(step) {
+            try? await Task.sleep(for: .milliseconds(1500))
+            snapshot(named: "sheet-human-step", to: directory, sheet: true)
+            await model.dismissHumanStep()
+        }
         NSApp.terminate(nil)
     }
 

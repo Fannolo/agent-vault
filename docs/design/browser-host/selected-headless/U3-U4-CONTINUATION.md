@@ -1,6 +1,6 @@
 # U3–U4: human continuation relay and window
 
-Status: U3 (relay) is implemented against synthetic fixtures; U4 (window) follows in its own commit. No host, browser, installed service, protected key or real credential is involved. The production broker still composes no web host, so it lists no human step and every relay call is refused. **No production or isolation claim is made.**
+Status: U3 (relay) and U4 (window) are implemented against synthetic fixtures, as two commits on top of the corrected U1 (`0139ab5`). No host, browser, installed service, protected key or real credential is involved. The production broker still composes no web host, so it lists no human step and every relay call is refused. **No production or isolation claim is made.**
 
 ## Usage (caller's view)
 
@@ -49,6 +49,24 @@ Lease ends with: connection invalidation, `close`, `finish` (classifying), a new
 
 The agent read interface is unchanged: no frame, input or lease operation exists there, and polling and collection stay free. Administration audit records only `continuation_opened`, `continuation_closed`, `human_finished` and `human_cancelled`. Frames and input are never audited or logged. Failure replies are closed tokens that never echo request bytes.
 
+## U4: the human step window
+
+| Piece | Rule |
+|---|---|
+| `AppModel.openHumanStep(step)` | Builds `openHumanStep` from the listed `HumanStepSummary` and runs the existing begin → digest check → user presence → authorize sequence. The prompt names kind, step epoch, run, account and service. One window at a time. An expired step is refused before anyone is asked to sign. |
+| `HumanStepModel` | Bound to one lease. It polls `frame(after: latest)` every 100 ms (250 ms after `busy`) and ends at the step deadline by its own clock, sending `close`. A refusal ends it as `unavailable`, a transport failure as `connectionLost` (the lease was bound to that connection), and explicit `finish`, `cancel` and `close` end it as `concluded`/`nextStep`, `cancelled` and `closed`. After it ends it clears its queue and frame and sends nothing more. |
+| `HumanFrameImage` | Treats the JPEG as untrusted. Before decoding any pixel, ImageIO must report a complete, single-image JPEG, no orientation transform, an actual pixel size equal to the declared one, and at most 1280 × 900 pixels. A frame not newer than the one shown is ignored. |
+| `FrameGeometry` | Aspect-fit placement (`resizeAspect`) and its inverse. Points outside the drawn frame are dropped. A pointer release outside is clamped to the nearest edge, so no button stays pressed. |
+| Input | Each queued event carries the sequence of the frame it was aimed at. A new frame drops older queued events. Moves and adjacent text coalesce. Batches go out at most every 30 ms, one in flight, with increasing batch numbers. Text is printable only and split into ≤ 64-byte events. Command shortcuts (paste included) are ignored. Only named keys map to `NamedKey`. |
+| `HumanStepView` | A sheet showing the service, kind, account, run, step, live status and countdown, an AppKit raster surface, and **I finished**, **Cancel sign-in** and **Close** buttons. No address, navigation, clipboard, file or page text exists. |
+| DEBUG only | `InMemoryBroker` continuation (counts only, no typed text), `SyntheticFrames`, the preview step and the `sheet-human-step` screenshot-tour entry. `AppInvariantTests` requires `#if DEBUG` around each of them. |
+
+## Verification
+
+- `ContinuationRelayTests` (real `Administration`, `ContinuationOperations`, `Broker`), `ContinuationXPCTests`/`ContinuationWireTests` (real XPC listener and client), `HumanStepTests` (real `AppModel`/`HumanStepModel`/ImageIO), and `HumanContinuationE2ETests`. The last drives the app model over real XPC into the real broker in one process, with a scripted host.
+- `scripts/verify-continuation-mutations.py` reverts 27 defenses one at a time (18 relay, 8 window, 1 composition), after a green baseline for each suite. The first U4 pass found one surviving mutant: the window filtered stale queued input both when a frame arrived and before sending. The duplicate was removed, and the remaining send-time filter is the one mutated. It edits files in place, restores them in `finally`, and sends no signal.
+- Not covered: a real web host, Chromium raster or input, the installed Mach services, protected-key user presence, and separate UIDs.
+
 ## Accepted deviations from ROLLOUT
 
 | ROLLOUT text | Implemented | Reason |
@@ -60,4 +78,6 @@ The agent read interface is unchanged: no frame, input or lease operation exists
 
 - `VaultXPCServer`: changes are limited to the handler typealiases, `Handlers` defaults, the accept path (identity, continuation `Peer`, admin invalidation handler) and `AdminEndpoint`. `Peer.dispatch` is unchanged, so the owner's in-flight task cancellation can be cherry-picked on top.
 - `BrokerOverLinkTests` expects one `showHuman` command after the open. `ScriptedWebHost` gained frame/input scripting. Neither touches `start`.
+- Rebased onto `0986606` and then `0139ab5`. The continuation lane is a non-cancelling `Peer`, so it bypasses the read-handler registry as admin work does. The only conflict was the read/admin invalidation handlers in `VaultXPCServer`: both now call the owner's `peer.connectionInvalidated()`, and the admin one also reports the closed identity. The continuation lane does not cancel on invalidation, because a cancelled `finish` would cut short the broker's reply wait.
+- New test target `AgentVaultContinuationE2ETests` links AppSupport and Core. Product targets are unchanged and `verify-boundaries.py` still passes.
 - Shared docs that the parent owns need updates: IPC.md (new selector, reply kinds, snapshot `humanSteps`, `openHumanStep` keys, continuation lanes), THREAT-MODEL.md (raster channel is relayed but not yet backed by a host), IMPLEMENTATION-PLAN.md (U3/U4 verification).

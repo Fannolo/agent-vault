@@ -26,11 +26,12 @@ public enum AppComposition {
         let broker = InMemoryBroker(publicKey: signer.publicKey)
         let account = AccountSummary(id: UUID(), service: .github)
         let demo = AccountSummary(id: UUID(), service: .demo)
+        let web = AccountSummary(id: UUID(), service: .githubWeb)
         let client = ClientSummary(id: UUID(), uid: 502, revoked: false)
         let now = Date()
         Task {
             await broker.seed(
-                accounts: [account, demo], clients: [client],
+                accounts: [account, demo, web], clients: [client],
                 pending: [PendingSummary(id: UUID(), clientID: client.id, accountID: account.id,
                                          action: .githubProfile, expiresAt: now.addingTimeInterval(240))],
                 grants: [GrantSummary(id: UUID(), clientID: client.id, accountID: demo.id,
@@ -39,7 +40,9 @@ public enum AppComposition {
                 audit: [AuditSummary(timestamp: now.addingTimeInterval(-300), clientID: client.id, accountID: demo.id,
                                      action: .demoStatus, outcome: "completed"),
                         AuditSummary(timestamp: now.addingTimeInterval(-120), clientID: client.id, accountID: account.id,
-                                     action: .githubProfile, outcome: "denied")])
+                                     action: .githubProfile, outcome: "denied")],
+                humanSteps: [HumanStepSummary(runID: UUID(), epoch: 1, kind: .mfa, accountID: web.id, service: .githubWeb,
+                                              expiresAt: now.addingTimeInterval(540))])
         }
         return AppModel(transport: broker, signer: signer, features: AppFeatures(browserServicesEnabled: true))
     }

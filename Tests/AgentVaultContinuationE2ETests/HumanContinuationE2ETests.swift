@@ -1,0 +1,251 @@
+import AgentVaultContracts
+@testable import AgentVaultAppSupport
+@testable import AgentVaultCore
+@testable import AgentVaultIPC
+import Foundation
+import Security
+import Testing
+
+// The real human app model, over the real admin XPC listener and client, into the real
+// Administration, ContinuationOperations and Broker. Only the browser host is scripted.
+
+private let me = UInt32(getuid())
+private let credential = Data("synthetic-user\nSYNTHETIC-only-password".utf8)
+private let profile = AccountProfile(login: "synthetic-user", userID: 4242)!
+
+private let cdhash: String = {
+    var code: SecCode?, staticCode: SecStaticCode?, info: CFDictionary?
+    guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+          SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+          SecCodeCopySigningInformation(staticCode, [], &info) == errSecSuccess,
+          let unique = (info as? [String: Any])?[kSecCodeInfoUnique as String] as? Data else { fatalError("test host is not signed") }
+    return unique.map { String(format: "%02x", $0) }.joined()
+}()
+
+private let configuration = IPCConfiguration(
+    readServiceName: "dev.agentvault.test.read", adminServiceName: "dev.agentvault.test.admin",
+    brokerRequirement: "cdhash H\"\(cdhash)\"", readRequirement: "cdhash H\"\(cdhash)\" and cdhash H\"\(cdhash)\"",
+    adminRequirement: "(cdhash H\"\(cdhash)\")", brokerUID: me, allowedUID: me, development: true)
+
+private final class State: StateStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = VaultState()
+    func transaction<T>(_ body: (inout VaultState) throws -> T) throws -> T {
+        try lock.withLock { var next = value; let result = try body(&next); value = next; return result }
+    }
+}
+
+private final class Secrets: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [UUID: Data] = [:]
+    func save(_ value: Data, for id: UUID) throws { lock.withLock { items[id] = value } }
+    func load(for id: UUID) throws -> Data {
+        try lock.withLock { guard let value = items[id] else { throw VaultError.secretUnavailable }; return value }
+    }
+    func delete(for id: UUID) throws { _ = lock.withLock { items.removeValue(forKey: id) } }
+}
+
+/// Pauses for a person, serves a new synthetic frame after each delivered batch and records input.
+private final class FrameHost: WebSessionExecutor, @unchecked Sendable {
+    private let lock = NSLock()
+    private var open: Set<BrowserRunID> = []
+    private var sequence: UInt64 = 1
+    private var events: [HumanInput] = []
+    let losses: AsyncStream<Set<BrowserRunID>> = AsyncStream { _ in }
+
+    func start(_ run: BrowserRunID, workflow: WebWorkflow, credential: WebLoginCredential,
+               authority: WebStartAuthority) async -> WebStep {
+        guard await authority.lifetimeIfStillAuthorized() != nil else { return .failed(.timeout) }
+        lock.withLock { _ = open.insert(run) }
+        return .humanStep(.mfa)
+    }
+    func reclassify(_ run: BrowserRunID) async -> WebStep {
+        lock.withLock { open.contains(run) } ? .profile(profile) : .failed(.unknownRun)
+    }
+    func end(_ run: BrowserRunID) async { _ = lock.withLock { open.remove(run) } }
+    func showHuman(_ step: HumanStepID) async -> Bool { lock.withLock { open.contains(step.run) } }
+    func frame(_ step: HumanStepID, after: UInt64) async -> HumanFrame? {
+        let current = lock.withLock { open.contains(step.run) ? sequence : 0 }
+        return current > after ? SyntheticFrames.frame(current) : nil
+    }
+    func input(_ step: HumanStepID, frame: UInt64, _ batch: HumanInputBatch) async -> Bool {
+        lock.withLock {
+            guard open.contains(step.run), frame == sequence else { return false }
+            events += batch.events
+            sequence += 1
+            return true
+        }
+    }
+    var received: [HumanInput] { lock.withLock { events } }
+    var contexts: Int { lock.withLock { open.count } }
+}
+
+private final class Stack: @unchecked Sendable {
+    let state = State()
+    let host = FrameHost()
+    let signer = SoftwareFixtureSigner()
+    let broker: Broker
+    let server: VaultXPCServer
+    let endpoint: NSXPCListenerEndpoint
+    let account: Account
+    let client: ClientRecord
+    let grant: Grant
+
+    init() async throws {
+        broker = Broker(state: state, secrets: Secrets(), webSessions: host)
+        let admin = try Administration(broker: broker, publicKey: signer.publicKey.x963Representation)
+        let operations = ContinuationOperations(broker: broker), broker = broker
+        account = try await broker.enroll(service: .githubWeb, credential: credential)
+        // A paired agent always has a UID; the snapshot wire refuses UID 0.
+        client = try await broker.registerClient(uid: 4242)
+        grant = try await broker.grant(clientID: client.id, accountID: account.id, duration: 3600, callLimit: 3)
+        // The same closures BrokerMain composes.
+        let handlers = VaultXPCServer.Handlers(
+            read: { _, _ in ReadReply(.failure(.accessDenied)) },
+            snapshot: { _ in try await admin.snapshot() },
+            begin: { peer, request in
+                do { return try await admin.begin(request, connection: ContinuationConnectionID(minted: peer.id)) }
+                catch { throw AdminRejection(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
+            },
+            authorize: { peer, id, signature in
+                do { return try await admin.authorize(id, signature: signature, connection: ContinuationConnectionID(minted: peer.id)) }
+                catch { return AdminReply(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
+            },
+            continuation: { peer, request in await operations.perform(request, connection: ContinuationConnectionID(minted: peer.id)) },
+            closed: { peer in await broker.continuationConnectionClosed(ContinuationConnectionID(minted: peer.id)) })
+        let read = NSXPCListener.anonymous(), adminListener = NSXPCListener.anonymous()
+        server = VaultXPCServer(validated: configuration, limits: .standard, readListener: read,
+                                adminListener: adminListener, handlers: handlers)
+        server.activate()
+        endpoint = adminListener.endpoint
+    }
+
+    deinit { server.invalidate() }
+
+    func transport() -> (XPCAdminTransport, VaultAdminClient) {
+        let client = VaultAdminClient(validated: configuration, endpoint: endpoint, timeout: 5)
+        return (XPCAdminTransport(client: client), client)
+    }
+
+    @MainActor func app() -> AppModel { AppModel(transport: transport().0, signer: signer) }
+
+    func pausedRun() async throws -> BrowserRunID {
+        guard case .humanStepRequired(let run) = try await broker.run(clientID: client.id, accountID: account.id,
+                                                                     action: .githubWebProfile) else { throw VaultError.invalidResponse }
+        return run
+    }
+
+    func openRequest(_ step: HumanStepSummary) -> AdminRequest {
+        var request = AdminRequest(operation: .openHumanStep)
+        request.requestID = step.runID; request.accountID = step.accountID
+        request.stepEpoch = step.epoch; request.humanStepKind = step.kind
+        return request
+    }
+}
+
+@MainActor
+private func eventually(_ condition: @MainActor () async -> Bool) async -> Bool {
+    for _ in 0..<400 {
+        if await condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return false
+}
+
+@MainActor @Suite(.serialized)
+struct HumanContinuationE2ETests {
+    @Test func aPersonCompletesTheStepInTheAppAndTheAgentCollectsTheResultOnce() async throws {
+        let stack = try await Stack()
+        let run = try await stack.pausedRun()
+        let model = stack.app()
+        await model.refresh()
+        let step = try #require(model.humanSteps.first)
+        #expect(step.runID == run.uuid && step.kind == .mfa && step.epoch == 1 && step.accountID == stack.account.id)
+        #expect(await model.openHumanStep(step))
+        let window = try #require(model.humanStep)
+        #expect(await eventually { window.phase == .live && window.frame?.sequence == 1 })
+
+        let secret = "SYNTHETIC-MFA-918273"
+        window.type(secret)
+        window.key(.enter)
+        #expect(await eventually { stack.host.received.count == 2 })
+        #expect(stack.host.received == [.text(secret), .key(.enter)])
+        #expect(await eventually { window.frame?.sequence ?? 0 >= 2 }, "the next frame follows the delivered input")
+        await window.finish()
+        #expect(window.phase == .ended(.concluded))
+        await model.dismissHumanStep()
+
+        #expect(try await stack.broker.resume(run.uuid, clientID: stack.client.id) == .profile(profile))
+        await #expect(throws: VaultError.denied) { _ = try await stack.broker.resume(run.uuid, clientID: stack.client.id) }
+        let state = try stack.state.snapshot()
+        #expect(state.grants.first?.callsUsed == 1)
+        #expect(!String(decoding: try JSONEncoder().encode(state), as: UTF8.self).contains(secret))
+        #expect(state.adminAudit.map(\.outcome).suffix(2) == ["continuation_opened", "human_finished"])
+        #expect(stack.signer.signCount == 1)
+    }
+
+    @Test func aLeaseIsRefusedOnAnyOtherConnectionAndDiesWithItsOwn() async throws {
+        let stack = try await Stack()
+        let run = try await stack.pausedRun()
+        let (first, firstClient) = stack.transport()
+        let (second, _) = stack.transport()
+        let step = try #require(try await first.snapshot().humanSteps.first)
+        let service = AdminAuthorizationService(transport: first, signer: stack.signer)
+        let lease = try #require(try await service.perform(stack.openRequest(step), summary: "synthetic open").id)
+
+        let poll = ContinuationRequest(lease: lease, operation: .frame(after: 0))
+        #expect(try await second.continueHuman(poll) == .failure(.accessDenied))
+        #expect(try await second.continueHuman(.init(lease: lease, operation: .cancel)) == .failure(.accessDenied))
+        guard case .frame(let frame) = try await first.continueHuman(poll) else { Issue.record("owner got no frame"); return }
+        #expect(frame.sequence == 1)
+
+        // The next call on this client opens a new connection with a new identity.
+        firstClient.invalidate()
+        #expect(await eventually { (try? await first.continueHuman(poll)) == .failure(.accessDenied) })
+        #expect(try await stack.broker.resume(run.uuid, clientID: stack.client.id) == .humanStepRequired(run))
+        #expect(stack.host.contexts == 1, "losing the window keeps the pause")
+        let reopened = try #require(try await AdminAuthorizationService(transport: second, signer: stack.signer)
+            .perform(stack.openRequest(step), summary: "synthetic reopen").id)
+        try await Task.sleep(for: .milliseconds(60))
+        guard case .frame = try await second.continueHuman(.init(lease: reopened, operation: .frame(after: 0))) else {
+            Issue.record("reopened lease got no frame"); return
+        }
+    }
+
+    @Test func revocationWhileTheWindowIsOpenEndsItAndTheBrowserContext() async throws {
+        let stack = try await Stack()
+        _ = try await stack.pausedRun()
+        let model = stack.app()
+        await model.refresh()
+        #expect(await model.openHumanStep(try #require(model.humanSteps.first)))
+        let window = try #require(model.humanStep)
+        #expect(await eventually { window.phase == .live })
+        try await stack.broker.revokeGrant(stack.grant.id)
+        #expect(await eventually { window.phase == .ended(.unavailable) })
+        #expect(stack.host.contexts == 0)
+        await model.refresh()
+        #expect(model.humanSteps.isEmpty)
+    }
+
+    @Test func aStaleSnapshotCannotOpenTheNextChallenge() async throws {
+        let stack = try await Stack()
+        _ = try await stack.pausedRun()
+        let model = stack.app()
+        await model.refresh()
+        let step = try #require(model.humanSteps.first)
+        let wrong = HumanStepSummary(runID: step.runID, epoch: step.epoch + 1, kind: step.kind, accountID: step.accountID,
+                                     service: step.service, expiresAt: step.expiresAt)
+        #expect(await model.openHumanStep(wrong) == false)
+        #expect(model.notice?.text.contains("access_denied") == true)
+        #expect(stack.signer.signCount == 0, "nobody is asked to sign a step that does not exist")
+        #expect(model.humanStep == nil)
+    }
+
+    @Test func theAgentReadWireHasNoContinuationOperation() {
+        for operation in ["frame", "input", "continueHuman", "openHumanStep", "finish", "close"] {
+            let data = Data(#"{"operation":"\#(operation)","requestID":"\#(UUID().uuidString)"}"#.utf8)
+            #expect(throws: IPCError.invalidRequest) { _ = try WireCodec.decodeRead(data, limits: .standard) }
+        }
+    }
+}
+

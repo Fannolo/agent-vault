@@ -18,6 +18,11 @@ package actor InMemoryBroker: VaultAdminTransport {
     private var grants: [GrantSummary] = []
     private var pending: [PendingSummary] = []
     private var events: [AuditSummary] = []
+    private var humanSteps: [HumanStepSummary] = []
+    private var leases: [UUID: (step: HumanStepSummary, frame: UInt64)] = [:]
+    /// Counts only: the fixture keeps no typed text.
+    package private(set) var inputBatches = 0
+    package private(set) var continuationCalls = 0
     package private(set) var credentialsReceived: [UUID: Data] = [:]
     package private(set) var appliedOperations: [AdminRequest.Operation] = []
     package private(set) var rejectedAuthorizations = 0
@@ -28,13 +33,14 @@ package actor InMemoryBroker: VaultAdminTransport {
     }
 
     package func seed(accounts: [AccountSummary] = [], clients: [ClientSummary] = [], pending: [PendingSummary] = [],
-                      grants: [GrantSummary] = [], audit: [AuditSummary] = []) {
+                      grants: [GrantSummary] = [], audit: [AuditSummary] = [], humanSteps: [HumanStepSummary] = []) {
         self.accounts += accounts; self.clients += clients; self.pending += pending
-        self.grants += grants; events += audit
+        self.grants += grants; events += audit; self.humanSteps += humanSteps
     }
 
     package func snapshot() async throws -> AdminSnapshot {
-        AdminSnapshot(accounts: accounts, clients: clients, grants: grants, pending: pending, audit: events)
+        AdminSnapshot(accounts: accounts, clients: clients, grants: grants, pending: pending, audit: events,
+                      humanSteps: humanSteps.filter { $0.expiresAt > now() })
     }
 
     package func begin(_ request: AdminRequest) async throws -> AdminChallenge {
@@ -78,7 +84,11 @@ package actor InMemoryBroker: VaultAdminTransport {
         case .revokeClient: try need(clients.contains { $0.id == r.clientID })
         case .approveInvocation, .rejectInvocation: try need(pending.contains { $0.id == r.requestID && $0.status == "waiting" })
         case .recover, .prune: break
-        case .openHumanStep: try need(false)
+        case .openHumanStep:
+            try need(humanSteps.contains {
+                $0.runID == r.requestID && $0.epoch == r.stepEpoch && $0.kind == r.humanStepKind && $0.accountID == r.accountID
+                    && $0.expiresAt > now()
+            })
         }
     }
 
@@ -113,10 +123,41 @@ package actor InMemoryBroker: VaultAdminTransport {
                                                                          action: $0.action, expiresAt: $0.expiresAt, status: "approved") : $0 }
         case .rejectInvocation:
             pending.removeAll { $0.id == r.requestID }
-        case .recover, .prune, .openHumanStep: break
+        case .openHumanStep:
+            guard let step = humanSteps.first(where: { $0.runID == r.requestID && $0.epoch == r.stepEpoch }) else { return nil }
+            // A new open replaces any earlier lease on the step.
+            leases = leases.filter { $0.value.step != step }
+            let lease = UUID()
+            leases[lease] = (step, 1)
+            return lease
+        case .recover, .prune: break
         }
         return nil
     }
+
+    package func continueHuman(_ request: ContinuationRequest) async throws -> ContinuationReply {
+        continuationCalls += 1
+        guard let (step, frame) = leases[request.lease], step.expiresAt > now() else { return .failure(.accessDenied) }
+        switch request.operation {
+        case .frame(let after):
+            return frame > after ? .frame(SyntheticFrames.frame(frame)) : .noFrame
+        case .input(_, let target, _):
+            guard target == frame else { return .notDelivered }
+            inputBatches += 1
+            leases[request.lease]?.frame = frame + 1
+            return .delivered
+        case .finish, .cancel:
+            leases[request.lease] = nil
+            humanSteps.removeAll { $0 == step }
+            return .concluded
+        case .close:
+            leases[request.lease] = nil
+            return .closed
+        }
+    }
+
+    /// Ends every lease, as a broker restart or revocation would.
+    package func dropLeases() { leases.removeAll() }
 
     private func mark(_ g: GrantSummary) -> GrantSummary {
         GrantSummary(id: g.id, clientID: g.clientID, accountID: g.accountID, expiresAt: g.expiresAt,

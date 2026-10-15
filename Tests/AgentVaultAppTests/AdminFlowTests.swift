@@ -241,4 +241,5 @@ private actor AlteredIntentTransport: VaultAdminTransport {
         authorizationCount += 1
         return try await broker.authorize(challengeID: challengeID, signature: signature)
     }
+    func continueHuman(_ request: ContinuationRequest) async throws -> ContinuationReply { try await broker.continueHuman(request) }
 }

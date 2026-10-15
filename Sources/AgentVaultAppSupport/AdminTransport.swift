@@ -40,6 +40,8 @@ public protocol VaultAdminTransport: Sendable {
     func begin(_ request: AdminRequest) async throws -> AdminChallenge
     /// Verifies the signature over `challenge.payload`, consumes the challenge, then applies the request.
     func authorize(challengeID: UUID, signature: Data) async throws -> AdminReply
+    /// One call on a human-step lease. It must travel on the connection that authorized the open.
+    func continueHuman(_ request: ContinuationRequest) async throws -> ContinuationReply
 }
 
 /// Used until a real channel is wired in: every call fails closed.
@@ -48,4 +50,5 @@ public struct UnavailableTransport: VaultAdminTransport {
     public func snapshot() async throws -> AdminSnapshot { throw AdminTransportError.unavailable }
     public func begin(_ request: AdminRequest) async throws -> AdminChallenge { throw AdminTransportError.unavailable }
     public func authorize(challengeID: UUID, signature: Data) async throws -> AdminReply { throw AdminTransportError.unavailable }
+    public func continueHuman(_ request: ContinuationRequest) async throws -> ContinuationReply { throw AdminTransportError.unavailable }
 }

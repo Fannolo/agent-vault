@@ -64,6 +64,11 @@ let package = Package(
         .target(name: "IPCFixtureKit", dependencies: ["AgentVaultIPC", "AgentVaultContracts"], path: "Tests/IPCFixtures/Kit"),
         .executableTarget(name: "agent-vault-ipc-fixture", dependencies: ["IPCFixtureKit"], path: "Tests/IPCFixtures/Genuine"),
         .executableTarget(name: "agent-vault-ipc-impostor", dependencies: ["IPCFixtureKit"], path: "Tests/IPCFixtures/Impostor"),
-        .testTarget(name: "AgentVaultIPCTests", dependencies: ["AgentVaultIPC", "AgentVaultContracts"])
+        .testTarget(name: "AgentVaultIPCTests", dependencies: ["AgentVaultIPC", "AgentVaultContracts"]),
+        // The human app driven over real XPC into the real broker, in one test process. Only this
+        // test target may link the app with Core; verify-boundaries.py checks product targets.
+        .testTarget(name: "AgentVaultContinuationE2ETests", dependencies: [
+            "AgentVaultAppSupport", "AgentVaultCore", "AgentVaultIPC", "AgentVaultContracts"
+        ])
     ]
 )

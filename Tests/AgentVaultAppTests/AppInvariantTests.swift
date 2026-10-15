@@ -48,7 +48,8 @@ struct AppInvariantTests {
 
     @Test func unprotectedFixtureCodeIsCompiledOutOfReleaseBuilds() throws {
         let files = try sources(["Sources/AgentVaultAppSupport"])
-        for (path, text) in files where text.contains("SoftwareFixtureSigner") || text.contains("InMemoryBroker") || text.contains("ScreenshotTour") {
+        for (path, text) in files where text.contains("SoftwareFixtureSigner") || text.contains("InMemoryBroker")
+            || text.contains("SyntheticFrames") || text.contains("ScreenshotTour") {
             let isDefinition = path.contains("Fixtures/") || path.hasSuffix("ScreenshotTour.swift")
             if isDefinition { #expect(text.hasPrefix("#if DEBUG"), Comment(rawValue: path)) }
             else {
@@ -58,7 +59,9 @@ struct AppInvariantTests {
                 for line in lines {
                     if line.contains("#if DEBUG") { depth += 1 }
                     if line.contains("#endif") { depth -= 1 }
-                    if line.contains("SoftwareFixtureSigner") || line.contains("InMemoryBroker") { #expect(depth > 0, Comment(rawValue: "\(path): \(line)")) }
+                    if line.contains("SoftwareFixtureSigner") || line.contains("InMemoryBroker") || line.contains("SyntheticFrames") {
+                        #expect(depth > 0, Comment(rawValue: "\(path): \(line)"))
+                    }
                 }
             }
         }

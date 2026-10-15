@@ -16,6 +16,8 @@ LOGS = ROOT / "verification-logs" / "continuation-mutations"
 CORE = "ContinuationRelayTests"
 XPC = "ContinuationXPCTests"
 WIRE = "ContinuationWireTests"
+APP = "HumanStepTests"
+E2E = "HumanContinuationE2ETests"
 
 MUTATIONS = [
     ("lease ignores its connection", "Sources/AgentVaultCore/Broker.swift",
@@ -61,6 +63,25 @@ MUTATIONS = [
      'guard keys == ["type", "key"], let key', 'guard let key', WIRE),
     ("operation keys not exact", "Sources/AgentVaultIPC/ContinuationWire.swift",
      'guard keys == ["operation", "lease"] else { throw .invalidRequest }', "", WIRE),
+    ("declared frame size trusted over the decoded raster", "Sources/AgentVaultAppSupport/HumanFrameImage.swift",
+     "width == frame.width, height == frame.height, width * height <= Self.maximumPixels,", "", APP),
+    ("rotated JPEG accepted", "Sources/AgentVaultAppSupport/HumanFrameImage.swift",
+     "(properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1 == 1", "true", APP),
+    ("points outside the drawn frame mapped", "Sources/AgentVaultAppSupport/HumanFrameImage.swift",
+     "clamped || rect.contains(point)", "true", APP),
+    ("queued input survives a new frame", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
+     "            queue.removeAll { $0.frame != frame.sequence }\n", "", APP),
+    ("closing the window leaves it live", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
+     "        end(.closed)\n", "", APP),
+    ("no client-side deadline", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
+     "if now() >= step.expiresAt {", "if false {", APP),
+    ("long text sent as one oversized event", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
+     "if chunk.utf8.count + String(character).utf8.count > HumanInput.maximumTextBytes {", "if false {", APP),
+    ("frame request names no previous frame", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
+     "let after = frame?.sequence ?? 0", "let after: UInt64 = 0", APP),
+    ("composition binds leases to a fresh identity per call", "Tests/AgentVaultContinuationE2ETests/HumanContinuationE2ETests.swift",
+     "continuation: { peer, request in await operations.perform(request, connection: ContinuationConnectionID(minted: peer.id)) },",
+     "continuation: { peer, request in await operations.perform(request, connection: ContinuationConnectionID()) },", E2E),
 ]
 
 
