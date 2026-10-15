@@ -20,7 +20,8 @@ This closes the reviewed U1 defects, including the Core deadline gap R5-2 and ad
 lifetime gap R5-3. It does not prove an actual headless host, its system-domain service,
 private-UID isolation, egress or a deployed human channel. U2 must refuse context creation
 after teardown begins, beyond the listener's terminal peer-loss behavior. Production
-browser services remain disabled; combined cross-model review is still pending.
+browser services remain disabled. A fresh Claude Sonnet 5.5 round-seven review is running
+against frozen `f7ca91c`; no verdict has been received.
 
 ## Round six: 15 October 2026
 
