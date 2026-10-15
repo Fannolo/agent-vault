@@ -102,6 +102,28 @@ relay, independent OS egress, private-UID/daemon proof, protected-key signing, n
 and target-host compatibility remain open. Production browser services stay disabled.
 These are bounded model reviews, not security certification.
 
+### Unmerged U1 review
+
+U1 `f6e7455` is not part of this integration. An independent GPT-6.1-Sol judge
+reproduced three Medium defects with synthetic data: expiry during authentication can
+precede credential dispatch; cancellation of an initial caller can retain an unowned
+human pause; and the connection generation retains ended run IDs without a bound.
+It also found a Low `abs(Int.min)` trap in the typed wheel-input boundary. These must
+pass negative regression checks before acceptance. Terminal host-peer loss must prevent
+late handlers from recreating a context; dropping their replies alone is insufficient.
+
+The worker separately committed verifier cleanup `0cc3ddf`, reporting five owned-process
+tests and thirteen mutation reruns. It reported three earlier broad process-name signals
+around 16:32–16:35 and 16:39–16:40 CEST; reconstructed times match the interrupted root
+runs, but exact signal deliveries were not logged. The replacement uses a child handle,
+a fresh session and a process group held until cleanup, without name-based searches.
+That correction remains separate from the accepted root branch.
+
+The proposed post-probe admission token is `WebStartAuthority`, minted only by Core.
+Its callback rechecks the run, step, live grant and deadline immediately before the link
+binds and sends without another suspension. It is a design response being implemented,
+not a verified fix. U2 and U3/U4 remain in isolated worktrees; production stays disabled.
+
 ## Round three: 15 October 2026
 
 Claude Sonnet 5.5 reviewed `d39b1c2` (documentation at `fe7f1dc`) in an independent,
