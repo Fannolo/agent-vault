@@ -104,6 +104,13 @@ retain lifecycle journals and cannot race recovery or another mutation. This kee
 revocation responsive to a stalled credential store; it does not cancel an operation inside
 Security.framework. The private database password remains in broker memory for explicit unlocks.
 
+Recovery first closes admission for new credential invocations and lifecycle mutations, then
+asynchronously drains existing credential workers and lifecycle mutations before reading their
+journals. This drain is bounded by the credential-operation timeout (five seconds by default),
+so continuous read traffic cannot starve maintenance. A drain timeout returns busy and preserves
+the journals and actual-worker tracking. Metadata and revocation stay responsive; the admission
+gate is released whenever recovery exits, including cancellation or failure.
+
 Swift/Foundation may copy immutable credential buffers and strings. The design does not claim
 complete RAM zeroization. Native tests use unique synthetic namespaces and delete only their
 own entries; real credentials and business evidence are never fixtures.

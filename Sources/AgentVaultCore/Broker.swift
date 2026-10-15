@@ -10,6 +10,7 @@ public actor Broker {
     private let web: (any WebSessionExecutor)?
     private let windows: LifecycleWindows
     private let now: @Sendable () -> Date
+    private let recoveryDrainTimeout: Duration
     private var lifecycleMutations: Set<UUID> = []
     private var recoveryInProgress = false
     private var runs: [BrowserRunID: BrowserRun] = [:]
@@ -30,6 +31,7 @@ public actor Broker {
                 secretIOPolicy: SecretIOPolicy = .standard) {
         self.state = state; self.secretIO = SecretIOExecutor(store: secrets, policy: secretIOPolicy)
         self.adapter = adapter; self.web = webSessions; self.windows = windows; self.now = now
+        self.recoveryDrainTimeout = .seconds(secretIOPolicy.timeout)
         if let losses = webSessions?.losses {
             Task { [weak self] in
                 for await _ in losses {
@@ -444,12 +446,21 @@ public actor Broker {
         try removeAccountRecord(id, outcome: "deletion_completed")
     }
 
-    // Called by the single broker owner before accepting connections.
+    // Own admission before draining; an idle-only admission check could starve
+    // indefinitely under otherwise authorized read traffic.
     public func recoverInterruptedLifecycle() async throws {
-        guard lifecycleMutations.isEmpty, !recoveryInProgress, secretIO.isIdle else { throw VaultError.busy }
+        guard !recoveryInProgress else { throw VaultError.busy }
         recoveryInProgress = true
         defer { recoveryInProgress = false }
         try state.transaction { $0.recordAdministration(outcome: "recovery_started", at: now()) }
+        let deadline = ContinuousClock.now + recoveryDrainTimeout
+        while true {
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else { throw VaultError.busy }
+            if lifecycleMutations.isEmpty && secretIO.isIdle { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        await reconcileRuns()
         for account in try state.snapshot().accounts {
             switch account.lifecycle {
             case .enrolling, .deleting:

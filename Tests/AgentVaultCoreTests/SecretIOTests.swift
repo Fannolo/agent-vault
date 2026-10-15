@@ -111,6 +111,130 @@ private func recoverWhenReady(_ broker: Broker) async throws {
     }
 }
 
+private func waitForRecoveryStart(_ broker: Broker) async throws {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while true {
+        if try await broker.snapshot().adminAudit.contains(where: { $0.outcome == "recovery_started" }) { return }
+        guard ContinuousClock.now < deadline else { throw VaultError.stateUnavailable }
+        try await Task.sleep(for: .milliseconds(1))
+    }
+}
+
+@Test func recoveryReservesAdmissionBeforeDrainingAuthorizedReads() async throws {
+    let f = try await IOFixture.make(timeout: 2)
+    let retired = UUID()
+    try f.store.save(Data("SYNTHETIC-retired".utf8), for: retired)
+    try f.state.transaction { $0.accounts[0].retiredCredentialID = retired }
+    f.store.stall(.load, count: SecretIOExecutor.readCapacity)
+    defer { f.store.release(SecretIOExecutor.capacity) }
+    let reads = (0..<SecretIOExecutor.readCapacity).map { _ in
+        Task { try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) }
+    }
+    try await f.store.waitForStarts(SecretIOExecutor.readCapacity)
+    let recovery = Task { try await f.broker.recoverInterruptedLifecycle() }
+    try await waitForRecoveryStart(f.broker)
+    await withTaskGroup(of: Void.self) { group in
+        for _ in 0..<64 {
+            group.addTask {
+                await #expect(throws: VaultError.busy) {
+                    _ = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
+                }
+            }
+        }
+    }
+    await #expect(throws: VaultError.busy) { try await f.broker.recoverInterruptedLifecycle() }
+    await #expect(throws: VaultError.busy) {
+        _ = try await f.broker.enroll(service: .demo, credential: Data("SYNTHETIC-blocked".utf8))
+    }
+    #expect(try await f.broker.snapshot().grants[0].callsUsed == SecretIOExecutor.readCapacity)
+    #expect(f.store.starts == SecretIOExecutor.readCapacity)
+    #expect(f.store.finishes == 0)
+    #expect(f.store.ids.contains(retired))
+    f.store.release(SecretIOExecutor.readCapacity)
+    for read in reads { #expect(try await read.value == .demoReady) }
+    try await recovery.value
+    #expect(try f.state.snapshot().accounts[0].retiredCredentialID == nil)
+    #expect(!f.store.ids.contains(retired))
+    #expect(try f.state.snapshot().adminAudit.last?.outcome == "recovery_completed")
+    #expect(try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) == .demoReady)
+}
+
+@Test func recoveryDrainTimeoutPreservesAnUncertainWriteAndReleasesAdmission() async throws {
+    let f = try await IOFixture.make(timeout: 2)
+    f.store.stall(.save)
+    defer { f.store.release(SecretIOExecutor.capacity) }
+    let rotation = Task { try await f.broker.rotate(accountID: f.account.id, credential: Data("SYNTHETIC-uncertain".utf8)) }
+    try await f.store.waitForStarts(1)
+    await #expect(throws: VaultError.secretUnavailable) { try await rotation.value }
+    let before = try f.state.snapshot().accounts[0]
+    #expect(before.lifecycle == .rotating)
+    #expect(before.stagedCredentialID != nil)
+    let start = ContinuousClock.now
+    await #expect(throws: VaultError.busy) { try await f.broker.recoverInterruptedLifecycle() }
+    #expect(ContinuousClock.now - start < .seconds(4))
+    #expect(try f.state.snapshot().accounts[0] == before)
+    #expect(f.store.finishes == 0)
+    #expect(f.store.ids == [f.account.credentialID])
+    // A different account can use the reserved administration slot after the
+    // drain deadline, while the uncertain writer keeps its own item tracked.
+    let other = try await f.broker.enroll(service: .demo, credential: Data("SYNTHETIC-other".utf8))
+    _ = try await f.broker.grant(clientID: f.client.id, accountID: other.id, duration: 60, callLimit: 1)
+    #expect(try await f.broker.run(clientID: f.client.id, accountID: other.id, action: .demoStatus) == .demoReady)
+    await #expect(throws: VaultError.busy) { try await f.broker.deleteAccount(f.account.id) }
+    f.store.release()
+    try await f.store.waitForFinishes(1)
+    try await recoverWhenReady(f.broker)
+    #expect(f.store.ids == [f.account.credentialID, other.credentialID])
+    #expect(try f.state.snapshot().accounts.first { $0.id == f.account.id }?.lifecycle == .active)
+}
+
+@Test func cancellingTheRecoveryDrainReleasesItsAdmissionGate() async throws {
+    let f = try await IOFixture.make(timeout: 2)
+    f.store.stall(.load)
+    defer { f.store.release(SecretIOExecutor.capacity) }
+    let read = Task { try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) }
+    try await f.store.waitForStarts(1)
+    let recovery = Task { try await f.broker.recoverInterruptedLifecycle() }
+    try await waitForRecoveryStart(f.broker)
+    recovery.cancel()
+    await #expect(throws: CancellationError.self) { try await recovery.value }
+    #expect(f.store.finishes == 0)
+    #expect(try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) == .demoReady)
+    _ = try await f.broker.enroll(service: .demo, credential: Data("SYNTHETIC-after-cancel".utf8))
+    f.store.release()
+    #expect(try await read.value == .demoReady)
+}
+
+@Test func recoveryLetsAnExistingLifecycleMutationFinishBeforeReadingItsJournal() async throws {
+    let f = try await IOFixture.make(timeout: 2)
+    f.store.stall(.save)
+    f.store.stall(.delete)
+    defer { f.store.release(SecretIOExecutor.capacity) }
+    let rotation = Task { try await f.broker.rotate(accountID: f.account.id, credential: Data("SYNTHETIC-in-flight".utf8)) }
+    try await f.store.waitForStarts(1)
+    let recovery = Task { try await f.broker.recoverInterruptedLifecycle() }
+    try await waitForRecoveryStart(f.broker)
+    f.store.release()
+    try await f.store.waitForStarts(2)
+    #expect(try f.state.snapshot().accounts[0].retiredCredentialID == f.account.credentialID)
+    #expect(try !f.state.snapshot().adminAudit.contains { $0.outcome == "recovery_completed" })
+    await #expect(throws: VaultError.busy) {
+        _ = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
+    }
+    f.store.release()
+    try await rotation.value
+    try await recovery.value
+    let final = try f.state.snapshot()
+    #expect(final.accounts[0].lifecycle == .active)
+    #expect(final.accounts[0].credentialID != f.account.credentialID)
+    #expect(final.accounts[0].retiredCredentialID == nil)
+    #expect(f.store.ids == [final.accounts[0].credentialID])
+    let outcomes = final.adminAudit.map(\.outcome)
+    #expect(outcomes.contains("rotation_completed"))
+    #expect(!outcomes.contains("rotation_recovered"))
+    #expect(outcomes.last == "recovery_completed")
+}
+
 @Test func blockedSecretReadCannotBlockRevocationOrMetadataSnapshots() async throws {
     let f = try await IOFixture.make(timeout: 2)
     f.store.stall(.load)
