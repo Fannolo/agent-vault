@@ -44,8 +44,16 @@ count differs. This is a bounded model review, not certification.
 | R7-9, Info: two teardown/cancellation defenses lack standalone mutants | New variants target late-reply teardown and the read peer's cancellation flag. The authority-guard mutant still removes a group of conditions; it does not prove each condition independently. |
 
 The helper also refuses a failed restored-source build instead of reporting mutation
-success. Ten helper checks and the focused collection regression pass; full combined
-verification is pending. Both remote macOS jobs passed on `f09f8d8`, with 281 registered
+success. The first clean R7 [record](verification/browser-r7-followup.json) at `0775185` passed
+all seven checks: 282 registered Swift tests including two skips, MCP, synthetic native
+MCP, boundaries, ten helper and ten recorder checks, and all twenty-seven web-link
+mutations detected after a passing baseline. Source remained unchanged. A subsequent
+independent review still reproduced two interruption gaps: the mutant write preceded its
+restoration `try`, and main-thread signal masking could not defer a signal routed through
+the reader. The refined helper now defers both signals through a shared nested critical
+section, polls for interruption, and restores byte-exact source even if the write raises.
+Twelve helper checks pass, including repeated real SIGTERM during held cleanup. These
+refinements need a new source-specific recording. Both remote macOS jobs passed on `f09f8d8`, with 281 registered
 tests including two explicit native-storage skips. Their logs are retained privately.
 
 Separate unmerged U2 review found a blocking CDP write holding the state lock (High),

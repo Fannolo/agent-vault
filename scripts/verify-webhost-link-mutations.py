@@ -13,6 +13,7 @@ applications are untouched.
 """
 import argparse
 import contextlib
+import contextvars
 import os
 import pathlib
 import select
@@ -135,26 +136,83 @@ def wait_for_exit_without_reaping(pid, timeout):
         event = select.kevent(pid, filter=select.KQ_FILTER_PROC,
                               flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT, fflags=select.KQ_NOTE_EXIT)
         try:
-            return len(queue.control([event], 1, timeout)) > 0
+            queue.control([event], 0, 0)
         except ProcessLookupError:
             return True  # already exited (zombie) before registration
+        deadline = time.monotonic() + timeout
+        while True:
+            interruption = _interrupts.get()
+            if interruption is not None:
+                interruption.check()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if queue.control([], 1, min(remaining, 0.1)):
+                return True
     finally:
         queue.close()
 
 
+class _Interrupts:
+    def __init__(self):
+        self.requested = False
+        self.depth = 0
+
+    def check(self):
+        if self.requested:
+            raise KeyboardInterrupt
+
+    @contextlib.contextmanager
+    def deferred(self):
+        self.depth += 1
+        try:
+            yield
+        finally:
+            self.depth -= 1
+            if self.depth == 0:
+                self.check()
+
+
+_interrupts = contextvars.ContextVar("owned_harness_interrupts", default=None)
+
+
 @contextlib.contextmanager
 def interrupt_on_termination():
-    """CLI termination unwinds source restoration and owned-child cleanup, like Ctrl-C."""
-    if threading.current_thread() is not threading.main_thread():
-        yield
+    """One nested CLI signal policy; critical sections defer repeats until restoration ends."""
+    current = _interrupts.get()
+    if current is not None:
+        yield current
         return
+    state = _Interrupts()
+    token = _interrupts.set(state)
+    previous = {}
+
     def interrupted(signum, frame):
-        raise KeyboardInterrupt
-    previous = signal.signal(signal.SIGTERM, interrupted)
+        state.requested = True
+        if state.depth == 0:
+            state.check()
+
     try:
-        yield
+        if threading.current_thread() is threading.main_thread():
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous[signum] = signal.getsignal(signum)
+                signal.signal(signum, interrupted)
+        yield state
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+        _interrupts.reset(token)
+
+
+@contextlib.contextmanager
+def changed_source(path, original, mutated):
+    """Restore exact bytes even when the mutation write or a nested command is interrupted."""
+    with interrupt_on_termination() as interruption, interruption.deferred():
+        try:
+            path.write_bytes(mutated)
+            yield
+        finally:
+            path.write_bytes(original)
 
 
 def run_owned(command, timeout, cwd=ROOT):
@@ -167,7 +225,7 @@ def run_owned(command, timeout, cwd=ROOT):
     stop = threading.Event()
     eof = threading.Event()
     chunks = []
-    with interrupt_on_termination():
+    with interrupt_on_termination() as interruption, interruption.deferred():
         try:
             child = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      bufsize=0, start_new_session=True)
@@ -196,24 +254,20 @@ def run_owned(command, timeout, cwd=ROOT):
             reader.start()
             exited = wait_for_exit_without_reaping(pgid, timeout)
         finally:
-            # Keep the leader unreaped until its group has been cleaned. A second interrupt
-            # is deferred until cleanup is finished, so restoration cannot race a live worker.
-            mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
-            try:
-                if child is not None:
-                    try:
-                        terminate_group(child.pid)
-                        code = child.wait(timeout=TERM_GRACE)
-                    finally:
-                        if reader is not None:
-                            reader.join(0.25)  # drain normal EOF; do not await an escaped holder
-                            stop.set()
-                            reader.join(1)
-                            if reader.is_alive():
-                                raise RuntimeError("owned output reader did not stop")
-                        child.stdout.close()
-            finally:
-                signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            # Keep the leader unreaped until group cleanup. Signal handlers only record
+            # requests throughout this critical section, including signals routed via a reader.
+            if child is not None:
+                try:
+                    terminate_group(child.pid)
+                    code = child.wait(timeout=TERM_GRACE)
+                finally:
+                    if reader is not None:
+                        reader.join(0.25)  # drain normal EOF; do not await an escaped holder
+                        stop.set()
+                        reader.join(1)
+                        if reader.is_alive():
+                            raise RuntimeError("owned output reader did not stop")
+                    child.stdout.close()
     if not eof.is_set():
         chunks.append(b"\n[output capture ended without EOF after owned-group cleanup]\n")
     output = b"".join(chunks).decode("utf-8", "replace")
@@ -245,10 +299,10 @@ def main():
     results = []
     for name, path, old, new, test in M:
         source = ROOT / path
-        original = source.read_text()
-        assert original.count(old) == 1, name
-        source.write_text(original.replace(old, new))
-        try:
+        original = source.read_bytes()
+        text = original.decode()
+        assert text.count(old) == 1, name
+        with changed_source(source, original, text.replace(old, new).encode()):
             code, out = run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=600)
             if code != 0:
                 status = "BUILD_FAILED"
@@ -258,8 +312,6 @@ def main():
                     status, out = "KILLED(hang)", f"test hung past {TEST_TIMEOUT} s; owned group ended\n" + out
                 else:
                     status = "KILLED" if code != 0 else "SURVIVED"
-        finally:
-            source.write_text(original)
         results.append((name, status))
         with open(LOG, "a") as log:
             log.write(f"=== {name} [{test}] -> {status}\n{out}\n")

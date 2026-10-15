@@ -144,21 +144,39 @@ class OwnedProcessTests(unittest.TestCase):
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
 
     def test_sigterm_restores_source_after_cleaning_the_owned_worker(self):
+        self.interrupt_fixture(repeated=False)
+
+    def test_repeated_sigterm_cannot_interrupt_worker_cleanup_or_source_restoration(self):
+        self.interrupt_fixture(repeated=True)
+
+    def interrupt_fixture(self, repeated):
         source = self.work / "source"
-        script = ("import importlib.util,pathlib,sys; "
+        fifo = self.work / "finish"
+        os.mkfifo(fifo)
+        script = ("import importlib.util,pathlib,sys,time; "
                   "spec=importlib.util.spec_from_file_location('h',sys.argv[1]); "
                   "h=importlib.util.module_from_spec(spec); spec.loader.exec_module(h); "
-                  "source=pathlib.Path(sys.argv[2])\n"
-                  "with h.interrupt_on_termination():\n"
-                  " try:\n"
-                  "  source.write_text('in flight'); h.run_owned(sys.argv[3:],10)\n"
-                  " finally:\n"
-                  "  source.write_text('restored')\n")
+                  "source=pathlib.Path(sys.argv[2]); work=source.parent\n"
+                  "if sys.argv[3]=='repeat':\n"
+                  " original=h.terminate_group\n"
+                  " def held_cleanup(pgid):\n"
+                  "  (work/'cleaning').write_text('ready')\n"
+                  "  while not (work/'go').exists(): time.sleep(.01)\n"
+                  "  original(pgid)\n"
+                  " h.terminate_group=held_cleanup\n"
+                  "with h.changed_source(source,b'restored',b'in flight'):\n"
+                  " received=[0]; handler=h.signal.getsignal(h.signal.SIGTERM)\n"
+                  " def observed(signum,frame):\n"
+                  "  handler(signum,frame); received[0]+=1\n"
+                  "  (work/'signals').write_text(str(received[0]))\n"
+                  " h.signal.signal(h.signal.SIGTERM,observed)\n"
+                  " h.run_owned(sys.argv[4:],10)\n")
         command = self.owned_command(
-            "echo $$ > WORK/leader; /bin/sleep 2 & echo $! > WORK/descendant; wait")
+            "echo $$ > WORK/leader; /bin/cat WORK/finish & echo $! > WORK/descendant; wait")
         with tempfile.TemporaryFile() as output:
             wrapper = subprocess.Popen([sys.executable, "-I", "-c", script,
-                                        str(ROOT / "scripts/verify-webhost-link-mutations.py"), str(source), *command],
+                                        str(ROOT / "scripts/verify-webhost-link-mutations.py"), str(source),
+                                        "repeat" if repeated else "once", *command],
                                        stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 deadline = time.monotonic() + 5
@@ -166,18 +184,59 @@ class OwnedProcessTests(unittest.TestCase):
                     time.sleep(0.01)
                 self.assertTrue((self.work / "descendant").exists())
                 wrapper.terminate()  # exact Popen handle; no signal by name or search
+                if repeated:
+                    deadline = time.monotonic() + 5
+                    while not (self.work / "cleaning").exists() and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue((self.work / "cleaning").exists())
+                    wrapper.terminate()
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        if (self.work / "signals").exists() and (self.work / "signals").read_text() == "2":
+                            break
+                        time.sleep(0.01)
+                    self.assertEqual((self.work / "signals").read_text(), "2",
+                                     "both signals must be handled before cleanup is released")
+                    self.assertIsNone(wrapper.poll(), "a second signal must not unwind cleanup")
+                    (self.work / "go").write_text("release")
                 wrapper.wait(timeout=10)
                 self.assertEqual(source.read_text(), "restored")
                 self.assertTrue(gone(self.pids("leader")) and gone(self.pids("descendant")))
                 self.assertIsNone(self.sentinel.poll())
             finally:
+                (self.work / "go").write_text("release")
                 if wrapper.poll() is None:
                     wrapper.kill()
                 wrapper.wait()
-                # Broken variants leave only the explicit two-second fixture to exit naturally.
+                # A broken variant's explicit fixture can exit cooperatively, with no signal.
+                try:
+                    descriptor = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+                except OSError:
+                    pass
+                else:
+                    os.write(descriptor, b"finish\n")
+                    os.close(descriptor)
                 for name in ("leader", "descendant"):
                     if (self.work / name).exists():
                         gone(self.pids(name), within=3)
+
+    def test_interruption_during_the_mutation_write_restores_original_bytes(self):
+        source = self.work / "source"
+        original, mutated = b"guard safe\n", b"guard true\n"
+        source.write_bytes(original)
+        write = Path.write_bytes
+
+        def interrupted(path, data):
+            result = write(path, data)
+            if path == source and data == mutated:
+                raise KeyboardInterrupt
+            return result
+
+        with mock.patch.object(Path, "write_bytes", autospec=True, side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                with harness.changed_source(source, original, mutated):
+                    self.fail("the interrupted write cannot start a command")
+        self.assertEqual(source.read_bytes(), original)
 
     def test_failed_restore_build_cannot_report_successful_mutation_verification(self):
         source = self.work / "source"
