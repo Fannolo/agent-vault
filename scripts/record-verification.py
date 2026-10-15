@@ -26,12 +26,15 @@ CHECKS = {
     "release-entitlements": [sys.executable, "-I", "deploy/tests/test_release.py"],
     "xpc-cleanup": [sys.executable, "-I", "deploy/tests/test_xpc_cleanup.py"],
     "recorder": [sys.executable, "-I", "deploy/tests/test_recorder.py"],
+    "webhost-cleanup": [sys.executable, "-I", "deploy/tests/test_webhost_link_mutations.py"],
+    "webhost-mutations": [sys.executable, "scripts/verify-webhost-link-mutations.py"],
     "xpc": [sys.executable, "scripts/verify-xpc.py"],
     "xpc-mutations": [sys.executable, "scripts/verify-xpc-mutations.py"],
     "native-keychain": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter",
                         "privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled|nativeKeychainRoundTripWhenExplicitlyEnabled"],
 }
 EVIDENCE = {"xpc", "xpc-mutations"}
+DETAIL_LOGS = {"webhost-mutations"}
 
 
 def artifact(path):
@@ -83,6 +86,9 @@ def run_check(name, run_dir):
     evidence = run_dir / (name + ".json") if name in EVIDENCE else None
     if evidence:
         argv += ["--evidence", str(relative / evidence.name)]
+    detail = run_dir / (name + ".details.log") if name in DETAIL_LOGS else None
+    if detail:
+        argv += ["--log", str(relative / detail.name)]
     env = os.environ.copy()
     env.pop("AGENT_VAULT_KEYCHAIN_TEST", None)
     env.pop("AGENT_VAULT_NETWORK_TEST", None)
@@ -119,6 +125,13 @@ def run_check(name, run_dir):
                 check["evidence"] = json.loads(data)
             except ValueError as error:
                 check.setdefault("error", f"evidence is not JSON: {error}")
+    if detail:
+        if not detail.is_file():
+            check.setdefault("error", "the check wrote no detail log")
+        else:
+            detail.chmod(0o600)
+            check["detailLog"] = {"path": str(relative / detail.name),
+                                  "sha256": sha256(detail.read_bytes())}
     check["passed"] = check["exitCode"] == 0 and "error" not in check
     return check
 

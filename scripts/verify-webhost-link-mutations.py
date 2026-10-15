@@ -11,6 +11,7 @@ exits, only that recorded group is signalled (TERM, bounded wait, then KILL). No
 ever found or signalled by name, path or search, so other test runs, worktrees and
 applications are untouched.
 """
+import argparse
 import os
 import pathlib
 import select
@@ -154,15 +155,23 @@ def run_owned(command, timeout, cwd=ROOT):
 
 
 def main():
+    global LOG
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--log", type=pathlib.Path, help="retain full output at this fresh path")
+    args = parser.parse_args()
+    if args.log:
+        LOG = args.log.resolve()
     LOG.parent.mkdir(exist_ok=True)
-    LOG.write_text("")
+    # Explicit paths are never overwritten; the recorder supplies a new private run directory.
+    with LOG.open("x" if args.log else "w") as log:
+        os.fchmod(log.fileno(), 0o600)
     # A mutant only counts as detected if its test passes on the unmutated tree.
     code, out = run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=600)
     filters = "|".join(sorted({test for *_, test in M}))
     if code == 0:
         code, out = run_owned(["swift", "test", "--skip-build", "--filter", filters], timeout=TEST_TIMEOUT * 3)
     with open(LOG, "a") as log:
-        log.write(f"=== baseline [{filters}] -> {code}\n{out[-4000:]}\n")
+        log.write(f"=== baseline [{filters}] -> {code}\n{out}\n")
     if code != 0:
         print("baseline FAILED: targeted tests must pass before mutating", flush=True)
         return 2
@@ -187,7 +196,7 @@ def main():
             source.write_text(original)
         results.append((name, status))
         with open(LOG, "a") as log:
-            log.write(f"=== {name} [{test}] -> {status}\n{out[-4000:]}\n")
+            log.write(f"=== {name} [{test}] -> {status}\n{out}\n")
         print(name, status, flush=True)
     run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=600)
     return 0 if all(status.startswith("KILLED") for _, status in results) else 1

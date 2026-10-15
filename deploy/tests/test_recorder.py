@@ -30,6 +30,8 @@ CHECKS = {
     "aux": check("import sys; open(sys.argv[2], 'w').write('{\"results\": [1]}'); print('PASS aux')"),
     "aux-malformed": check("import sys; open(sys.argv[2], 'w').write('{\"results\": ['); print('PASS aux')"),
     "aux-missing": check("print('PASS aux')"),
+    "detail": check("import sys; open(sys.argv[2], 'w').write('complete detail\\n'); print('PASS detail')"),
+    "detail-missing": check("print('PASS detail')"),
     "edit-tracked": check("open('source.txt', 'a').write('changed')"),
     "new-untracked": check("open('new.txt', 'w').write('x')"),
     "new-ignored": check("open('state.json', 'w').write('{}')"),
@@ -51,7 +53,8 @@ class RecorderTests(unittest.TestCase):
         self.git("init", "-q")
         self.git("add", ".")
         self.git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "init")
-        for name, value in (("ROOT", self.repo), ("CHECKS", CHECKS), ("EVIDENCE", {"aux", "aux-malformed", "aux-missing"})):
+        for name, value in (("ROOT", self.repo), ("CHECKS", CHECKS), ("EVIDENCE", {"aux", "aux-malformed", "aux-missing"}),
+                            ("DETAIL_LOGS", {"detail", "detail-missing"})):
             original = getattr(recorder, name)
             setattr(recorder, name, value)
             self.addCleanup(setattr, recorder, name, original)
@@ -97,6 +100,21 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(swift["observedSummary"], swift["swiftTesting"]["skipReports"]
                          + ["✔ Test run with 3 tests passed"])
         self.assertNotIn("swiftTesting", record["checks"][1])
+
+    def test_detail_logs_are_retained_privately_and_missing_logs_fail(self):
+        code, record, _ = self.record("detail", "detail")
+        self.assertEqual(code, 0)
+        detail = record["checks"][0]["detailLog"]
+        retained = self.repo / detail["path"]
+        self.assertEqual(retained.read_text(), "complete detail\n")
+        self.assertEqual(detail["sha256"], hashlib.sha256(retained.read_bytes()).hexdigest())
+        self.assertEqual(stat.S_IMODE(retained.stat().st_mode), 0o600)
+        self.record("detail-later", "detail")
+        self.assertEqual(retained.read_text(), "complete detail\n")
+        code, record, _ = self.record("detail-missing", "detail-missing", "pass")
+        self.assertEqual(code, 1)
+        self.assertEqual(len(record["checks"]), 1)
+        self.assertEqual(record["checks"][0]["error"], "the check wrote no detail log")
 
     def test_malformed_or_missing_evidence_is_a_recorded_failure(self):
         for name in ("aux-malformed", "aux-missing"):
