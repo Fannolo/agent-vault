@@ -1,4 +1,47 @@
-# Initial implementation review
+# Implementation security reviews
+
+## Current follow-up: 15 October 2026
+
+Claude Sonnet 5.5 reviewed `d39b1c2` (documentation at `fe7f1dc`) in an independent,
+synthetic scratch export. It reran 181 Swift tests and 40 installer tests in both Python
+modes, and wrote its own admission, audit, parser and real-code-signature probes.
+The five detailed findings comprise three Medium and two Low issues; its opening count
+said two Medium and three Low. No High issue was reported in that bounded review.
+
+| ID | Finding | Response |
+|---|---|---|
+| R3-1, Medium | Busy secret-read admission consumes budget and approval before any execution | Core fix in progress: reserve capacity before state mutation |
+| R3-2, Medium | Successful calls can evict other clients' invocation history | Core fix in progress: fair client retention within the global bound |
+| R3-3, Medium | Release builder parses a text entitlement dump as a plist | Explicit XML output; real entitled and unentitled signatures tested |
+| R3-4, Low | Installer denylist omits the debugger entitlement | Exact per-role entitlement policy, including refusal of unknown and temporary capabilities |
+| R3-5, Low | Agent secret reads can occupy all administration I/O slots | Core fix in progress: reserve administration capacity |
+
+Release/installer response evidence: `deploy/tests/test_release.py` (three real ad hoc
+signature tests); 42 installer tests in normal and optimized Python modes; 12 guard
+mutations; signed sandbox install/verify/retry/uninstall using the `fe7f1dc` review
+payload. Accounts and launchd are simulated in that sandbox. These checks do not prove
+that a provisioned app can create its protected key.
+
+Round 2 had identified synchronous Keychain calls blocking the broker actor and denial
+floods evicting invocation history. `d39b1c2` moved actual I/O to four bounded workers
+with deadlines and retained late-worker bookkeeping, compensated ordinary lifecycle
+failures, and coalesced representative denial/approval events. Round 3 confirmed the
+responsiveness and lifecycle fixes, but reproduced the remaining successful-call
+audit flood and admission defects above. It found no defect in the shared strict JSON
+guard after 34 additional parser probes and four timing runs.
+
+The review also flagged evidence limits: the follow-up record hashes Sources and Tests,
+but not deployment/build files; historical batch timestamps do not establish command
+order; the signed-bundle record still describes the older `425c6af` artifact. Later
+records must name their source commit and actual artifact separately. Uncertain
+Keychain journals need recovery after workers finish; permanently hung workers need a
+broker restart. Provisioning, protected-key signing, installed private-UID isolation,
+browser implementation/egress proof, notarization and host compatibility remain open.
+
+The T3 review task is `agent-vault-security-followup-review-v3-20261015`; scratch probes
+are under `/tmp/avr3/`. This is model review, not security certification.
+
+## Initial implementation review
 
 Reviewed 13 October 2026 by three independent model reviewers, followed by lead
 verification of their call chains. This is a development review, not an external

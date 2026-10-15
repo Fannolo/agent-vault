@@ -45,6 +45,8 @@ domain, with umask 077 and the two Mach services `dev.agentvault.broker.read` an
    - team `3JWAQ92CB4`
    - the hardened runtime
    - no `get-task-allow` entitlement
+   - exact role entitlements: broker and bridge have none; the app has either none
+     for a review build or exactly its Bite app/team identity and private Keychain group
    - the Developer ID requirement with the copy's own cdhash
 4. It plans every change and refuses before any change if one of these checks fails:
    - The account attributes, the UID/GID collisions or the client UID are wrong.

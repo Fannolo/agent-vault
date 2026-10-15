@@ -25,7 +25,7 @@ import re
 import stat
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 TEAM = "3JWAQ92CB4"
@@ -44,6 +44,7 @@ UNSAFE_ENTITLEMENTS = (
     "com.apple.security.cs.allow-unsigned-executable-memory",
     "com.apple.security.cs.allow-jit",
     "com.apple.security.cs.disable-executable-page-protection",
+    "com.apple.security.cs.debugger",
 )
 
 Path = Tuple[str, ...]
@@ -353,6 +354,20 @@ class CodeIdentity:
     hardened: bool
     get_task_allow: bool
     unsafe_entitlements: Tuple[str, ...] = ()
+    entitlements: dict = field(default_factory=dict)
+
+
+def role_entitlements_allowed(identifier: str, claims: dict) -> bool:
+    # Review bundles have no entitlements. A provisioned human app has only
+    # its private Keychain identity. No role may add code-signing exceptions,
+    # temporary exceptions, shared Keychain groups or other capabilities.
+    if claims == {}:
+        return True
+    return identifier == "dev.agentvault.app" and claims == {
+        "com.apple.application-identifier": TEAM + ".dev.agentvault.app",
+        "com.apple.developer.team-identifier": TEAM,
+        "keychain-access-groups": [TEAM + ".dev.agentvault.app"],
+    }
 
 
 class CodeInspector:
@@ -362,13 +377,15 @@ class CodeInspector:
         run_command(["/usr/bin/codesign", "--verify", "--strict", "--deep", path])
         details = run_command(["/usr/bin/codesign", "-d", "--verbose=4", path]).stderr.decode(errors="replace")
         fields = dict(line.split("=", 1) for line in details.splitlines() if "=" in line)
-        entitlements = run_command(["/usr/bin/codesign", "-d", "--entitlements", "-", "--xml", path]).stdout
+        entitlements = run_command(["/usr/bin/codesign", "-d", "--entitlements", ":-", "--xml", path]).stdout
         claims = plistlib.loads(entitlements) if entitlements.strip() else {}
+        if not isinstance(claims, dict):
+            raise Refusal("signed entitlements are not a dictionary")
         flags = re.search(r"flags=0x[0-9a-f]+\(([^)]*)\)", fields.get("CodeDirectory v", ""))
         return CodeIdentity(fields.get("Identifier", ""), fields.get("TeamIdentifier", ""),
                             fields.get("CDHash", ""), bool(flags and "runtime" in flags.group(1).split(",")),
                             bool(claims.get("com.apple.security.get-task-allow") or claims.get("get-task-allow")),
-                            tuple(key for key in UNSAFE_ENTITLEMENTS if claims.get(key)))
+                            tuple(key for key in UNSAFE_ENTITLEMENTS if claims.get(key)), claims)
 
     def satisfies(self, path: str, text: str) -> bool:
         return run_command(["/usr/bin/codesign", "--verify", "--strict", "--deep", "-R=" + text, path],
@@ -702,6 +719,8 @@ class Installer:
         require(found.hardened, f"{program.source} lacks the hardened runtime")
         require(not found.get_task_allow, f"{program.source} allows debugger attachment (get-task-allow)")
         require(not found.unsafe_entitlements, f"{program.source} weakens code protection with unsafe entitlements")
+        require(role_entitlements_allowed(program.identifier, found.entitlements),
+                f"{program.source} has entitlements outside this role's exact policy")
         require(re.fullmatch(r"[0-9a-f]{40}", found.cdhash) is not None, f"{program.source} has no SHA-256 cdhash")
         require(pinned is None or found.cdhash == pinned, f"{program.source} is not the pinned code")
         require(self.host.inspector.satisfies(path, requirement(program.identifier, found.cdhash)),

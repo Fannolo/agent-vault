@@ -358,6 +358,39 @@ class SignatureTests(SandboxCase):
                 self.refuses("unsafe entitlements")
                 self.inspector.register(b"bridge-v1", "dev.agentvault.bridge")
 
+    def test_exact_role_entitlements_are_required(self):
+        app_claims = {
+            "com.apple.application-identifier": av.TEAM + ".dev.agentvault.app",
+            "com.apple.developer.team-identifier": av.TEAM,
+            "keychain-access-groups": [av.TEAM + ".dev.agentvault.app"],
+        }
+        cases = [
+            ("bridge", app_claims),
+            ("broker", {"com.apple.security.cs.debugger": True}),
+            ("app", {**app_claims, "com.apple.security.cs.debugger": True}),
+            ("app", {**app_claims, "com.apple.security.temporary-exception.files.absolute-path.read-write": ["/"]}),
+            ("app", {**app_claims, "com.apple.security.cs.allow-jit": False}),
+            ("app", {**app_claims, "keychain-access-groups": [av.TEAM + ".*"]}),
+            ("app", {**app_claims, "com.apple.developer.team-identifier": "ABCDE12345"}),
+            ("app", {"keychain-access-groups": app_claims["keychain-access-groups"]}),
+        ]
+        for role, claims in cases:
+            with self.subTest(role=role, claims=claims):
+                identifier = "dev.agentvault." + role
+                self.inspector.register(role.encode() + b"-v1", identifier, entitlements=claims)
+                self.refuses("exact policy")
+                self.inspector.register(role.encode() + b"-v1", identifier)
+
+    def test_provisioned_app_private_keychain_entitlements_are_allowed(self):
+        claims = {
+            "com.apple.application-identifier": av.TEAM + ".dev.agentvault.app",
+            "com.apple.developer.team-identifier": av.TEAM,
+            "keychain-access-groups": [av.TEAM + ".dev.agentvault.app"],
+        }
+        self.inspector.register(b"app-v1", "dev.agentvault.app", entitlements=claims)
+        self.install()
+        av.Installer(self.host).verify_installed()
+
     def test_payload_swapped_after_snapshot_is_not_installed(self):
         evil = os.path.join(self.payload, "agent-vault-broker")
 
@@ -712,7 +745,10 @@ class RealCodesignTests(unittest.TestCase):
         with open(entitlements, "wb") as handle:
             handle.write(plistlib.dumps({key: True for key in av.UNSAFE_ENTITLEMENTS}))
         path = self.signed("unsafe", "--options", "runtime", "--entitlements", entitlements)
-        self.assertEqual(av.CodeInspector().identity(path).unsafe_entitlements, av.UNSAFE_ENTITLEMENTS)
+        identity = av.CodeInspector().identity(path)
+        self.assertEqual(identity.unsafe_entitlements, av.UNSAFE_ENTITLEMENTS)
+        self.assertEqual(identity.entitlements, {key: True for key in av.UNSAFE_ENTITLEMENTS})
+        self.assertFalse(av.role_entitlements_allowed(identity.identifier, identity.entitlements))
 
     def test_unsigned_and_tampered_code_is_refused(self):
         path = self.signed("tampered", "--options", "runtime")
