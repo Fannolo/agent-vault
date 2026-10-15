@@ -1,5 +1,33 @@
 # Implementation security reviews
 
+## Round six: 15 October 2026
+
+Claude Sonnet 5.5 reviewed frozen `0d944eb`, reporting no High/Medium issue or new
+blocker in the accepted root. It independently matched the retry record's source tree,
+152 file hashes and eight raw logs, and confirmed two default skips plus two separate
+native test-body passes. It reviewed the current audit-trail tail; it did not execute
+WebKit, XPC, Keychain or a full SwiftPM suite. U1 and later browser units were outside
+its scope. The reviewer reported one read-only `git ls-remote` call outside its no-network
+brief; it changed no shared source and is not additional runtime evidence.
+
+| Finding | Response | Evidence/limit |
+|---|---|---|
+| R6-1, Low: an account resolved through ordinary cleanup can leave an old global recovery-start timestamp | `3c61fbb` lets genuine administrative account completion, rollback or recovery end the global start episode; intent, agent traffic and failures cannot | The public-Broker regression failed before the fix and passes after it, including a later unrelated incident and 130 retries |
+| R6-2, Low: developer CLI account-list replies still differ from the shared contract | `02d23d9` uses `ReadReply` and `AccountSummary`, with exact-shape protocol assertions | Default and native synthetic MCP checks pass; developer CLI remains excluded from distribution |
+| R6-3, Info: aggregate runner summary obscures skips | Records now contain `swiftTesting.reportedSkipCount` and `skipReports`, alongside the verbatim runner summary | Nine recorder checks pass; historical records are unchanged |
+| R6-4, Info: retained judge output lacks its probe source | The R5 recovery probe source is now retained beside its log with a recorded hash | Private local evidence, not published |
+
+The [R6 response record](verification/recovery-episode-r6.json) verifies unchanged
+`3c61fbb`: 225 registered Swift tests, including two explicit skips, MCP, synthetic native
+MCP, boundaries and nine recorder tests. Installer and separate native storage-body proofs
+remain at their named earlier source checkpoints; they were not rerun in this five-check set.
+
+R6 also clarified causal limits: Dispatch worker starvation is inferred from the earlier
+timing failures, and the broad verifier cleanup is a plausible explanation for abrupt
+exits, without recorded signal deliveries. Two green CI jobs on `0d944eb` establish those
+runs passed, not permanent timing stability. The current R6 changes need their own CI.
+The failed runs remain archived. These are bounded model reviews and local measurements.
+
 ## Browser lifecycle and round-four follow-up: 15 October 2026
 
 Integration `198786e` passed 222 Swift tests and all ten recorded checks. The

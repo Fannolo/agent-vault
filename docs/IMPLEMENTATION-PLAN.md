@@ -11,7 +11,14 @@
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
-Current source `676d687` passed all eight selected checks in the
+Current source `3c61fbb` passed the five selected checks in the
+[R6 response record](verification/recovery-episode-r6.json): 225 registered Swift tests
+with two explicit skips, MCP, synthetic native MCP, boundaries and nine recorder tests.
+The machine-readable record now includes skip counts and reasons. Both Low findings in
+Claude Sonnet's review of `0d944eb` are corrected: recovery-start episodes reset after
+ordinary account cleanup, and CLI account-list replies use the shared contract.
+
+The prior source `676d687` passed all eight selected checks in the
 [latest record](verification/recovery-audit-ci-r5-retry.json): the Swift runner reports
 224 tests in eleven suites with two explicit native-test skips; the separate native
 opt-in ran both bodies successfully. MCP, boundaries, 49 installer tests per Python mode
@@ -31,13 +38,14 @@ reproduced browser Medium defects were corrected and independently retested. Hum
 now bind a preexisting step token. U1/U2 and U3/U4 implementation runs separately. Claude Sonnet
 round five found no High/Medium issue at `198786e`. Recovery audit retry churn is fixed
 at `a494bc7`; the missing Core dispatch deadline is in the separate, unaccepted U1 unit.
-Production browser services remain disabled. U1 is not integrated while review findings
-about cancellation, retained run IDs and verifier process cleanup are corrected.
+Production browser services remain disabled. U1 is not integrated: its submitted fixes
+at `0986606` are undergoing independent re-verification before acceptance.
 
 The two CI runs at `5b1fb9a` failed synthetic I/O setup and a yield-based browser-start
 ordering assertion. The blocked-worker cases are now serialized, unrelated account setup
 is synchronous, and the startup test uses an explicit debug-only gate. Full local
-verification passes; updated CI is pending. Production timeout stays five seconds.
+verification passes. Both macOS CI jobs passed on `0d944eb`; the later R6 changes need
+their own CI. Production timeout stays five seconds.
 A new signed review bundle from clean `5955f50` passed all three hardened
 Bite signatures, exact review entitlements, manifest hashes and the signed installer sandbox.
 [Its record](verification/signed-review-bundle-r4.json) does not prove later changes,

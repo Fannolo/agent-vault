@@ -65,7 +65,9 @@ requires an HMAC with an independent broker-only key and refuses unsigned downgr
 audit history is bounded metadata: 256 reserved administration entries and 744 invocation
 entries in schema 3. Agent traffic cannot evict the administration partition; administration
 traffic can still evict older administration entries. No-op recovery emits no administration
-entries. Startup recovery retries keep a representative start until completion; repeated failure
+entries. Startup recovery retries keep a representative start until global completion or
+genuine administrative account cleanup, rollback or recovery completes; intent and failure
+records alone cannot reset it. Repeated failure
 and uncertain outcomes for the same account are coalesced until a real lifecycle transition.
 Alternating those failure kinds does not reset their representatives. This applies across broker
 restarts because the representatives live in the persisted administration history. They retain
