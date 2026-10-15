@@ -201,6 +201,13 @@ port exposes show/frame/input for a preexisting `HumanStepID`; this does not yet
 an authenticated human-app relay or native rendering. Those remain U3/U4 work. No MCP
 human-input or generic browser operation was added.
 
+`AgentVaultWebHost` now implements that wire as a separate executable, with a four-run
+table, once-only run IDs and a shared launch barrier before target creation. Its bounded
+nonblocking CDP writer cannot hold the state lock while a browser stops reading. The
+production service/plist/pins and installed system-domain host link remain unverified;
+the broker still configures no host. Other product targets are forbidden from linking
+the host executable, in addition to its dependency exclusions.
+
 Text events and web credentials exclude Unicode Cc/Cf control and format scalars,
 including ZWJ, LRM and BOM. Separators such as U+2028 remain accepted within the byte
 limits. Named key events carry Enter/Tab separately.

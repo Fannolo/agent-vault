@@ -36,6 +36,8 @@ def main():
     assert {"AgentVaultCore", "AgentVaultWebHostProtocol"} <= closure("AgentVaultWebHostLink")
     product_targets = [name for name, kind in kinds.items() if kind != "test"]
     for target in product_targets:
+        if target != "AgentVaultWebHost":
+            assert "AgentVaultWebHost" not in closure(target), f"{target} must reach the web host only over IPC"
         if target in ("AgentVaultWebHostLink", "AgentVaultBrokerDaemon"):
             continue
         assert "AgentVaultWebHostLink" not in closure(target), f"{target} must not link the broker's host link"
@@ -43,7 +45,7 @@ def main():
     host = closure("AgentVaultWebHost")
     for forbidden in ("AgentVaultCore", "AgentVaultWebHostLink", "AgentVaultBrowser", "AgentVaultRuntime"):
         assert forbidden not in host, f"AgentVaultWebHost must not link {forbidden}"
-    assert kinds["AgentVaultWebHost"] == "executable", "the host's CDP surface must not be importable"
+    assert kinds["AgentVaultWebHost"] == "executable", "the web host must be a separate executable"
     assert "AgentVaultMCPTransport" in closure("AgentVaultBridge"), "Bridge must bound input before SDK decoding"
     assert {"AgentVaultCore", "AgentVaultIPC", "AgentVaultRuntime"} <= closure("AgentVaultBrokerDaemon")
     print("PASS: package graph preserves broker, app and MCP bridge boundaries")

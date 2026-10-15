@@ -24,6 +24,7 @@ def check(code):
 CHECKS = {
     "pass": check("print('Ran 1 test'); print('OK')"),
     "swift-skips": check("print('➜ Test nativeFixture() skipped: opt-in required'); "
+                         "print('➜ Suite RealBrowserTests skipped: fixture required'); "
                          "print('➜ Test networkFixture() skipped: opt-in required'); "
                          "print('✔ Test run with 3 tests passed')"),
     "fail": check("import sys; print('FAILED'); sys.exit(3)"),
@@ -39,6 +40,9 @@ CHECKS = {
                        "open('pkg/__pycache__/m.pyc', 'w').write('x'); open('.build/debug/o', 'w').write('x')"),
     "unstartable": ["/nonexistent/agent-vault-check"],
     "race": check("open('../race.json', 'w').write('earlier evidence')"),
+    "browser-default": check("import os; assert 'AGENT_VAULT_TEST_CHROMIUM' not in os.environ; print('PASS default')"),
+    "webhost-real": check("import os,pathlib; assert pathlib.Path(os.environ['AGENT_VAULT_TEST_CHROMIUM']).read_bytes() "
+                          "== b'fixture'; print('PASS explicit fixture')"),
 }
 
 
@@ -94,12 +98,41 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(code, 0)
         swift = record["checks"][0]
         self.assertEqual(swift["swiftTesting"], {
-            "reportedSkipCount": 2,
+            "reportedSkipCount": 3,
             "skipReports": ["➜ Test nativeFixture() skipped: opt-in required",
+                            "➜ Suite RealBrowserTests skipped: fixture required",
                             "➜ Test networkFixture() skipped: opt-in required"]})
         self.assertEqual(swift["observedSummary"], swift["swiftTesting"]["skipReports"]
                          + ["✔ Test run with 3 tests passed"])
         self.assertNotIn("swiftTesting", record["checks"][1])
+
+    def test_browser_optin_is_explicit_and_the_default_clears_inherited_access(self):
+        from unittest import mock
+        with mock.patch.dict("os.environ", {"AGENT_VAULT_TEST_CHROMIUM": "/unselected/browser"}):
+            code, _, _ = self.record("default", "browser-default")
+            self.assertEqual(code, 0)
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                recorder.main(["--checks", "webhost-real", "--record", str(self.repo.parent / "missing.json")])
+        fixture = self.repo.parent / "headless-fixture"
+        fixture.write_bytes(b"fixture"); fixture.chmod(0o700)
+        output = self.repo.parent / "explicit.json"
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = recorder.main(["--checks", "webhost-real", "--chromium", str(fixture), "--record", str(output)])
+        self.assertEqual(code, 0)
+        evidence = json.loads(output.read_text())["chromiumFixture"]
+        self.assertEqual(evidence["sha256"], hashlib.sha256(b"fixture").hexdigest())
+        self.assertEqual(evidence["fileName"], fixture.name)
+        self.assertTrue(evidence["unchanged"])
+        self.assertNotIn(str(fixture), json.dumps(evidence))
+        changing = check("import os,pathlib; pathlib.Path(os.environ['AGENT_VAULT_TEST_CHROMIUM']).write_bytes(b'changed')")
+        changed_output = self.repo.parent / "changed-fixture.json"
+        with mock.patch.dict(CHECKS, {"webhost-real": changing}), contextlib.redirect_stdout(io.StringIO()):
+            code = recorder.main(["--checks", "webhost-real", "--chromium", str(fixture),
+                                  "--record", str(changed_output)])
+        changed = json.loads(changed_output.read_text())
+        self.assertEqual(code, 1)
+        self.assertTrue(changed["sourceUnchanged"])
+        self.assertFalse(changed["chromiumFixture"]["unchanged"])
 
     def test_detail_logs_are_retained_privately_and_missing_logs_fail(self):
         code, record, _ = self.record("detail", "detail")

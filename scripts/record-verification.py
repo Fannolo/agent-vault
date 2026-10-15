@@ -28,13 +28,16 @@ CHECKS = {
     "recorder": [sys.executable, "-I", "deploy/tests/test_recorder.py"],
     "webhost-cleanup": [sys.executable, "-I", "deploy/tests/test_webhost_link_mutations.py"],
     "webhost-mutations": [sys.executable, "scripts/verify-webhost-link-mutations.py"],
+    "webhost-real": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter", "AgentVaultWebHostTests"],
+    "webhost-browser-mutations": [sys.executable, "scripts/verify-webhost-mutations.py"],
     "xpc": [sys.executable, "scripts/verify-xpc.py"],
     "xpc-mutations": [sys.executable, "scripts/verify-xpc-mutations.py"],
     "native-keychain": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter",
                         "privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled|nativeKeychainRoundTripWhenExplicitlyEnabled"],
 }
 EVIDENCE = {"xpc", "xpc-mutations"}
-DETAIL_LOGS = {"webhost-mutations"}
+DETAIL_LOGS = {"webhost-mutations", "webhost-browser-mutations"}
+CHROMIUM_CHECKS = {"webhost-real", "webhost-browser-mutations"}
 
 
 def artifact(path):
@@ -79,7 +82,7 @@ def build_cache(checks):
     return state
 
 
-def run_check(name, run_dir):
+def run_check(name, run_dir, chromium=None):
     log = run_dir / (name + ".log")
     relative = run_dir.relative_to(ROOT)
     argv = list(CHECKS[name])
@@ -92,6 +95,9 @@ def run_check(name, run_dir):
     env = os.environ.copy()
     env.pop("AGENT_VAULT_KEYCHAIN_TEST", None)
     env.pop("AGENT_VAULT_NETWORK_TEST", None)
+    env.pop("AGENT_VAULT_TEST_CHROMIUM", None)
+    if name in CHROMIUM_CHECKS:
+        env["AGENT_VAULT_TEST_CHROMIUM"] = str(chromium)
     if name == "native-keychain":
         env["AGENT_VAULT_KEYCHAIN_TEST"] = "1"
     check = {"name": name, "argv": argv, "log": str(relative / log.name)}
@@ -108,12 +114,12 @@ def run_check(name, run_dir):
     content = log.read_bytes()
     check["logSha256"] = sha256(content)
     lines = content.decode(errors="replace").splitlines()
-    skipped = [line for line in lines if line.startswith("➜ Test ") and " skipped:" in line]
+    skipped = [line for line in lines if line.startswith(("➜ Test ", "➜ Suite ")) and " skipped:" in line]
     if skipped or any(line.startswith("✔ Test run") for line in lines):
         check["swiftTesting"] = {"reportedSkipCount": len(skipped), "skipReports": skipped}
     check["observedSummary"] = [line for line in lines
                                 if line.startswith(("✔ Test run", "Ran ", "OK", "FAILED", "PASS", "FAIL",
-                                                    "tests ", "mutation ", "verify-installer:", "➜ Test "))][-64:]
+                                                    "tests ", "mutation ", "verify-installer:", "➜ Test ", "➜ Suite "))][-64:]
     if evidence:
         if not evidence.exists():
             check.setdefault("error", "the check wrote no evidence file")
@@ -140,7 +146,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checks", nargs="+", choices=CHECKS, required=True)
     parser.add_argument("--record", type=Path, required=True)
+    parser.add_argument("--chromium", type=Path, help="explicit synthetic-fixture headless shell; opt-in checks only")
     args = parser.parse_args(argv)
+    chromium = None
+    if CHROMIUM_CHECKS.intersection(args.checks):
+        if args.chromium is None or not args.chromium.is_file() or not os.access(args.chromium, os.X_OK):
+            parser.error("browser checks require --chromium pointing at an executable fixture binary")
+        chromium = args.chromium.resolve()
     before = source_snapshot()
     if before["dirty"]:
         parser.error("commit the source checkpoint before recording verification")
@@ -165,21 +177,33 @@ def main(argv=None):
         "logNote": "Raw logs are retained locally in a git-ignored directory and are not published",
         "checks": [],
     }
+    if chromium:
+        binary = chromium.read_bytes()
+        record["chromiumFixture"] = {"fileName": chromium.name, "sizeBytes": len(binary),
+                                     "sha256": sha256(binary),
+                                     "note": "Only executable bytes are hashed; adjacent resources and OS state "
+                                             "are not inventoried. Interactive same-UID fixture, not installed proof."}
     try:
         for name in args.checks:
-            record["checks"].append(run_check(name, run_dir))
+            record["checks"].append(run_check(name, run_dir, chromium))
             check = record["checks"][-1]
             print(f"{name}: exit {check['exitCode']}; passed {check['passed']}; log {check['log']}", flush=True)
             if not check["passed"]:
                 break
     finally:
         record["sourceUnchanged"] = before == source_snapshot()
+        if chromium:
+            try:
+                record["chromiumFixture"]["unchanged"] = sha256(chromium.read_bytes()) == record["chromiumFixture"]["sha256"]
+            except OSError:
+                record["chromiumFixture"]["unchanged"] = False
         record["finishedAt"] = datetime.now(timezone.utc).isoformat()
         output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("x") as handle:
             handle.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
         print(f"record: {output}", flush=True)
-    return 0 if record["sourceUnchanged"] and all(x["passed"] for x in record["checks"]) else 1
+    return 0 if (record["sourceUnchanged"] and record.get("chromiumFixture", {}).get("unchanged", True)
+                 and all(x["passed"] for x in record["checks"])) else 1
 
 
 if __name__ == "__main__":

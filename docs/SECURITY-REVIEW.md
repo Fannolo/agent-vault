@@ -60,7 +60,16 @@ Separate unmerged U2 review found a blocking CDP write holding the state lock (H
 cold-start auto-attach readiness (Medium), and reusable completed run IDs (Low). U3/U4
 review reproduced three Medium issues: a signed open after disconnect, queued input lost
 at Finish, and polling an invalidated lease during reclassification. Owners are correcting
-these before acceptance; none is part of this root checkpoint or proof of installed use.
+these before acceptance; the original submissions were held outside the root.
+
+The independent judge accepted U2's three corrections on source review at `bf5097a`,
+without rerunning tests. They are integrated as `ae16773`/`c10430c` for combined verification.
+The owner reproduced the original stalled 8 MiB pipe write; the corrected serial writer
+uses nonblocking deadline polls without the state lock. A shared launch task gates cold
+starts, and completed IDs are tombstoned. The prior full-suite owner result precedes its
+last barrier-test edit. The parent is holding browser mutation reruns because the removed
+kill defense can strand its SIGSTOP fixture outside the test driver's process group;
+independent owned cleanup is being added. These are component checks, not installed proof.
 
 ## Round six: 15 October 2026
 

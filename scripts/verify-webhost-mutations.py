@@ -7,6 +7,7 @@ unmutated tree first. Edits the working tree in place, restores each file in `fi
 every build and test through the link harness's `run_owned`: only process groups this script
 created are ever signalled. Raw output goes to verification-logs/webhost-mutations.log.
 """
+import argparse
 import importlib.util
 import os
 import pathlib
@@ -84,11 +85,18 @@ M = [
 
 
 def main():
+    global LOG
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--log", type=pathlib.Path, help="retain full output at this fresh path")
+    args = parser.parse_args()
+    if args.log:
+        LOG = args.log.resolve()
     if not os.environ.get("AGENT_VAULT_TEST_CHROMIUM"):
         print("AGENT_VAULT_TEST_CHROMIUM is required", flush=True)
         return 2
     LOG.parent.mkdir(exist_ok=True)
-    LOG.write_text("")
+    with LOG.open("x" if args.log else "w") as log:
+        os.fchmod(log.fileno(), 0o600)
     code, out = harness.run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=900)
     filters = "|".join(sorted({m[4] for m in M}))
     if code == 0:
@@ -98,34 +106,38 @@ def main():
     if code != 0:
         print("baseline FAILED: targeted tests must pass before mutating", flush=True)
         return 2
-    print("baseline passed", flush=True)
+    print("PASS: mutation baseline", flush=True)
     results = []
     for name, path, old, new, test, *also in M:
         source = ROOT / path
-        original = source.read_text()
-        assert original.count(old) == 1, name
-        mutated = original.replace(old, new)
+        original = source.read_bytes()
+        text = original.decode()
+        assert text.count(old) == 1, name
+        mutated = text.replace(old, new)
         # A compound mutant also reverts a second, independent layer in the same file.
         for extra_old, extra_new in also:
             assert mutated.count(extra_old) == 1, name
             mutated = mutated.replace(extra_old, extra_new)
-        source.write_text(mutated)
-        try:
+        with harness.changed_source(source, original, mutated.encode()):
             code, out = harness.run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=900)
             if code != 0:
                 status = "BUILD_FAILED"
             else:
                 code, out = harness.run_owned(["swift", "test", "--skip-build", "--filter", test], timeout=TEST_TIMEOUT)
                 status = "KILLED(hang)" if code is None else ("KILLED" if code != 0 else "SURVIVED")
-        finally:
-            source.write_text(original)
         results.append((name, status))
         with open(LOG, "a") as log:
             log.write(f"=== {name} [{test}] -> {status}\n{out}\n")
-        print(name, status, flush=True)
-    harness.run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=900)
+        print(f"mutation {name}: {status}", flush=True)
+    code, out = harness.run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=900)
+    with LOG.open("a") as log:
+        log.write(f"=== restored source build -> {code}\n{out}\n")
+    if code != 0:
+        print("FAIL: restored source build", flush=True)
+        return 2
     return 0 if all(status.startswith("KILLED") for _, status in results) else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    with harness.interrupt_on_termination():
+        sys.exit(main())

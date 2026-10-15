@@ -49,9 +49,27 @@ admission token rechecks authority after probing and before credential dispatch.
 checks. These host-link tests use a listener endpoint in one process; the separate ordinary
 IPC checks use same-UID processes. Neither proves a deployed web-host service or private UID.
 
+U2's `AgentVaultWebHost` executable is now present. It launches a designated headless shell
+over inherited CDP pipes, with a fresh 0700 profile, fixed switches and Chromium's sandbox
+enabled. Its closed method vocabulary, phase-aware request gate and document CSP support
+fixed workflows. Each challenge frame is a bound crop, revalidated after capture; input
+names the current step and latest frame. The service has four run slots and terminal teardown.
+Nonblocking writes use per-call deadlines without holding the state lock; cold starts await
+confirmed paused auto-attach before creating targets. Concluded IDs cannot be reused.
+
+Independent source review accepted the three original U2 corrections in `bf5097a`; the
+parent's combined normal and real-browser verification is pending. The earlier full-suite
+owner result predates the final barrier-test change. Browser mutation reruns also need an
+independent cleanup path for the deliberately stopped-browser fixture.
+
+The measured renderer/GPU sandbox is not whole-process egress confinement: the browser and
+network utility are unsandboxed. Fetch and CSP are in-browser policy. Interactive same-UID
+fixtures do not establish `_agentvaultweb` LaunchDaemon startup, hardened distribution,
+system-domain identity or GitHub policy/selector compatibility. All P0–P4 gates remain open.
+
 App-safe contracts bound JPEG size/markers, declared dimensions, frame sequences and typed
-input batches. They do not yet decode images or relay human input from the app. U2 supplies
-the actual headless executable; U3/U4 supply signed, connection-bound continuation and native
+input batches. They do not yet decode images or relay human input from the app. U3/U4 supply
+signed, connection-bound continuation and native
 raster/input controls. Host peer loss is terminal, and U2 must refuse context creation once
 teardown starts. The production broker still configures no browser host, the app refuses
 browser enrollment, and every installed isolation and egress proof gate (P0–P4) remains open.

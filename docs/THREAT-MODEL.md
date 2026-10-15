@@ -51,6 +51,15 @@ continue to completion. Terminal host-peer loss prevents replacement peers and d
 results. Actual host teardown must also prevent late context creation. App-safe frame/input
 types do not establish a deployed human relay, safe raster decoding or OS isolation.
 
+The separate U2 executable now implements fixed Chromium workflows over private pipes,
+with no TCP debugging endpoint. A serial nonblocking writer enforces each call's deadline
+outside the state lock; teardown kills only its spawned process group. Run admission waits
+for confirmed paused auto-attach. Exact-origin/phase gates and a CSP delivered with each
+document constrain the fixture's page traffic. They are not OS-enforced egress: Chromium's
+browser and network utility processes are unsandboxed. Same-UID loopback and renderer
+sandbox observations do not establish the installed daemon, whole-process network policy,
+signed distribution or live GitHub workflow. The production broker still composes no host.
+
 ## Trusted parties and exclusions
 
 The OS, protected installer, selected publisher, authenticated human app, broker and fixed

@@ -7,18 +7,22 @@
 | Broker/IPC | Separate daemon/bridge, protected config, code+UID pins, private Keychain, owner lease | Privileged dedicated-UID install, file/process isolation and system-domain lookup |
 | Human app | Secure forms, pairing/grants, audit, exact pending approvals, protected-key backend | Provisioned Bite-signed protected key and real fresh user-presence signing |
 | Lifecycle | Durable intent/recovery, bounded off-actor I/O, read capacity before approval/budget spend, administration reserve | Installed daemon interruption check |
-| Browser | Ephemeral fixed-flow fixtures, broker-owned lifecycle and authenticated host link with dispatch deadlines and post-probe authority | U2–U6 separate `_agentvaultweb` host, signed human continuation, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
+| Browser | Broker lifecycle, authenticated host link and separate headless executable with fixed recipes and bounded pipe writes | Combined U2 proof, U3–U6 signed human continuation, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
 Round seven found no High/Medium issue at `f7ca91c`. The parent reproduced and corrected
 its interrupted-wait/output-pipe cleanup findings and cancellation during initial result
-collection; focused checks pass, with a full source-specific recording pending. The host
-and human-continuation submissions remain outside this root while their independent
-findings are corrected: U2 blocking CDP writes and cold-start readiness, and U3/U4 dead
-connection opens and finishing/input races. Production remains disabled.
+collection. The first R7 recording at `0775185` passed seven checks; an independent
+recheck found two more interruption gaps, corrected and accepted on bounded review at
+`3132eb7`. The refined helper passes twelve checks. U2 `9014be7` and `bf5097a` are now
+integrated as `ae16773`/`c10430c`: nonblocking serial writes, a shared auto-attach barrier
+and concluded-run tombstones address its three findings on independent source review.
+New combined verification is pending. Browser mutation reruns are held until their stopped
+browser fixture has cleanup independent of the mutated defense. U3/U4 remain unmerged
+while dead-connection opens and finishing/input races are corrected. Production stays disabled.
 
-Latest recorded source `73cb4d5` passed all nine selected checks in the
+The prior source `73cb4d5` passed all nine selected checks in the
 [U1 integration record](verification/browser-u1-integration.json): 281 registered Swift
 tests in sixteen suites, including two explicit native-storage skips; default and synthetic
 native MCP; boundaries; five owned-process checks; ten recorder checks; twenty same-UID
@@ -58,7 +62,7 @@ losses name only affected runs. Core owns start/classify deadlines; a start's de
 capped by grant expiry, and credential dispatch rechecks authority after the host probe.
 Initial read cancellation tears down its run; admin handlers retain completion semantics.
 Claude Sonnet round seven found no High/Medium issue in the combined R6/U1 checkpoint
-at `f7ca91c`. U2 and U3/U4 continue in isolated worktrees. Production browser
+at `f7ca91c`. U2 follow-ups and U3/U4 continue in isolated worktrees. Production browser
 services remain disabled.
 
 The two CI runs at `5b1fb9a` failed synthetic I/O setup and a yield-based browser-start
