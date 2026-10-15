@@ -19,21 +19,11 @@ extension WireService {
 /// leaves the app. The broker remains the authority; this only avoids sending obvious mistakes.
 public enum CredentialInput {
     public static func data(service: WireService, secret: String, username: String = "") -> Data? {
-        guard !secret.isEmpty, secret.utf8.count <= 8192, !hasControl(secret) else { return nil }
-        if service.usesPassword {
-            let name = username.trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty, name.count <= 255, !hasControl(name) else { return nil }
-            return Data((name + "\n" + secret).utf8)
-        }
-        if service == .github {
-            let bytes = Data(secret.utf8)
-            guard bytes.count >= 10, bytes.allSatisfy({ (0x21...0x7E).contains($0) }) else { return nil }
-        }
-        return Data(secret.utf8)
-    }
-
-    private static func hasControl(_ text: String) -> Bool {
-        text.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+        guard !secret.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+        let data = service.usesPassword
+            ? Data((username.trimmingCharacters(in: .whitespaces) + "\n" + secret).utf8)
+            : Data(secret.utf8)
+        return CredentialFormat.isValid(data, for: service) ? data : nil
     }
 }
 

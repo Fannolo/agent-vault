@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import AgentVaultBrowser
 import AgentVaultBrowserFixture
 import Foundation
@@ -9,7 +10,7 @@ struct BrowserWorkflowTests {
     @Test func demoWorkflowReturnsTypedProfileAndDestroysSession() async throws {
         let h = try await Harness.make(); defer { h.finish() }
         let outcome = await h.run()
-        #expect(outcome == .profile(WebProfile(login: "fixture-user", userID: 4242)))
+        #expect(outcome == .profile(AccountProfile(login: "fixture-user", userID: 4242)!))
         #expect(!h.manager.hasSession(accountID: h.account))
         let paths = h.site.trusted.requests.map(\.path)
         #expect(paths.contains("/pixel") && paths.contains("/script.js"))   // same-origin subresources still load
@@ -47,7 +48,7 @@ struct BrowserWorkflowTests {
         async let second = h.run()
         let outcomes = await [first, second]
         #expect(outcomes.contains(.failed(.busy)))
-        #expect(outcomes.contains(.profile(WebProfile(login: "fixture-user", userID: 4242))))
+        #expect(outcomes.contains(.profile(AccountProfile(login: "fixture-user", userID: 4242)!)))
     }
 
     // MARK: Hostile origins
@@ -88,7 +89,7 @@ struct BrowserWorkflowTests {
     @Test func subresourcesFromOtherOriginsAreBlockedButLoginStillWorks() async throws {
         let h = try await Harness.make(); defer { h.finish() }
         h.site.loginPage = .subresourcesFromElsewhere
-        #expect(await h.run() == .profile(WebProfile(login: "fixture-user", userID: 4242)))
+        #expect(await h.run() == .profile(AccountProfile(login: "fixture-user", userID: 4242)!))
         #expect(h.site.elsewhereRequests.isEmpty, "images and scripts from another origin must not load")
     }
 
@@ -104,7 +105,7 @@ struct BrowserWorkflowTests {
     func reflectedMarkupOutsideTheFixedHeadFieldsDoesNotChangeOutput(profile: FixtureSite.Profile) async throws {
         let h = try await Harness.make(); defer { h.finish() }
         h.site.profile = profile
-        #expect(await h.run() == .profile(WebProfile(login: "fixture-user", userID: 4242)))
+        #expect(await h.run() == .profile(AccountProfile(login: "fixture-user", userID: 4242)!))
     }
 
     @Test func profileValuesAreValidatedBeforeTheyLeave() async throws {
@@ -126,7 +127,7 @@ struct BrowserWorkflowTests {
         #expect(await h.manager.continueAfterHuman(accountID: h.account) == .humanStepRequired(kind))
         try await h.humanSubmitsCurrentForm()
         #expect(await h.manager.continueAfterHuman(accountID: h.account)
-                == .profile(WebProfile(login: "fixture-user", userID: 4242)))
+                == .profile(AccountProfile(login: "fixture-user", userID: 4242)!))
         #expect(!h.manager.hasSession(accountID: h.account))
     }
 
@@ -207,12 +208,11 @@ struct BrowserWorkflowTests {
     @Test func replyCarriesOnlyTypedFields() async throws {
         let h = try await Harness.make(); defer { h.finish() }
         let outcome = await h.run()
-        let json = String(decoding: try JSONEncoder().encode(outcome.readReply()), as: UTF8.self)
+        guard case .profile(let profile) = outcome else { Issue.record("Missing profile"); return }
+        let json = String(decoding: try JSONEncoder().encode(ReadReply(.outcome(.completed), profile: profile)), as: UTF8.self)
         #expect(json.contains("fixture-user") && json.contains("completed"))
         for forbidden in [FixtureSite.password, "<html", "sid=", "cookie", "127.0.0.1", "/login"] {
             #expect(!json.lowercased().contains(forbidden.lowercased()), "\(forbidden)")
         }
-        let pending = BrowserOutcome.humanStepRequired(.mfa).readReply()
-        #expect(pending.status == "human_step_required" && pending.login == nil)
     }
 }

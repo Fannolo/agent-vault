@@ -79,26 +79,46 @@ func malformedReadRequestsAreRejected(text: String) {
 }
 
 @Test func validRepliesRoundTrip() throws {
-    let reply = ReadReply(status: "ok", accounts: [AccountSummary(id: UUID(), service: .github)], login: "octo-cat",
-                          userID: 1)
-    let data = try #require(WireCodec.reply(reply, kind: .readReply, limits: .standard))
-    guard case .success(.readReply(let decoded)) = WireCodec.decodeReply(data, allowed: [.readReply], limits: .standard)
-    else { Issue.record("reply rejected"); return }
-    #expect(decoded.login == "octo-cat")
+    let profile = try #require(AccountProfile(login: "octo-cat", userID: 1))
+    let replies: [ReadReply] = [
+        ReadReply(.outcome(.completed), profile: profile),
+        ReadReply(.outcome(.completed), accounts: [AccountSummary(id: UUID(), service: .github)]),
+        ReadReply(.outcome(.ready)),
+        ReadReply(.outcome(.approvalRequired), requestID: UUID()),
+        ReadReply(.outcome(.humanStepRequired), requestID: UUID()),
+        ReadReply(.outcome(.cancelled), requestID: UUID())
+    ] + ReadFailureStatus.allCases.map { ReadReply(.failure($0)) }
+    for reply in replies {
+        let data = try #require(WireCodec.reply(reply, kind: .readReply, limits: .standard), "\(reply.status)")
+        guard case .success(.readReply(let decoded)) = WireCodec.decodeReply(data, allowed: [.readReply], limits: .standard)
+        else { Issue.record("reply rejected: \(reply.status)"); continue }
+        #expect(decoded.parsedStatus == reply.parsedStatus && decoded.profile == reply.profile)
+        #expect(decoded.requestID == reply.requestID && decoded.accounts?.count == reply.accounts?.count)
+    }
     #expect(WireCodec.errorReply(.busy) == json(#"{"error":"busy"}"#))
 }
 
 @Test(arguments: [
-    #"{"readReply":{"status":"ok"},"error":"busy"}"#,
+    #"{"readReply":{"status":"ready"},"error":"busy"}"#,
     #"{"snapshot":{"accounts":[],"clients":[],"grants":[],"pending":[]}}"#,
     #"{"secret":"x"}"#,
     #"{"error":"broker_rejected"}"#,
     #"{"error":"anything"}"#,
     #"{"readReply":{"status":"OK"}}"#,
-    #"{"readReply":{"status":"ok","token":"x"}}"#,
-    #"{"readReply":{"status":"ok","login":"a b"}}"#,
-    #"{"readReply":{"status":"ok","accounts":[{"id":"00000000-0000-4000-8000-000000000001","service":"demo","status":"active","cookie":"x"}]}}"#,
-    #"{"readReply":{"status":"ok","userID":-1}}"#,
+    #"{"readReply":{"status":"ok"}}"#,
+    #"{"readReply":{"status":"failed:login_rejected"}}"#,
+    #"{"readReply":{"status":"ready","token":"x"}}"#,
+    #"{"readReply":{"status":"completed","login":"a b","userID":1}}"#,
+    #"{"readReply":{"status":"completed","login":"-octo","userID":1}}"#,
+    #"{"readReply":{"status":"completed","login":"octo"}}"#,
+    #"{"readReply":{"status":"completed","login":"octo","userID":-1}}"#,
+    #"{"readReply":{"status":"completed","login":"octo","userID":0}}"#,
+    #"{"readReply":{"status":"completed","accounts":[],"login":"octo","userID":1}}"#,
+    #"{"readReply":{"status":"completed","accounts":[{"id":"00000000-0000-4000-8000-000000000001","service":"demo","status":"active","cookie":"x"}]}}"#,
+    #"{"readReply":{"status":"human_step_required"}}"#,
+    #"{"readReply":{"status":"approval_required","requestID":"00000000-0000-4000-8000-000000000001","login":"octo","userID":1}}"#,
+    #"{"readReply":{"status":"access_denied","requestID":"00000000-0000-4000-8000-000000000001"}}"#,
+    #"{"readReply":{"status":"ready","requestID":"00000000-0000-4000-8000-000000000001"}}"#,
     #"{"readReply":null}"#,
     #"[]"#
 ])
@@ -111,10 +131,10 @@ func malformedReadRepliesAreRejected(text: String) {
 
 @Test func replyCountAndSizeAreBounded() {
     let accounts = (0...128).map { _ in AccountSummary(id: UUID(), service: .demo) }
-    #expect(WireCodec.reply(ReadReply(status: "ok", accounts: accounts), kind: .readReply, limits: .standard) == nil)
+    #expect(WireCodec.reply(ReadReply(.outcome(.completed), accounts: accounts), kind: .readReply, limits: .standard) == nil)
     var small = IPCLimits.standard
     small.maxReplyBytes = 8
-    #expect(WireCodec.reply(ReadReply(status: "ok"), kind: .readReply, limits: small) == nil)
+    #expect(WireCodec.reply(ReadReply(.outcome(.ready)), kind: .readReply, limits: small) == nil)
 }
 
 func maximalSnapshot(pendingStatus: String = "approved", outcome: String = "response_suppressed") -> AdminSnapshot {

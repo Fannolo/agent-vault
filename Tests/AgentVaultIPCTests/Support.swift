@@ -74,7 +74,7 @@ final class Loopback: @unchecked Sendable {
         let handlers = VaultXPCServer.Handlers(
             read: read ?? { uid, request in
                 recorder.record(uid)
-                return ReadReply(status: "ok", login: "uid-\(uid)", userID: Int(uid))
+                return ReadReply(.outcome(.completed), profile: AccountProfile(login: "uid-\(uid)", userID: Int(uid)))
             },
             snapshot: snapshot ?? { uid in
                 recorder.record(uid)

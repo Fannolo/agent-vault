@@ -64,7 +64,7 @@ private struct IOFixture {
     let client: ClientRecord
     let grant: Grant
     let adapter: CountingAdapter
-    static func make(timeout: TimeInterval = 1) async throws -> Self {
+    static func make(timeout: TimeInterval = 1, webSessions: (any WebSessionExecutor)? = nil) async throws -> Self {
         let state = MemoryState(), store = StallingSecrets(), adapter = CountingAdapter()
         // Build the synchronous fake's known state before attaching the short I/O
         // deadline. Setup must not time out before the operation under test starts.
@@ -73,7 +73,8 @@ private struct IOFixture {
                           expiresAt: Date().addingTimeInterval(3600), callLimit: 100)
         try store.save(Data("SYNTHETIC-original".utf8), for: account.credentialID)
         try state.transaction { $0.accounts = [account]; $0.clients = [client]; $0.grants = [grant] }
-        let broker = Broker(state: state, secrets: store, adapter: adapter, secretIOPolicy: try .init(timeout: timeout))
+        let broker = Broker(state: state, secrets: store, adapter: adapter, webSessions: webSessions,
+                            secretIOPolicy: try .init(timeout: timeout))
         return .init(state: state, store: store, broker: broker, account: account, client: client, grant: grant, adapter: adapter)
     }
 }
@@ -170,7 +171,7 @@ private func recoverWhenReady(_ broker: Broker) async throws {
     try await f.store.waitForStarts(SecretIOExecutor.readCapacity)
     for run in runs { await #expect(throws: VaultError.secretUnavailable) { _ = try await run.value } }
     for _ in 0..<20 {
-        await #expect(throws: VaultError.busy) { _ = try await f.broker.resume(request, clientID: approvedClient.id) }
+        await #expect(throws: VaultError.busy) { _ = try await f.broker.resume(request.uuid, clientID: approvedClient.id) }
     }
     let blocked = try f.state.snapshot()
     #expect(blocked.grants.first { $0.id == approvedGrant.id }?.callsUsed == 0)
@@ -180,10 +181,10 @@ private func recoverWhenReady(_ broker: Broker) async throws {
     f.store.release(SecretIOExecutor.readCapacity)
     try await f.store.waitForFinishes(SecretIOExecutor.readCapacity)
     try await recoverWhenReady(f.broker)
-    #expect(try await f.broker.resume(request, clientID: approvedClient.id) == .demoReady)
+    #expect(try await f.broker.resume(request.uuid, clientID: approvedClient.id) == .demoReady)
     #expect(try f.state.snapshot().grants.first { $0.id == approvedGrant.id }?.callsUsed == 1)
     #expect(try f.state.snapshot().pending.first { $0.id == request }?.status == .consumed)
-    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(request, clientID: approvedClient.id) }
+    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(request.uuid, clientID: approvedClient.id) }
     #expect(await f.adapter.calls == 1)
 }
 
@@ -207,6 +208,106 @@ private func recoverWhenReady(_ broker: Broker) async throws {
     try await f.store.waitForFinishes(SecretIOExecutor.readCapacity)
     try await recoverWhenReady(f.broker)
     #expect(await f.adapter.calls == 0)
+}
+
+@Test func busyCredentialAdmissionPreservesAWebApprovalForRetry() async throws {
+    let host = ScriptedWebHost(start: [.humanStep(.mfa)])
+    let f = try await IOFixture.make(timeout: 2, webSessions: host)
+    let account = try await f.broker.enroll(service: .githubWeb, credential: syntheticWebCredential)
+    let grant = try await f.broker.grant(clientID: f.client.id, accountID: account.id,
+                                       duration: 300, callLimit: 1, requiresApproval: true)
+    guard case .approvalRequired(let request) = try await f.broker.run(clientID: f.client.id,
+        accountID: account.id, action: .githubWebProfile) else { Issue.record("No approval"); return }
+    try await f.broker.approveInvocation(request)
+    f.store.stall(.load, count: SecretIOExecutor.readCapacity)
+    defer { f.store.release(SecretIOExecutor.capacity) }
+    let reads = (0..<SecretIOExecutor.readCapacity).map { _ in
+        Task { try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) }
+    }
+    try await f.store.waitForStarts(SecretIOExecutor.readCapacity)
+    for _ in 0..<20 {
+        await #expect(throws: VaultError.busy) { _ = try await f.broker.resume(request.uuid, clientID: f.client.id) }
+    }
+    let blocked = try f.state.snapshot()
+    #expect(blocked.grants.first { $0.id == grant.id }?.callsUsed == 0)
+    #expect(blocked.pending.first { $0.id == request }?.status == .approved)
+    #expect(host.startCount == 0)
+    #expect(!blocked.audit.contains { $0.accountID == account.id && $0.outcome == "reserved" })
+    f.store.release(SecretIOExecutor.readCapacity)
+    for read in reads { #expect(try await read.value == .demoReady) }
+    guard case .humanStepRequired(let run) = try await f.broker.resume(request.uuid, clientID: f.client.id)
+    else { Issue.record("No browser run"); return }
+    #expect(try f.state.snapshot().grants.first { $0.id == grant.id }?.callsUsed == 1)
+    #expect(try f.state.snapshot().pending.first { $0.id == request }?.status == .consumed)
+    #expect(host.startCount == 1)
+    try await f.broker.cancel(run.uuid, clientID: f.client.id)
+}
+
+@Test(arguments: [true, false])
+func refusedHostAdmissionDoesNotLeakCredentialReadCapacity(hostAvailable: Bool) async throws {
+    let host = ScriptedWebHost(start: [.humanStep(.mfa)])
+    let f = try await IOFixture.make(timeout: 2, webSessions: hostAvailable ? host : nil)
+    let account = try await f.broker.enroll(service: .githubWeb, credential: syntheticWebCredential)
+    let grant = try await f.broker.grant(clientID: f.client.id, accountID: account.id, duration: 300, callLimit: 1)
+    let active: BrowserRunID?
+    if hostAvailable {
+        guard case .humanStepRequired(let run) = try await f.broker.run(clientID: f.client.id,
+            accountID: account.id, action: .githubWebProfile) else { Issue.record("No browser run"); return }
+        active = run
+    } else { active = nil }
+    let other = try await f.broker.registerClient()
+    let gated = try await f.broker.grant(clientID: other.id, accountID: account.id,
+                                       duration: 300, callLimit: 1, requiresApproval: true)
+    let approval: ApprovalID?
+    if hostAvailable {
+        guard case .approvalRequired(let request) = try await f.broker.run(clientID: other.id,
+            accountID: account.id, action: .githubWebProfile) else { Issue.record("No approval"); return }
+        try await f.broker.approveInvocation(request)
+        approval = request
+    } else { approval = nil }
+    for _ in 0..<20 {
+        await #expect(throws: hostAvailable ? VaultError.busy : .upstreamUnavailable) {
+            if let approval { _ = try await f.broker.resume(approval.uuid, clientID: other.id) }
+            else { _ = try await f.broker.run(clientID: other.id, accountID: account.id, action: .githubWebProfile) }
+        }
+    }
+    let state = try f.state.snapshot()
+    #expect(state.grants.first { $0.id == gated.id }?.callsUsed == 0)
+    #expect(state.grants.first { $0.id == grant.id }?.callsUsed == (hostAvailable ? 1 : 0))
+    if let approval { #expect(state.pending.first { $0.id == approval }?.status == .approved) }
+    else { #expect(state.pending.isEmpty) }
+    f.store.stall(.load, count: SecretIOExecutor.readCapacity)
+    defer { f.store.release(SecretIOExecutor.capacity) }
+    let reads = (0..<SecretIOExecutor.readCapacity).map { _ in
+        Task { try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) }
+    }
+    try await f.store.waitForStarts(SecretIOExecutor.readCapacity)
+    f.store.release(SecretIOExecutor.readCapacity)
+    for read in reads { #expect(try await read.value == .demoReady) }
+    if let active { try await f.broker.cancel(active.uuid, clientID: f.client.id) }
+}
+
+@Test func rotationIntentEndsAWebRunBeforeAnUncertainCredentialWrite() async throws {
+    let host = ScriptedWebHost(start: [.humanStep(.mfa)])
+    let f = try await IOFixture.make(timeout: 2, webSessions: host)
+    let account = try await f.broker.enroll(service: .githubWeb, credential: syntheticWebCredential)
+    _ = try await f.broker.grant(clientID: f.client.id, accountID: account.id, duration: 300, callLimit: 1)
+    guard case .humanStepRequired(let run) = try await f.broker.run(clientID: f.client.id,
+        accountID: account.id, action: .githubWebProfile) else { Issue.record("No browser run"); return }
+    f.store.stall(.save)
+    defer { f.store.release(SecretIOExecutor.capacity) }
+    let rotation = Task { try await f.broker.rotate(accountID: account.id,
+        credential: Data("synthetic-user\nSYNTHETIC-next".utf8)) }
+    try await f.store.waitForStarts(1)
+    #expect(!host.contextOpen(run))
+    #expect(host.endCount(run) == 1)
+    await #expect(throws: VaultError.secretUnavailable) { try await rotation.value }
+    #expect(try f.state.snapshot().accounts.first { $0.id == account.id }?.lifecycle == .rotating)
+    #expect(!host.contextOpen(run))
+    #expect(await f.broker.scheduledDeadlineCount == 0)
+    f.store.release()
+    try await f.store.waitForFinishes(1)
+    try await recoverWhenReady(f.broker)
 }
 
 @Test func readReservationsAreSingleUseAndUnusedReservationsReleaseCapacity() async throws {
@@ -259,7 +360,7 @@ private func recoverWhenReady(_ broker: Broker) async throws {
     let state = PermitCommitFailingState(), secrets = StallingSecrets(), adapter = CountingAdapter()
     let broker = Broker(state: state, secrets: secrets, adapter: adapter, secretIOPolicy: try .init(timeout: 2))
     let account = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-commit-failure".utf8))
-    var approved: [(client: UUID, request: UUID)] = []
+    var approved: [(client: UUID, request: ApprovalID)] = []
     for _ in 0..<SecretIOExecutor.readCapacity {
         let client = try await broker.registerClient()
         _ = try await broker.grant(clientID: client.id, accountID: account.id, duration: 300,
@@ -273,7 +374,7 @@ private func recoverWhenReady(_ broker: Broker) async throws {
     state.failPermitCommits(SecretIOExecutor.capacity)
     for _ in 0..<SecretIOExecutor.capacity {
         await #expect(throws: VaultError.stateUnavailable) {
-            _ = try await broker.resume(approved[0].request, clientID: approved[0].client)
+            _ = try await broker.resume(approved[0].request.uuid, clientID: approved[0].client)
         }
     }
     #expect(try state.snapshot().grants.allSatisfy { $0.callsUsed == 0 })
@@ -282,7 +383,7 @@ private func recoverWhenReady(_ broker: Broker) async throws {
     #expect(await adapter.calls == 0)
     secrets.stall(.load, count: SecretIOExecutor.readCapacity)
     defer { secrets.release(SecretIOExecutor.capacity) }
-    let runs = approved.map { item in Task { try await broker.resume(item.request, clientID: item.client) } }
+    let runs = approved.map { item in Task { try await broker.resume(item.request.uuid, clientID: item.client) } }
     try await secrets.waitForStarts(SecretIOExecutor.readCapacity)
     secrets.release(SecretIOExecutor.readCapacity)
     for run in runs { #expect(try await run.value == .demoReady) }

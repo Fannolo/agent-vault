@@ -73,7 +73,7 @@ import Testing
         limits.maxInFlightPerConnection = 2
         let loop = Loopback(limits: limits, read: { _, _ in
             try await Task.sleep(nanoseconds: 400_000_000)
-            return ReadReply(status: "ok")
+            return ReadReply(.outcome(.ready))
         })
         let client = loop.readClient()
         let outcomes = await withTaskGroup(of: String.self) { group in
@@ -86,15 +86,15 @@ import Testing
             }
             return await group.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
         }
-        #expect(outcomes == ["ok": 2, "busy": 4])
-        #expect(try await client.perform(ReadRequest(operation: .accounts)).status == "ok")
+        #expect(outcomes == ["ready": 2, "busy": 4])
+        #expect(try await client.perform(ReadRequest(operation: .accounts)).status == "ready")
     }
 
     @Test func saturatedReadTrafficPreservesFreshAndEstablishedAdminAccess() async throws {
         let held = HeldCalls<ReadReply>()
         let snapshots = Recorder(), begins = Recorder()
         let loop = Loopback(read: { _, _ in
-            await held.perform(ReadReply(status: "ok"))
+            await held.perform(ReadReply(.outcome(.ready)))
         }, snapshot: { uid in
             snapshots.record(uid)
             return AdminSnapshot(accounts: [], clients: [], grants: [], pending: [])
@@ -138,12 +138,12 @@ import Testing
         #expect(snapshots.uids == [me, me, me])
         #expect(begins.uids == [me]) // Empty probes never reach the mutation handler.
         held.release()
-        for task in tasks { #expect(try await task.value.status == "ok") }
+        for task in tasks { #expect(try await task.value.status == "ready") }
     }
 
     @Test func standardConnectionStillAllowsOnlyFourInFlightReadCalls() async throws {
         let held = HeldCalls<ReadReply>()
-        let loop = Loopback(read: { _, _ in await held.perform(ReadReply(status: "ok")) })
+        let loop = Loopback(read: { _, _ in await held.perform(ReadReply(.outcome(.ready))) })
         let client = loop.readClient(timeout: 10)
         let tasks = (0..<4).map { _ in
             Task { try await client.perform(ReadRequest(operation: .accounts)) }
@@ -157,8 +157,8 @@ import Testing
         }
         #expect(held.started == 4)
         held.release()
-        for task in tasks { #expect(try await task.value.status == "ok") }
-        #expect(try await client.perform(ReadRequest(operation: .accounts)).status == "ok")
+        for task in tasks { #expect(try await task.value.status == "ready") }
+        #expect(try await client.perform(ReadRequest(operation: .accounts)).status == "ready")
     }
 
     @Test func saturatedAdminWorkDoesNotDelayInvalidProbesOrInvokeTheirHandlers() async throws {
@@ -194,7 +194,8 @@ import Testing
         await #expect(throws: IPCError.unavailable) {
             try await failing.readClient().perform(ReadRequest(operation: .accounts))
         }
-        let invalid = Loopback(read: { _, _ in ReadReply(status: "Leaked Secret Value") })
+        // A closed status carrying a field it does not define is still invalid handler output.
+        let invalid = Loopback(read: { _, _ in ReadReply(.failure(.busy), requestID: UUID()) })
         await #expect(throws: IPCError.unavailable) {
             try await invalid.readClient().perform(ReadRequest(operation: .accounts))
         }
@@ -217,7 +218,7 @@ import Testing
     }
 
     @Test func impostorBrokerNeverReceivesRequestBytes() async {
-        let impostor = FakeBroker(reply: json(#"{"readReply":{"status":"ok","login":"impostor"}}"#))
+        let impostor = FakeBroker(reply: json(#"{"readReply":{"status":"completed","login":"impostor","userID":7}}"#))
         let configuration = developmentConfiguration(broker: "cdhash H\"\(wrongCDHash)\"")
         let client = VaultReadClient(validated: configuration, endpoint: impostor.endpoint, timeout: 3)
         await #expect(throws: IPCError.brokerRejected) {
@@ -227,7 +228,7 @@ import Testing
     }
 
     @Test func clientRejectsMalformedBrokerReplies() async {
-        for body in [#"{"error":"broker_rejected"}"#, #"{"readReply":{"status":"ok","password":"x"}}"#, "junk"] {
+        for body in [#"{"error":"broker_rejected"}"#, #"{"readReply":{"status":"ready","password":"x"}}"#, "junk"] {
             let fake = FakeBroker(reply: json(body))
             let client = VaultReadClient(validated: developmentConfiguration(), endpoint: fake.endpoint, timeout: 3)
             await #expect(throws: IPCError.malformedReply) { try await client.perform(ReadRequest(operation: .accounts)) }

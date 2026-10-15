@@ -60,7 +60,7 @@ indirect enum Shape {
 }
 
 enum WireCodec {
-    static let maxCredentialBytes = 8192
+    static let maxCredentialBytes = CredentialFormat.transportMaximum
     static let maxGrantSeconds: Double = 86_400
     static let callLimits = 1...10_000
     static let signatureBytes = 8...72
@@ -223,15 +223,9 @@ enum WireCodec {
         }
     }
 
+    /// A closed status with exactly the fields that status defines; a profile has both fields.
     static func isValid(_ reply: ReadReply) -> Bool {
-        guard isStatusToken(reply.status),
-              (reply.accounts ?? []).allSatisfy({ isStatusToken($0.status) }) else { return false }
-        if let login = reply.login {
-            guard (1...39).contains(login.utf8.count),
-                  login.utf8.allSatisfy({ isLoginByte($0) }) else { return false }
-        }
-        if let userID = reply.userID, userID < 0 { return false }
-        return true
+        reply.isWellFormed && (reply.accounts ?? []).allSatisfy { isStatusToken($0.status) }
     }
 
     static let pendingStatuses: Set<String> = ["waiting", "approved"]
@@ -252,11 +246,6 @@ enum WireCodec {
             (UInt8(ascii: "a")...UInt8(ascii: "z")).contains($0) || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0)
                 || $0 == UInt8(ascii: "_")
         }
-    }
-
-    private static func isLoginByte(_ byte: UInt8) -> Bool {
-        (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte) || (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(byte)
-            || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte) || byte == UInt8(ascii: "-")
     }
 
     static func shape(_ kind: ReplyKind) -> Shape {

@@ -207,13 +207,13 @@ private final class CrashImageSecrets: SecretStore, @unchecked Sendable {
     else { Issue.record("Approval-required grant dispatched without approval"); return }
     #expect(f.secrets.reads == 0)
     #expect(try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus) == .approvalRequired(id))
-    #expect(try await f.broker.resume(id, clientID: f.client.id) == .approvalRequired(id))
+    #expect(try await f.broker.resume(id.uuid, clientID: f.client.id) == .approvalRequired(id))
     #expect(f.secrets.reads == 0)
     try await f.broker.approveInvocation(id)
     let other = try await f.broker.registerClient()
-    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id, clientID: other.id) }
-    #expect(try await f.broker.resume(id, clientID: f.client.id) == .demoReady)
-    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id, clientID: f.client.id) }
+    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id.uuid, clientID: other.id) }
+    #expect(try await f.broker.resume(id.uuid, clientID: f.client.id) == .demoReady)
+    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id.uuid, clientID: f.client.id) }
     #expect(try f.state.snapshot().grants.first { $0.id == grant.id }?.callsUsed == 1)
 }
 
@@ -249,10 +249,10 @@ private final class CrashImageSecrets: SecretStore, @unchecked Sendable {
     guard case .approvalRequired(let id) = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
     else { Issue.record("Missing approval request"); return }
     f.clock.advance(119)
-    #expect(try await f.broker.resume(id, clientID: f.client.id) == .approvalRequired(id))
+    #expect(try await f.broker.resume(id.uuid, clientID: f.client.id) == .approvalRequired(id))
     #expect(try f.state.snapshot().grants.first { $0.id == grant.id }?.callsUsed == 0)
     f.clock.advance(1)
-    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id, clientID: f.client.id) }
+    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id.uuid, clientID: f.client.id) }
     #expect(f.secrets.reads == 0)
 }
 
@@ -265,7 +265,7 @@ private final class CrashImageSecrets: SecretStore, @unchecked Sendable {
     else { Issue.record("Missing approval challenge"); return }
     try await f.broker.approveInvocation(id)
     try await f.broker.revokeGrant(grant.id)
-    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id, clientID: f.client.id) }
+    await #expect(throws: VaultError.denied) { _ = try await f.broker.resume(id.uuid, clientID: f.client.id) }
     #expect(f.secrets.reads == 0)
     _ = try await f.broker.grant(clientID: f.client.id, accountID: f.account.id, duration: 10, callLimit: 2, requiresApproval: true)
     guard case .approvalRequired(let second) = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
@@ -316,9 +316,9 @@ private final class CrashImageSecrets: SecretStore, @unchecked Sendable {
     guard case .approvalRequired(let id) = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
     else { Issue.record("Missing approval challenge"); return }
     try await f.broker.approveInvocation(id)
-    let invocation = Task { try await f.broker.resume(id, clientID: f.client.id) }
+    let invocation = Task { try await f.broker.resume(id.uuid, clientID: f.client.id) }
     await adapter.waitUntilStarted()
-    await #expect(throws: VaultError.denied) { try await f.broker.cancelInvocation(id, clientID: f.client.id) }
+    await #expect(throws: VaultError.denied) { try await f.broker.cancel(id.uuid, clientID: f.client.id) }
     await #expect(throws: VaultError.denied) { try await f.broker.rejectInvocation(id) }
     await adapter.release()
     #expect(try await invocation.value == .demoReady)

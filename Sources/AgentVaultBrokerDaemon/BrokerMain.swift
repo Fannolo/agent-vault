@@ -28,7 +28,7 @@ enum BrokerMain {
                 let server = try VaultXPCServer(configuration: config.ipc,
                     read: { uid, request in
                         do { return try await read.perform(uid: uid, request: request) }
-                        catch { return ReadReply(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
+                        catch { return ReadReply(.failure((error as? VaultError)?.readFailure ?? .operationFailed)) }
                     }, snapshot: { _ in try await admin.snapshot() },
                     begin: { _, request in
                         do { return try await admin.begin(request) }

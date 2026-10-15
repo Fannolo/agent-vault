@@ -7,7 +7,7 @@
 | Broker/IPC | Separate daemon/bridge, protected config, code+UID pins, private Keychain, owner lease | Privileged dedicated-UID install, file/process isolation and system-domain lookup |
 | Human app | Secure forms, pairing/grants, audit, exact pending approvals, protected-key backend | Provisioned Bite-signed protected key and real fresh user-presence signing |
 | Lifecycle | Durable intent/recovery, bounded off-actor I/O, read capacity before approval/budget spend, administration reserve | Installed daemon interruption check |
-| Browser | Ephemeral fixed-flow fixture library; separate headless-host design selected | Broker run lifecycle unit in progress; host, human continuation, installed sandbox/egress and live selectors/MFA remain; production disabled |
+| Browser | Ephemeral fixed-flow fixtures; broker-owned run lifecycle, closed read statuses and one credential grammar against a scripted host | U1–U6 host link, separate `_agentvaultweb` host, human continuation, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
@@ -40,6 +40,14 @@ hardened signatures and manifest hashes verified, and the installer sandbox pass
 against those exact binaries. [The signed-bundle record](verification/signed-review-bundle-r3.json)
 is separate from the historical `425c6af` record. This build has no provisioning profile
 and is not notarized; no protected-key probe was repeated on it.
+
+The browser lifecycle unit is now integrated with the R3 capacity controls: 218 tests,
+MCP verification and module boundaries pass locally. The independent U0 judge reproduced
+three Medium issues in the original worker commit; parent fixes enforce the pause deadline
+on late replies, end sessions at rotation intent and own cancellable timers per retained
+run. Human opens now name a preexisting step ID, preventing a delayed signed open from
+authorizing a different challenge. Browser production services remain disabled. The actual
+headless host and its installed isolation/network proof are later units.
 
 No existing application, browser profile, host MCP configuration, company evidence or real
 service credential has been modified. No dedicated user, daemon or app has been installed.

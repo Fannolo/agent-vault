@@ -28,20 +28,24 @@ public actor Administration {
     }
 
     public func snapshot() async throws -> AdminSnapshot {
-        let state = try await broker.snapshot()
-        return .init(accounts: state.accounts.map {
-            .init(id: $0.id, service: WireService(rawValue: $0.service.rawValue)!, status: $0.lifecycle.rawValue)
-        }, clients: state.clients.map { .init(id: $0.id, uid: $0.uid ?? 0, revoked: $0.revoked) },
-        grants: state.grants.map {
+        let state = try await broker.snapshot(), timestamp = now()
+        let accounts: [AccountSummary] = state.accounts.map {
+            .init(id: $0.id, service: $0.service.wire, status: $0.lifecycle.rawValue)
+        }
+        let clients: [ClientSummary] = state.clients.map { .init(id: $0.id, uid: $0.uid ?? 0, revoked: $0.revoked) }
+        let grants: [GrantSummary] = state.grants.map {
             .init(id: $0.id, clientID: $0.clientID, accountID: $0.accountID, expiresAt: $0.expiresAt,
                   callsRemaining: max(0, $0.callLimit - $0.callsUsed), requiresApproval: $0.requiresApproval, revoked: $0.revoked)
-        }, pending: state.pending.filter { [.waiting, .approved].contains($0.status) && $0.expiresAt > now() }.map {
-            .init(id: $0.id, clientID: $0.clientID, accountID: $0.accountID,
+        }
+        let pending: [PendingSummary] = state.pending.filter { [.waiting, .approved].contains($0.status) && $0.expiresAt > timestamp }.map {
+            .init(id: $0.id.uuid, clientID: $0.clientID, accountID: $0.accountID,
                   action: WireAction(rawValue: $0.action.rawValue)!, expiresAt: $0.expiresAt, status: $0.status.rawValue)
-        }, audit: (state.audit + state.adminAudit).sorted { $0.timestamp < $1.timestamp }.map {
+        }
+        let audit: [AuditSummary] = (state.audit + state.adminAudit).sorted { $0.timestamp < $1.timestamp }.map {
             .init(timestamp: $0.timestamp, clientID: $0.clientID, accountID: $0.accountID,
                   action: $0.action.flatMap { WireAction(rawValue: $0.rawValue) }, outcome: $0.outcome)
-        })
+        }
+        return .init(accounts: accounts, clients: clients, grants: grants, pending: pending, audit: audit)
     }
 
     public func begin(_ request: AdminRequest) throws -> AdminChallenge {
@@ -89,9 +93,9 @@ public actor Administration {
         case .revokeClient:
             try await broker.revokeClient(request.clientID!); resultID = request.clientID
         case .approveInvocation:
-            try await broker.approveInvocation(request.requestID!); resultID = request.requestID
+            try await broker.approveInvocation(ApprovalID(request.requestID!)); resultID = request.requestID
         case .rejectInvocation:
-            try await broker.rejectInvocation(request.requestID!); resultID = request.requestID
+            try await broker.rejectInvocation(ApprovalID(request.requestID!)); resultID = request.requestID
         case .recover:
             try await broker.recoverInterruptedLifecycle(); resultID = nil
         case .prune:
@@ -121,7 +125,11 @@ public actor Administration {
         if let service = request.service {
             guard let service = Service(rawValue: service.rawValue), allowedServices.contains(service) else { throw VaultError.invalidInput }
         }
-        if let credential = request.credential { guard !credential.isEmpty, credential.count <= 8192 else { throw VaultError.invalidInput } }
+        if let credential = request.credential {
+            guard !credential.isEmpty, credential.count <= CredentialFormat.transportMaximum else { throw VaultError.invalidInput }
+            // Early rejection before a person is asked to sign; the broker enforces it again.
+            if let service = request.service, !CredentialFormat.isValid(credential, for: service) { throw VaultError.invalidInput }
+        }
         if let uid = request.uid { guard uid != 0, allowedClientUID == nil || uid == allowedClientUID else { throw VaultError.invalidInput } }
         if let duration = request.duration { guard duration > 0, duration <= 86_400, duration.isFinite else { throw VaultError.invalidInput } }
         if let calls = request.callLimit { guard (1...10_000).contains(calls) else { throw VaultError.invalidInput } }
@@ -137,9 +145,7 @@ public struct ReadOperations: Sendable {
         case .accounts:
             guard request.accountID == nil, request.action == nil, request.requestID == nil else { throw VaultError.invalidInput }
             let accounts = try await broker.availableAccounts(clientID: client)
-            return .init(status: "completed", accounts: accounts.map {
-                .init(id: $0.id, service: WireService(rawValue: $0.service.rawValue)!)
-            })
+            return .init(.outcome(.completed), accounts: accounts.map { .init(id: $0.id, service: $0.service.wire) })
         case .run:
             guard let account = request.accountID, let action = request.action, request.requestID == nil,
                   let coreAction = Action(rawValue: action.rawValue) else { throw VaultError.invalidInput }
@@ -149,16 +155,16 @@ public struct ReadOperations: Sendable {
             return reply(try await broker.resume(id, clientID: client))
         case .cancel:
             guard let id = request.requestID, request.accountID == nil, request.action == nil else { throw VaultError.invalidInput }
-            try await broker.cancelInvocation(id, clientID: client)
-            return .init(status: "cancelled", requestID: id)
+            try await broker.cancel(id, clientID: client)
+            return .init(.outcome(.cancelled), requestID: id)
         }
     }
     private func reply(_ result: OperationResult) -> ReadReply {
         switch result {
-        case .demoReady: .init(status: "ready")
-        case .githubProfile(let profile): .init(status: "completed", login: profile.login, userID: profile.id)
-        case .approvalRequired(let id): .init(status: "approval_required", requestID: id)
-        case .humanStepRequired(let id): .init(status: "human_step_required", requestID: id)
+        case .demoReady: .init(.outcome(.ready))
+        case .profile(let profile): .init(.outcome(.completed), profile: profile)
+        case .approvalRequired(let id): .init(.outcome(.approvalRequired), requestID: id.uuid)
+        case .humanStepRequired(let id): .init(.outcome(.humanStepRequired), requestID: id.uuid)
         }
     }
 }

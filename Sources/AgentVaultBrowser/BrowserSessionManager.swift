@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import AppKit
 import Foundation
 import WebKit
@@ -28,7 +29,7 @@ public final class BrowserSessionManager {
     public func run(_ workflow: BrowserWorkflow, accountID: UUID, credential: Data) async -> BrowserOutcome {
         guard let definition = policy.workflows[workflow] else { return .failed(.unsupportedWorkflow) }
         guard contexts[accountID] == nil else { return .failed(.busy) }
-        guard let credential = WebCredential(wireBytes: credential) else { return .failed(.invalidCredential) }
+        guard let credential = WebLoginCredential(credential) else { return .failed(.invalidCredential) }
         let epoch = revocations[accountID, default: 0]
         guard let context = await BrowserContext.make(accountID: accountID, policy: policy) else {
             return .failed(.sessionUnavailable)
@@ -73,7 +74,7 @@ public final class BrowserSessionManager {
 
     // MARK: - Workflow
 
-    private func login(_ context: BrowserContext, credential: WebCredential,
+    private func login(_ context: BrowserContext, credential: WebLoginCredential,
                        definition: WorkflowDefinition) async -> BrowserOutcome {
         let loaded = await context.navigate(timeout: timeouts.load) {
             context.load(path: definition.loginPath)

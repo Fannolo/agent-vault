@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import AgentVaultCore
 import Foundation
 import Testing
@@ -5,7 +6,7 @@ import Testing
 @Test func githubOutputDropsUnknownSensitiveFields() throws {
     let data = Data(#"{"login":"synthetic-user","id":42,"token":"SYNTHETIC-only-token","email":"private@example.invalid"}"#.utf8)
     let profile = try GitHubAdapter.decodeProfile(data)
-    #expect(profile == GitHubProfile(login: "synthetic-user", id: 42))
+    #expect(profile == AccountProfile(login: "synthetic-user", userID: 42))
     let serialized = String(decoding: try JSONEncoder().encode(profile), as: UTF8.self)
     #expect(!serialized.contains("token"))
     #expect(!serialized.contains("email"))
@@ -18,9 +19,10 @@ import Testing
     #expect(throws: VaultError.invalidResponse) { try GitHubAdapter.decodeProfile(Data(repeating: 0, count: 65_537)) }
 }
 
-@Test func credentialCannotInjectHeaders() throws {
+@Test func credentialCannotInjectHeaders() async throws {
     for value in ["short", "valid-token\r\nInjected: yes", "valid-token with-space"] {
-        #expect(throws: VaultError.invalidInput) { try GitHubAdapter.validateCredential(Data(value.utf8)) }
+        #expect(!CredentialFormat.isValid(Data(value.utf8), for: .github))
+        await #expect(throws: VaultError.invalidInput) { _ = try await GitHubAdapter().profile(credential: Data(value.utf8)) }
     }
 }
 

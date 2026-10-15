@@ -1,24 +1,47 @@
+import AgentVaultContracts
 import Foundation
 
 public actor Broker {
+    static let maxLiveRuns = 4
+    static let maxRuns = 16
     private let state: any StateStore
     private let secretIO: SecretIOExecutor
     private let adapter: any ServiceAdapter
+    private let web: (any WebSessionExecutor)?
+    private let windows: LifecycleWindows
     private let now: @Sendable () -> Date
     private var lifecycleMutations: Set<UUID> = []
     private var recoveryInProgress = false
+    private var runs: [BrowserRunID: BrowserRun] = [:]
+    private var sweepTasks: [BrowserRunID: (deadline: Date, task: Task<Void, Never>)] = [:]
 
+    var scheduledDeadlineCount: Int { sweepTasks.count }
+
+    deinit {
+        for entry in sweepTasks.values { entry.task.cancel() }
+    }
+
+    /// Without `webSessions`, browser services are refused before any budget is reserved.
     public init(state: any StateStore, secrets: any SecretStore,
                 adapter: any ServiceAdapter = FixedServiceAdapter(),
+                webSessions: (any WebSessionExecutor)? = nil,
+                windows: LifecycleWindows = .standard,
                 now: @escaping @Sendable () -> Date = { Date() },
                 secretIOPolicy: SecretIOPolicy = .standard) {
         self.state = state; self.secretIO = SecretIOExecutor(store: secrets, policy: secretIOPolicy)
-        self.adapter = adapter; self.now = now
+        self.adapter = adapter; self.web = webSessions; self.windows = windows; self.now = now
+        if let losses = webSessions?.losses {
+            Task { [weak self] in
+                for await _ in losses {
+                    guard let self else { return }
+                    await self.hostLost()
+                }
+            }
+        }
     }
 
     public func enroll(service: Service, credential: Data) async throws -> Account {
-        guard !credential.isEmpty, credential.count <= 8192 else { throw VaultError.invalidInput }
-        if service == .github { try GitHubAdapter.validateCredential(credential) }
+        guard CredentialFormat.isValid(credential, for: service.wire) else { throw VaultError.invalidInput }
         var account = Account(service: service, lifecycle: .enrolling)
         try beginLifecycle(account.id)
         defer { lifecycleMutations.remove(account.id) }
@@ -102,11 +125,11 @@ public actor Broker {
             state.recordAdministration(client: grant.clientID, account: grant.accountID, action: grant.action,
                          outcome: "grant_revoked", at: timestamp)
         }
-        await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: id)
+        await reconcileRuns()
     }
 
     public func revokeClient(_ id: UUID) async throws {
-        let sessions = try state.transaction { state in
+        try state.transaction { state in
             let timestamp = now()
             guard let index = state.clients.firstIndex(where: { $0.id == id }) else {
                 throw VaultError.invalidInput
@@ -117,9 +140,8 @@ public actor Broker {
             }
             for i in state.pending.indices where state.pending[i].clientID == id { state.pending[i].status = .cancelled }
             state.recordAdministration(client: id, outcome: "client_revoked", at: timestamp)
-            return state.grants.filter { $0.clientID == id }.map(\.id)
         }
-        for session in sessions { await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: session) }
+        await reconcileRuns()
     }
 
     public func availableAccounts(clientID: UUID) throws -> [Account] {
@@ -136,20 +158,23 @@ public actor Broker {
     }
 
     public func run(clientID: UUID, accountID: UUID, action: Action) async throws -> OperationResult {
-        let pending: UUID? = try state.transaction { state in
+        let pending: ApprovalID? = try state.transaction { state in
             let timestamp = now()
             guard state.clients.contains(where: { $0.id == clientID && !$0.revoked }),
-                  state.accounts.contains(where: { $0.id == accountID && $0.lifecycle == .active && $0.service.action == action }),
-                  let grant = state.grants.first(where: { Self.permits($0, client: clientID, account: accountID, action: action, at: timestamp) }),
-                  grant.requiresApproval else { return nil }
+                  let account = state.accounts.first(where: { $0.id == accountID && $0.lifecycle == .active && $0.service.action == action }),
+                  let grant = state.grants.first(where: { Self.permits($0, client: clientID, account: accountID, action: action, at: timestamp) })
+            else { return nil }
+            guard canExecute(account.service) else { throw VaultError.upstreamUnavailable }
+            guard grant.requiresApproval else { return nil }
             if let existing = state.pending.first(where: {
                 $0.clientID == clientID && $0.accountID == accountID && $0.action == action &&
                 $0.grantID == grant.id && $0.expiresAt > timestamp && [.waiting, .approved].contains($0.status)
             }) { return existing.id }
             state.pending.removeAll { $0.expiresAt <= timestamp || [.cancelled, .consumed].contains($0.status) }
             guard state.pending.count < 128 else { throw VaultError.busy }
-            let invocation = PendingInvocation(id: UUID(), clientID: clientID, accountID: accountID,
-                action: action, grantID: grant.id, expiresAt: min(grant.expiresAt, timestamp.addingTimeInterval(120)), status: .waiting)
+            let invocation = PendingInvocation(id: ApprovalID(UUID()), clientID: clientID, accountID: accountID,
+                action: action, grantID: grant.id,
+                expiresAt: windows.approvalEnds(now: timestamp, grantExpiresAt: grant.expiresAt), status: .waiting)
             state.pending.append(invocation)
             state.record(client: clientID, account: accountID, action: action, outcome: "approval_requested", at: timestamp)
             return invocation.id
@@ -158,7 +183,7 @@ public actor Broker {
         return try await execute(clientID: clientID, accountID: accountID, action: action, approvedRequest: nil)
     }
 
-    public func approveInvocation(_ id: UUID) throws {
+    public func approveInvocation(_ id: ApprovalID) throws {
         try state.transaction { state in
             let timestamp = now()
             guard let index = state.pending.firstIndex(where: { $0.id == id && $0.status == .waiting && $0.expiresAt > timestamp }),
@@ -172,7 +197,7 @@ public actor Broker {
         }
     }
 
-    public func rejectInvocation(_ id: UUID) throws {
+    public func rejectInvocation(_ id: ApprovalID) throws {
         try state.transaction { state in
             guard let index = state.pending.firstIndex(where: {
                 $0.id == id && [.waiting, .approved].contains($0.status)
@@ -184,7 +209,14 @@ public actor Broker {
         }
     }
 
-    public func cancelInvocation(_ id: UUID, clientID: UUID) throws {
+    /// Agent cancellation of the request ID from its latest reply: a browser run or an approval request.
+    public func cancel(_ requestID: UUID, clientID: UUID) async throws {
+        if let run = runs[BrowserRunID(requestID)] {
+            guard run.binding.client == clientID else { throw VaultError.denied }
+            await apply(run.id, .agentCancelled)
+            return
+        }
+        let id = ApprovalID(requestID)
         try state.transaction { state in
             guard state.clients.contains(where: { $0.id == clientID && !$0.revoked }),
                   let index = state.pending.firstIndex(where: {
@@ -197,7 +229,14 @@ public actor Broker {
         }
     }
 
-    public func resume(_ id: UUID, clientID: UUID) async throws -> OperationResult {
+    /// The current state of the request ID from the agent's latest reply. Polling a browser run is
+    /// free: budget was reserved once when the run was created.
+    public func resume(_ requestID: UUID, clientID: UUID) async throws -> OperationResult {
+        if let run = runs[BrowserRunID(requestID)] {
+            guard run.binding.client == clientID else { throw VaultError.denied }
+            return try await collect(run.id)
+        }
+        let id = ApprovalID(requestID)
         let snapshot = try state.snapshot(), timestamp = now()
         guard let invocation = snapshot.pending.first(where: { $0.id == id && $0.clientID == clientID && $0.expiresAt > timestamp }),
               snapshot.clients.contains(where: { $0.id == clientID && !$0.revoked }),
@@ -210,9 +249,9 @@ public actor Broker {
         return try await execute(clientID: clientID, accountID: invocation.accountID, action: invocation.action, approvedRequest: id)
     }
 
-    private func execute(clientID: UUID, accountID: UUID, action: Action, approvedRequest: UUID?) async throws -> OperationResult {
+    private func execute(clientID: UUID, accountID: UUID, action: Action, approvedRequest: ApprovalID?) async throws -> OperationResult {
         guard !recoveryInProgress else { throw VaultError.busy }
-        let permit: (Account, UUID, SecretIOExecutor.ReadReservation)? = try state.transaction { state in
+        let permit: (Account, Grant, SecretIOExecutor.ReadReservation)? = try state.transaction { state in
             let timestamp = now()
             guard state.clients.contains(where: { $0.id == clientID && !$0.revoked }),
                   let account = state.accounts.first(where: { $0.id == accountID && $0.lifecycle == .active }),
@@ -241,6 +280,9 @@ public actor Broker {
                 guard approvedRequest == nil else { return nil }
                 pendingIndex = nil
             }
+            // An unavailable host or full run table must not consume credential capacity.
+            guard canExecute(account.service) else { throw VaultError.upstreamUnavailable }
+            if case .web = account.service.execution { try admitRun(account: accountID) }
             // No actor suspension or credential work occurs inside the transaction.
             // Admission must succeed before spending a single-use approval or budget.
             let reservation = try secretIO.reserveRead(account: account.id)
@@ -248,44 +290,70 @@ public actor Broker {
             // Admitted attempts consume budget even if credential access or the provider fails.
             state.grants[index].callsUsed += 1
             state.record(client: clientID, account: accountID, action: action, outcome: "reserved", at: timestamp)
-            return (account, state.grants[index].id, reservation)
+            return (account, state.grants[index], reservation)
         }
-        guard let (account, grantID, reservation) = permit else { throw VaultError.denied }
+        guard let (account, grant, reservation) = permit else { throw VaultError.denied }
+        let binding = RunBinding(client: clientID, account: accountID, action: action,
+                                 grant: grant.id, credential: account.credentialID)
+        switch account.service.execution {
+        case .api(let service):
+            return try await executeAPI(service, binding: binding, reservation: reservation)
+        case .web(let workflow):
+            // `canExecute` admitted this run only with a host configured.
+            guard let web else { throw VaultError.upstreamUnavailable }
+            // Registered before the first suspension so revocation can always find it.
+            let id = BrowserRunID()
+            runs[id] = BrowserRun(id: id, binding: binding, grantExpiresAt: grant.expiresAt)
+            return try await executeWeb(id, workflow: workflow, binding: binding, web: web, reservation: reservation)
+        }
+    }
+
+    private func executeAPI(_ service: APIService, binding: RunBinding,
+                            reservation: SecretIOExecutor.ReadReservation) async throws -> OperationResult {
         var finishAttempted = false
         do {
-            let credential = try await reservation.load(id: account.credentialID)
+            let credential = try await reservation.load(id: binding.credential)
             // Keychain access may block on a human prompt. Recheck before dispatch.
-            let current = try state.snapshot()
-            guard current.clients.contains(where: { $0.id == clientID && !$0.revoked }),
-                  current.accounts.contains(where: {
-                      $0.id == accountID && $0.lifecycle == .active && $0.credentialID == account.credentialID
-                  }),
-                  current.grants.contains(where: { $0.id == grantID && !$0.revoked && $0.expiresAt > now() }) else {
-                throw VaultError.denied
-            }
-            let output: OperationResult
-            if let sessionAdapter = adapter as? any SessionServiceAdapter,
-               let grant = current.grants.first(where: { $0.id == grantID }) {
-                output = try await sessionAdapter.execute(sessionID: grantID, expiresAt: grant.expiresAt,
-                                                          service: account.service, credential: credential)
-            } else {
-                output = try await adapter.execute(service: account.service, credential: credential)
-            }
+            guard stillAuthorized(binding, in: try state.snapshot(), at: now()) else { throw VaultError.denied }
+            let output = try await adapter.execute(service: service, credential: credential)
             // Revocation during an in-flight request also suppresses its response.
             finishAttempted = true
-            let allowed = try finish(client: clientID, account: accountID, action: action,
-                                     grant: grantID, succeeded: true)
-            guard allowed else { throw VaultError.denied }
-            return output
-        } catch {
-            if !finishAttempted {
-                _ = try? finish(client: clientID, account: accountID, action: action,
-                                grant: grantID, succeeded: false)
+            guard try finish(binding, succeeded: true) else { throw VaultError.denied }
+            switch output {
+            case .demoReady: return .demoReady
+            case .profile(let profile): return .profile(profile)
             }
-            // An unreadable final policy state is also a loss of authority.
-            await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: grantID)
-            throw (error as? SecretIOFailure)?.publicError ?? (error as? VaultError) ?? VaultError.upstreamUnavailable
+        } catch {
+            if !finishAttempted { _ = try? finish(binding, succeeded: false) }
+            throw publicError(error)
         }
+    }
+
+    private func executeWeb(_ id: BrowserRunID, workflow: WebWorkflow, binding: RunBinding,
+                            web: any WebSessionExecutor,
+                            reservation: SecretIOExecutor.ReadReservation) async throws -> OperationResult {
+        let loaded: Data
+        do { loaded = try await reservation.load(id: binding.credential) }
+        catch {
+            abandon(id)
+            throw publicError(error)
+        }
+        // A revocation during the load has already removed the run and audited the suppression.
+        guard let run = runs[id], run.phase == .loadingCredential else { throw VaultError.denied }
+        guard isAuthorized(run) else {
+            await apply(id, .authorityLost)
+            throw VaultError.denied
+        }
+        guard let credential = WebLoginCredential(loaded) else {
+            abandon(id)
+            throw VaultError.secretUnavailable
+        }
+        await apply(id, .credentialLoaded)
+        guard let dispatched = runs[id] else { throw VaultError.denied }
+        let lifetime = min(LifecycleWindows.hostLifetimeCap, dispatched.grantExpiresAt.timeIntervalSince(now()))
+        let step = await web.start(id, workflow: workflow, credential: credential, lifetime: lifetime)
+        await hostReplied(id, step, epoch: dispatched.epoch)
+        return try await collect(id)
     }
 
     public func snapshot() throws -> VaultState { try state.snapshot() }
@@ -297,7 +365,7 @@ public actor Broker {
     }
 
     public func rotate(accountID: UUID, credential: Data) async throws {
-        guard !credential.isEmpty, credential.count <= 8192 else { throw VaultError.invalidInput }
+        guard !credential.isEmpty, credential.count <= CredentialFormat.transportMaximum else { throw VaultError.invalidInput }
         try beginLifecycle(accountID)
         defer { lifecycleMutations.remove(accountID) }
         let staged = UUID()
@@ -305,12 +373,14 @@ public actor Broker {
             guard let i = state.accounts.firstIndex(where: {
                 $0.id == accountID && $0.lifecycle == .active && $0.retiredCredentialID == nil
             }) else { throw VaultError.denied }
-            if state.accounts[i].service == .github { try GitHubAdapter.validateCredential(credential) }
+            guard CredentialFormat.isValid(credential, for: state.accounts[i].service.wire) else { throw VaultError.invalidInput }
             state.accounts[i].lifecycle = .rotating; state.accounts[i].stagedCredentialID = staged
             state.recordAdministration(account: accountID, action: state.accounts[i].service.action,
                                        outcome: "rotation_started", at: now())
             return state.accounts[i]
         }
+        // Rotation intent removes the old run's authority even when the write later times out.
+        await reconcileRuns()
         do { try await secretIO.save(credential, id: staged, account: accountID) }
         catch {
             let failure = secretFailure(error)
@@ -326,7 +396,7 @@ public actor Broker {
             }
             throw failure.publicError
         }
-        let sessions = try state.transaction { state in
+        try state.transaction { state in
             guard let i = state.accounts.firstIndex(where: { $0.id == accountID && $0.stagedCredentialID == staged }) else { throw VaultError.stateUnavailable }
             state.accounts[i].credentialID = staged; state.accounts[i].stagedCredentialID = nil
             state.accounts[i].retiredCredentialID = original.credentialID; state.accounts[i].lifecycle = .active
@@ -334,9 +404,9 @@ public actor Broker {
             for index in state.pending.indices where state.pending[index].accountID == accountID { state.pending[index].status = .cancelled }
             state.recordAdministration(account: accountID, action: original.service.action,
                                        outcome: "rotation_committed", at: now())
-            return state.grants.filter { $0.accountID == accountID }.map(\.id)
         }
-        for session in sessions { await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: session) }
+        // Browser runs bound to the old credential end before it is deleted.
+        await reconcileRuns()
         do { try await secretIO.delete(id: original.credentialID, account: accountID) }
         catch {
             let failure = secretFailure(error)
@@ -364,9 +434,7 @@ public actor Broker {
                                        outcome: "deletion_started", at: now())
             return state.accounts[i]
         }
-        for grant in try state.snapshot().grants where grant.accountID == id {
-            await (adapter as? any SessionServiceAdapter)?.invalidate(sessionID: grant.id)
-        }
+        await reconcileRuns()
         do { try await removeCredentialItems(account) }
         catch {
             let failure = secretFailure(error)
@@ -484,23 +552,210 @@ public actor Broker {
         }
     }
 
-    private func finish(client: UUID, account: UUID, action: Action, grant: UUID,
-                        succeeded: Bool) throws -> Bool {
-        return try state.transaction { state in
+    /// Records the attempt's terminal audit and reports whether its output may be delivered.
+    private func finish(_ binding: RunBinding, succeeded: Bool) throws -> Bool {
+        try state.transaction { state in
             let timestamp = now()
-            let allowed = state.clients.contains(where: { $0.id == client && !$0.revoked }) &&
-                state.accounts.contains(where: { $0.id == account && $0.lifecycle == .active }) &&
-                state.grants.contains(where: { $0.id == grant && !$0.revoked && $0.expiresAt > timestamp })
-            state.record(client: client, account: account, action: action,
+            let allowed = stillAuthorized(binding, in: state, at: timestamp)
+            state.record(client: binding.client, account: binding.account, action: binding.action,
                          outcome: allowed ? (succeeded ? "completed" : "failed") : "response_suppressed",
                          at: timestamp)
             return allowed
         }
     }
 
+    private func publicError(_ error: any Error) -> VaultError {
+        (error as? SecretIOFailure)?.publicError ?? (error as? VaultError) ?? VaultError.upstreamUnavailable
+    }
+
+    private func canExecute(_ service: Service) -> Bool {
+        if case .web = service.execution { return web != nil }
+        return true
+    }
+
     private static func permits(_ grant: Grant, client: UUID, account: UUID,
                                 action: Action, at timestamp: Date) -> Bool {
         !grant.revoked && grant.clientID == client && grant.accountID == account &&
         grant.action == action && grant.expiresAt > timestamp && grant.callsUsed < grant.callLimit
+    }
+}
+
+// MARK: - Browser runs. The broker is the only authority; the host only holds browser contexts.
+
+extension Broker {
+    /// Metadata for the authenticated human-app transport; never part of the agent read surface.
+    public func pendingHumanSteps() async throws -> [PendingHumanStep] {
+        await sweep()
+        let current = try state.snapshot(), timestamp = now()
+        return runs.values.compactMap { run in
+            guard stillAuthorized(run.binding, in: current, at: timestamp) else { return nil }
+            return run.humanStep
+        }
+    }
+
+    /// Signed by the human app before this is called. Binds a lease to this connection and to the
+    /// run's current human step; a later step or another connection needs a new signed open.
+    public func openHumanStep(_ step: HumanStepID, connection: ContinuationConnectionID) async throws -> ContinuationLeaseID {
+        await sweep()
+        guard let run = runs[step.run], run.humanStep?.id == step else { throw VaultError.denied }
+        guard isAuthorized(run) else {
+            await apply(run.id, .authorityLost)
+            throw VaultError.denied
+        }
+        let lease = ContinuationLease(id: ContinuationLeaseID(), connection: connection, step: step)
+        await apply(run.id, .opened(lease))
+        guard runs[run.id]?.lease?.id == lease.id else { throw VaultError.denied }
+        return lease.id
+    }
+
+    /// The person finished or abandoned the step. The broker, not the page, decides what follows.
+    public func concludeHumanStep(_ lease: ContinuationLeaseID, connection: ContinuationConnectionID,
+                                  decision: HumanStepDecision) async throws -> HumanStepProgress {
+        await sweep()
+        guard let run = runs.values.first(where: { $0.lease?.id == lease }),
+              run.lease?.connection == connection else { throw VaultError.denied }
+        guard isAuthorized(run) else {
+            await apply(run.id, .authorityLost)
+            throw VaultError.denied
+        }
+        switch decision {
+        case .cancel:
+            await apply(run.id, .humanCancelled(lease))
+            return .concluded
+        case .finished:
+            await apply(run.id, .humanFinished(lease))
+            guard let web, let classifying = runs[run.id] else { throw VaultError.denied }
+            let step = await web.reclassify(run.id)
+            await hostReplied(run.id, step, epoch: classifying.epoch)
+            switch runs[run.id]?.phase {
+            case .concluded?: return .concluded
+            case .awaitingHuman(let kind, _, _)?: return .humanStepRequired(kind)
+            default: throw VaultError.denied
+            }
+        }
+    }
+
+    /// The transport lost an authenticated human-app connection. Its leases end; runs keep their pause.
+    public func continuationConnectionClosed(_ connection: ContinuationConnectionID) async {
+        for id in Array(runs.keys) { await apply(id, .connectionClosed(connection)) }
+    }
+
+    fileprivate func collect(_ id: BrowserRunID) async throws -> OperationResult {
+        await sweep()
+        guard let run = runs[id] else { throw VaultError.denied }
+        guard isAuthorized(run) else {
+            await apply(id, .authorityLost)
+            throw VaultError.denied
+        }
+        switch run.phase {
+        case .awaitingHuman, .classifying: return .humanStepRequired(id)
+        case .loadingCredential, .dispatching: throw VaultError.busy
+        case .concluded(let conclusion, _):
+            // Removed before the audit write: a result is delivered at most once.
+            await apply(id, .collected)
+            switch conclusion {
+            case .profile(let profile):
+                guard try finish(run.binding, succeeded: true) else { throw VaultError.denied }
+                return .profile(profile)
+            case .failed(let failure):
+                guard try finish(run.binding, succeeded: false) else { throw VaultError.denied }
+                throw failure
+            }
+        }
+    }
+
+    /// Applies a host reply only if the run still waits for the request issued at `epoch` and is
+    /// still authorized. A late reply for an ended run ends whatever context the host created.
+    fileprivate func hostReplied(_ id: BrowserRunID, _ step: WebStep, epoch: UInt64) async {
+        guard let run = runs[id], run.epoch == epoch, run.phase.awaitsHostReply else {
+            if runs[id]?.phase.hostMayHoldContext != true { await web?.end(id) }
+            return
+        }
+        guard isAuthorized(run) else {
+            await apply(id, .authorityLost)
+            return
+        }
+        await apply(id, .host(step, epoch: epoch))
+    }
+
+    fileprivate func admitRun(account: UUID) throws {
+        let live = runs.values.filter(\.phase.isLive)
+        guard runs.count < Self.maxRuns, live.count < Self.maxLiveRuns,
+              !live.contains(where: { $0.binding.account == account }) else { throw VaultError.busy }
+    }
+
+    /// Ends every run whose binding lost authority. Unreadable policy state is a loss of authority.
+    fileprivate func reconcileRuns() async {
+        guard !runs.isEmpty else { return }
+        let current = try? state.snapshot(), timestamp = now()
+        for (id, run) in runs {
+            if let current, stillAuthorized(run.binding, in: current, at: timestamp) { continue }
+            await apply(id, .authorityLost)
+        }
+    }
+
+    fileprivate func isAuthorized(_ run: BrowserRun) -> Bool {
+        guard let current = try? state.snapshot() else { return false }
+        return stillAuthorized(run.binding, in: current, at: now())
+    }
+
+    /// Removes a run that never reached the host and records its terminal audit.
+    fileprivate func abandon(_ id: BrowserRunID) {
+        guard let run = runs.removeValue(forKey: id) else { return }
+        _ = try? finish(run.binding, succeeded: false)
+    }
+
+    fileprivate func sweep() async {
+        for id in Array(runs.keys) { await apply(id, .clock(now())) }
+    }
+
+    fileprivate func hostLost() async {
+        for id in Array(runs.keys) { await apply(id, .hostLost) }
+    }
+
+    fileprivate func apply(_ id: BrowserRunID, _ event: RunEvent) async {
+        guard let run = runs[id] else { return }
+        let (next, effects) = run.applying(event, now: now(), windows: windows)
+        runs[id] = next
+        updateSweep(for: id, deadline: next?.phase.deadline)
+        let binding = run.binding
+        for effect in effects {
+            switch effect {
+            case .audit(let outcome):
+                try? state.transaction {
+                    $0.record(client: binding.client, account: binding.account, action: binding.action,
+                              outcome: outcome, at: now())
+                }
+            case .humanAudit(let outcome):
+                try? state.transaction {
+                    $0.recordAdministration(client: binding.client, account: binding.account, action: binding.action,
+                                            outcome: outcome, at: now())
+                }
+            case .endHost:
+                break
+            }
+        }
+        // Teardown last, after the run table and audit already reflect the decision.
+        if effects.contains(.endHost) { await web?.end(id) }
+    }
+
+    /// Deadlines also hold when nobody polls: a paused context ends at its deadline.
+    private func updateSweep(for id: BrowserRunID, deadline: Date?) {
+        if let deadline, sweepTasks[id]?.deadline == deadline { return }
+        sweepTasks.removeValue(forKey: id)?.task.cancel()
+        guard let date = deadline else { return }
+        let delay = max(0, date.timeIntervalSince(now()))
+        let task = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) }
+            catch { return }
+            await self?.deadlineReached(id, at: date)
+        }
+        sweepTasks[id] = (date, task)
+    }
+
+    private func deadlineReached(_ id: BrowserRunID, at date: Date) async {
+        guard sweepTasks[id]?.deadline == date else { return }
+        sweepTasks.removeValue(forKey: id)
+        await apply(id, .clock(now()))
     }
 }

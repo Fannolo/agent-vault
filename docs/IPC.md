@@ -111,7 +111,12 @@ checks every reply with the same validator as the client. If a handler's output 
 that check, the server sends `unavailable` instead. The validator enforces these rules:
 
 - Status and audit-outcome values are lowercase tokens of at most 64 bytes.
-- A GitHub login matches `[A-Za-z0-9-]{1,39}`.
+- A read status is one of the closed `ReadOutcomeStatus` or `ReadFailureStatus` tokens in
+  `AgentVaultContracts`. Each status carries exactly its own fields. A profile reply has both
+  `login` and `userID`. An accounts reply has `accounts`. `approval_required`,
+  `human_step_required` and `cancelled` carry `requestID`. `ready` and every failure carry
+  nothing else.
+- A login matches `[A-Za-z0-9][A-Za-z0-9-]{0,38}` and a user ID is positive (`AccountProfile`).
 - A pending status is `waiting` or `approved`.
 - A snapshot has at most 128 accounts, 128 clients, 512 grants, 128 pending entries and
   1,000 audit entries. The key sets are exact.

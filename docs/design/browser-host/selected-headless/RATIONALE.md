@@ -67,7 +67,62 @@ The full comparison is in `DEPLOYMENT-ALTERNATIVES.md`.
 
 ## Implementation reconciliation
 
-None yet.
+### U0: contracts and the broker-owned run lifecycle (branch `feature/vault-browser-host`)
+
+U0 is implemented against a scripted in-process host. No browser, Keychain item, network service or installed component is involved. Browser services stay disabled in the production broker: `BrokerMain` passes no `webSessions`, and `Administration.allowedServices` is still `[.demo, .github]`.
+
+**Implemented as designed**
+
+- Contracts: `ReadOutcomeStatus`, `ReadFailureStatus`, `ReadStatus`, `AccountProfile` (both fields required, `userID > 0`), `CredentialFormat` and `WebLoginCredential`. The bridge switches on `ReadReply.parsedStatus` and returns every failure status verbatim. Broker, app formatter and the WebKit library all use `CredentialFormat`. `GitHubProfile`, `GitHubAdapter.validateCredential`, `WebCredential`, `WebProfile`, the bridge's two hand lists, `BrowserOutcome.wireStatus` (`failed:<code>`) and the `120` literal are deleted.
+- Core: separate `ApprovalID`, `BrowserRunID` and `ContinuationLeaseID` types; `LifecycleWindows` (approval 120 s, human pause 600 s, collect 120 s), each window capped by grant expiry; distinct `HumanPauseDeadline` and `CollectDeadline` types; one transition function, `BrowserRun.applying(_:now:windows:)`; `stillAuthorized`; and the Broker web branch with `resume` and `cancel` routing. `SessionServiceAdapter` is deleted in this unit, with all callers and tests migrated. No grouping with U1 was needed.
+- Budget is reserved once, in `execute`. Polling, opening, finishing, reclassifying and collecting reserve nothing. `stillAuthorized` ignores the remaining-call budget, so the run that used a grant's last call stays collectable. `finish` uses the same check for API calls.
+- Results are delivered at most once: a concluded run leaves the table before its terminal audit is written.
+- A pause is audited as `human_step_required` and never as `completed`. Each run has exactly one terminal invocation-audit outcome: `completed`, `failed`, `response_suppressed`, `run_cancelled` or `result_uncollected`. Precise host codes are recorded only as `web_<code>`. Human actions (`continuation_opened`, `human_finished`, `human_cancelled`, `continuation_closed`) go to the administration audit, so agent traffic cannot evict them.
+
+**Accepted deviations**
+
+| Design text | Implemented | Reason |
+|---|---|---|
+| Core imports `AgentVaultWebHostProtocol` and uses a `WebHost` port with host wire types | Core defines `WebSessionExecutor`, which takes only domain values: `WebWorkflow`, `WebLoginCredential`, `WebStep` and `WebFailure`. U1's link will translate them to the host wire. | Judge amendment: Core's importable surface must not contain the credential-bearing command type. `verify-boundaries.py` now also asserts that Core does not link `AgentVaultBrowser`. |
+| `transition(run, event, now, windows, grant)` as a free function | `BrowserRun.applying(event, now:, windows:)`. The grant expiry is captured in the run at reservation. Effects are `endHost`, `audit` and `humanAudit`; the broker owns cancellable deadline tasks. Host `start`/`reclassify` calls are made by the Broker at fixed points, not emitted as effects. | Credential bytes never enter run state. Each host request bumps the run `epoch`, and the reply is applied only if that epoch still awaits it. |
+| `endRuns(predicate)` per lifecycle mutation | `reconcileRuns()`. After every grant revocation, client revocation, rotation intent/commit and account deletion, it ends each run whose binding fails `stillAuthorized`. Unreadable state counts as a loss of authority. The binding includes the credential ID. | One rule covers every authority source and cannot miss a predicate. Rotation ends runs before the old credential is deleted. |
+| Lease bound to app PID (`Peer.pid`) | The lease is bound to an opaque `ContinuationConnectionID`, minted by the transport for each authenticated connection (U3). `continuationConnectionClosed` drops that connection's leases but keeps the pause. | Judge amendment: a lease must be bound to the connection, not to a PID. |
+| Challenge epoch carried by frames and input | A preexisting `HumanStepID` binds the run and a monotonically increasing step epoch. The human snapshot exposes its kind and ID; signed opens must name that exact step. A lease is also connection-bound and ends on finish/new step/conclusion/disconnection. U3 binds frame IDs and input batches to this step and lease. | Parent review found that a lease minted only at open could authorize a later challenge. A regression now rejects a delayed open for step A after step B exists. |
+| Late/stale host replies through tombstones | A reply for a removed or concluded run, or for an older epoch, is ignored. Its host run is then ended, even if `end` was already sent, to dispose of a context that a late `start` created. Authority is checked again before any reply is applied. | The broker's in-memory table and epoch decide staleness. Host-side tombstones and the priority of control over frames belong to the U1 link and U2 host. |
+| Broker loss reports `session_lost` | After a broker restart the run table is empty, so an old run ID returns `access_denied`. The budget is not refunded. Host loss (the `losses` stream) concludes live runs as `session_lost`. | Nothing about runs is persisted, by design. |
+| Teardown is fire-and-forget | Revocation, rotation and deletion await `end` after removing the run. Authority stops at once; the host link must bound `end`. | Rotation must order teardown before credential deletion. |
+| Deadlines checked only on access | Every access also runs a lazy sweep. One cancellable task per retained run ends an unpolled pause and drops an uncollected result. Matching deadlines reuse the task; collection/cancellation removes it. Host replies also enforce the original pause deadline synchronously. | A paused context must not live past its pause just because nobody polls. |
+| `ReadFailureStatus` list | Adds `operation_failed`, the token the daemon and bridge already used for unmapped errors. `VaultError.approvalRequired` and `.replay` (unused) are deleted. `VaultError.readFailure` is exhaustive. | One closed vocabulary from Core to the bridge. |
+| Busy check after reservation | A full run table (4 live, 1 per account, 16 held) and a missing host are refused **before** reservation. A missing host also refuses before an approval request is created. | A run that cannot start costs no budget and no approval. |
+
+**Deferred, unchanged from ROLLOUT**
+
+Frame and input relay, `showHuman`, `HumanFrame`/`HumanInput`, `.openHumanStep` signing, the continuation XPC service and `humanSteps` in the snapshot belong to U3 and U4. `openHumanStep`, `concludeHumanStep` and `continuationConnectionClosed` exist on the Broker but have no production caller until U3. The WebKit library still compiles against the shared types. It is deleted in U5.
+
+**Not addressed by U0**
+
+Parent integration carries the R3 read reservation through both API and browser paths: host/run admission, then credential-slot admission, then approval/budget consumption. Reads remain capped at three of four actual workers. Fair per-client invocation retention is preserved. Web-path regression tests verify busy approval retry and absence of slot leaks after host rejection.
+
+**Verification**
+
+`swift test --force-resolved-versions -j 4` and `scripts/verify-boundaries.py` pass on this branch. `BrowserRunTests` drives the real `Broker` and `ReadOperations` through `ScriptedWebHost`. The worker reported a local mutation pass reverting 14 targeted defects one at a time. Its script is not committed, so that report is separate from the parent verification. Parent integration passed 218 tests, MCP and boundary checks after correcting three independently reproduced issues: late classification past the pause deadline, an open session after uncertain rotation, and accumulated sleeping timers. Parent also added the preexisting step binding and web/read-capacity integration tests. The reported worker mutations were: The defects:
+
+- authority that respects the call budget
+- a result delivered twice
+- a late start not ended
+- a repeated step resetting the deadline
+- the approval window used for the pause
+- a pause that outlives its grant
+- no recheck after a host reply
+- runs ended after credential deletion
+- a pause audited as completed
+- a lease not bound to its connection
+- busy refused after reservation
+- no deadline sweeper
+- the bridge hiding failure codes
+- the wire accepting a partial profile
+
+None of this tests OS isolation or a real host.
 
 ## Open questions and risks
 
@@ -78,4 +133,4 @@ None yet.
 
 ## Next implementation step
 
-U0: add `ReadOutcomeStatus`/`ReadFailureStatus`, `AccountProfile` and `CredentialFormat` to Contracts. Add `BrowserRun`, the pure `transition`, `stillAuthorized` and `Windows` to Core, driven by an in-process `ScriptedWebHost`. Delete `SessionServiceAdapter`. Then table-test budget-once, delivered-once, the 120/600 split and revocation.
+U0 is implemented; see the reconciliation above. Next: U1, the `AgentVaultWebHostProtocol` wire and the `WebHostLink` adapter that implements Core's `WebSessionExecutor`. Then U2, the host executable.

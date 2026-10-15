@@ -78,7 +78,7 @@ actor PausedAdapter: ServiceAdapter {
     private var started = false
     private var startedWaiter: CheckedContinuation<Void, Never>?
     private var releaseWaiter: CheckedContinuation<Void, Never>?
-    func execute(service: Service, credential: Data) async throws -> OperationResult {
+    func execute(service: APIService, credential: Data) async throws -> ServiceOutput {
         started = true
         startedWaiter?.resume()
         await withCheckedContinuation { releaseWaiter = $0 }
@@ -102,7 +102,7 @@ actor PausedAdapter: ServiceAdapter {
 }
 
 struct FailingAdapter: ServiceAdapter {
-    func execute(service: Service, credential: Data) async throws -> OperationResult {
+    func execute(service: APIService, credential: Data) async throws -> ServiceOutput {
         throw NSError(domain: "SYNTHETIC-only-token", code: 1)
     }
 }
@@ -176,7 +176,7 @@ struct DelayedSecrets: SecretStore {
 
 actor CountingAdapter: ServiceAdapter {
     private(set) var calls = 0
-    func execute(service: Service, credential: Data) async throws -> OperationResult {
+    func execute(service: APIService, credential: Data) async throws -> ServiceOutput {
         calls += 1
         return .demoReady
     }

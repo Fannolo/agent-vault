@@ -34,7 +34,7 @@ let package = Package(
         .executableTarget(name: "AgentVaultCLI", dependencies: [
             "AgentVaultCore", .product(name: "MCP", package: "swift-sdk")
         ]),
-        .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCore"]),
+        .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCore", "AgentVaultContracts"]),
         .testTarget(name: "AgentVaultParserFuzzTests", dependencies: [
             "AgentVaultIPC", "AgentVaultMCPTransport", "AgentVaultCore", "AgentVaultContracts"
         ], exclude: ["README.md"]),

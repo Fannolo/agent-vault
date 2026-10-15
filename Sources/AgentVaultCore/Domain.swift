@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import Foundation
 
 public enum VaultError: String, Error, Sendable {
@@ -7,9 +8,32 @@ public enum VaultError: String, Error, Sendable {
     case denied = "access_denied"
     case upstreamUnavailable = "upstream_unavailable"
     case invalidResponse = "invalid_response"
-    case approvalRequired = "approval_required"
-    case replay = "replay_denied"
     case busy = "busy"
+    case loginRejected = "login_rejected"
+    case pageChanged = "page_changed"
+    case challengeUnavailable = "challenge_unavailable"
+    case humanStepExpired = "human_step_expired"
+    case humanCancelled = "human_cancelled"
+    case sessionLost = "session_lost"
+
+    /// The agent-visible failure. Exhaustive, so Core and the wire vocabulary cannot drift.
+    public var readFailure: ReadFailureStatus {
+        switch self {
+        case .invalidInput: .invalidInput
+        case .stateUnavailable: .stateUnavailable
+        case .secretUnavailable: .secretUnavailable
+        case .denied: .accessDenied
+        case .upstreamUnavailable: .upstreamUnavailable
+        case .invalidResponse: .invalidResponse
+        case .busy: .busy
+        case .loginRejected: .loginRejected
+        case .pageChanged: .pageChanged
+        case .challengeUnavailable: .challengeUnavailable
+        case .humanStepExpired: .humanStepExpired
+        case .humanCancelled: .humanCancelled
+        case .sessionLost: .sessionLost
+        }
+    }
 }
 
 public enum Action: String, Codable, CaseIterable, Sendable {
@@ -31,7 +55,34 @@ public enum Service: String, Codable, Sendable {
         case .githubWeb: .githubWebProfile
         }
     }
+
+    public var wire: WireService {
+        switch self {
+        case .demo: .demo
+        case .github: .github
+        case .browserDemo: .browserDemo
+        case .githubWeb: .githubWeb
+        }
+    }
+
+    /// The one routing decision: a fixed API adapter call, or a broker-owned browser run.
+    public var execution: Execution {
+        switch self {
+        case .demo: .api(.demo)
+        case .github: .api(.github)
+        case .browserDemo: .web(.browserDemo)
+        case .githubWeb: .web(.githubWebProfile)
+        }
+    }
+
+    public enum Execution: Equatable, Sendable {
+        case api(APIService)
+        case web(WebWorkflow)
+    }
 }
+
+/// Services answered by one fixed request through `ServiceAdapter`.
+public enum APIService: Sendable { case demo, github }
 
 public enum AccountLifecycle: String, Codable, Sendable { case enrolling, active, rotating, deleting }
 
@@ -98,9 +149,20 @@ public struct Grant: Codable, Sendable {
     }
 }
 
+/// A per-call approval request. Never interchangeable with a browser run or continuation lease.
+public struct ApprovalID: Hashable, Codable, Sendable {
+    public let uuid: UUID
+    init(_ uuid: UUID) { self.uuid = uuid }
+    public init(from decoder: any Decoder) throws { uuid = try decoder.singleValueContainer().decode(UUID.self) }
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(uuid)
+    }
+}
+
 public struct PendingInvocation: Codable, Sendable, Identifiable {
     public enum Status: String, Codable, Sendable { case waiting, approved, consumed, cancelled }
-    public let id: UUID
+    public let id: ApprovalID
     public let clientID: UUID
     public let accountID: UUID
     public let action: Action
@@ -174,17 +236,17 @@ public struct VaultState: Codable, Sendable {
     }
 }
 
-public struct GitHubProfile: Codable, Equatable, Sendable {
-    public let login: String
-    public let id: Int
-    public init(login: String, id: Int) { self.login = login; self.id = id }
-}
-
 public enum OperationResult: Equatable, Sendable {
     case demoReady
-    case githubProfile(GitHubProfile)
-    case approvalRequired(UUID)
-    case humanStepRequired(UUID)
+    case profile(AccountProfile)
+    case approvalRequired(ApprovalID)
+    case humanStepRequired(BrowserRunID)
+}
+
+/// What a fixed API adapter may return. It cannot claim an approval or a browser run.
+public enum ServiceOutput: Equatable, Sendable {
+    case demoReady
+    case profile(AccountProfile)
 }
 
 public protocol StateStore: Sendable {
@@ -203,10 +265,5 @@ public protocol SecretStore: Sendable {
 }
 
 public protocol ServiceAdapter: Sendable {
-    func execute(service: Service, credential: Data) async throws -> OperationResult
-}
-
-public protocol SessionServiceAdapter: ServiceAdapter {
-    func execute(sessionID: UUID, expiresAt: Date, service: Service, credential: Data) async throws -> OperationResult
-    func invalidate(sessionID: UUID) async
+    func execute(service: APIService, credential: Data) async throws -> ServiceOutput
 }

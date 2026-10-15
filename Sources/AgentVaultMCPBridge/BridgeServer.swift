@@ -33,10 +33,10 @@ public enum BridgeServer {
                 default: throw BridgeError.invalidInput
                 }
                 let reply = try await perform(request)
-                let success = ["completed", "ready", "approval_required", "human_step_required", "cancelled"].contains(reply.status)
-                if !success {
-                    let codes = ["invalid_input", "access_denied", "state_unavailable", "secret_unavailable", "upstream_unavailable", "invalid_response", "busy"]
-                    return failure(codes.contains(reply.status) ? reply.status : "operation_failed")
+                switch reply.parsedStatus {
+                case .outcome?: break
+                case .failure(let status)?: return failure(status.rawValue)
+                case nil: return failure(ReadFailureStatus.operationFailed.rawValue)
                 }
                 let data = try JSONEncoder().encode(reply)
                 return .init(content: [.text(text: String(decoding: data, as: UTF8.self), annotations: nil, _meta: nil)], isError: false)
@@ -60,8 +60,11 @@ public enum BridgeServer {
                 "type": "object", "properties": .object(["accountId": id,
                     "action": .object(["type": "string", "enum": .array(WireAction.allCases.map { .string($0.rawValue) })])]),
                 "required": .array(["accountId", "action"]), "additionalProperties": false])),
-            Tool(name: "request_resume", description: "Resume a request after its exact invocation has human approval.", inputSchema: requestSchema),
-            Tool(name: "request_cancel", description: "Cancel a request awaiting approval. Dispatched work cannot be recalled.", inputSchema: requestSchema)
+            Tool(name: "request_resume", description: "Return the current state of a request. Use the requestId from the latest reply; "
+                 + "keep calling while it is approval_required or human_step_required. A person completes any human step in "
+                 + "the Agent Vault app; this tool never accepts codes or page input.", inputSchema: requestSchema),
+            Tool(name: "request_cancel", description: "Cancel a request awaiting approval or a person's step, discarding its browser "
+                 + "session. Work already sent to a service cannot be recalled.", inputSchema: requestSchema)
         ]
     }
     private static var requestSchema: Value {

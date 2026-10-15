@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import AgentVaultBrowser
 import Foundation
 import Testing
@@ -31,10 +32,12 @@ struct PolicyTests {
     }
 
     @Test func credentialFormatAndRedaction() {
-        let credential = WebCredential(wireBytes: Data("octo\nsynthetic-secret".utf8))
+        let credential = WebLoginCredential(Data("octo\nsynthetic-secret".utf8))
         #expect(credential != nil)
-        #expect(!"\(credential!) \(String(reflecting: credential!))".contains("synthetic-secret"))
-        #expect(WebCredential(wireBytes: Data(repeating: 0x41, count: 5000)) == nil)
+        var dumped = ""
+        dump(credential!, to: &dumped)
+        #expect(!"\(credential!) \(String(reflecting: credential!)) \(dumped)".contains("synthetic-secret"))
+        #expect(WebLoginCredential(Data(repeating: 0x41, count: 5000)) == nil)
     }
 }
 

@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import Foundation
 
 /// Fixed selectors and URL shapes for one reviewed workflow. These are code constants;

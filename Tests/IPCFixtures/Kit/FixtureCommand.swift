@@ -48,13 +48,13 @@ public enum FixtureCommand {
                 record.append("read \(request.operation.rawValue) uid=\(uid)")
                 switch request.operation {
                 case .accounts:
-                    return ReadReply(status: "ok", accounts: [AccountSummary(id: accountID, service: .demo)])
+                    return ReadReply(.outcome(.completed), accounts: [AccountSummary(id: accountID, service: .demo)])
                 case .run:
                     try await Task.sleep(nanoseconds: delay * 1_000_000)
                     let login = binary == .impostor ? "impostor" : "uid-\(uid)"
-                    return ReadReply(status: "ok", login: login, userID: Int(uid))
+                    return ReadReply(.outcome(.completed), profile: AccountProfile(login: login, userID: Int(uid)))
                 case .resume, .cancel:
-                    return ReadReply(status: "not_found")
+                    return ReadReply(.failure(.accessDenied))
                 }
             }, snapshot: { uid in
                 record.append("snapshot uid=\(uid)")

@@ -5,10 +5,10 @@ import Testing
 private func inspectProfile(_ data: Data, context: FuzzCase) throws -> Bool {
     guard let profile = try? GitHubAdapter.decodeProfile(data) else { return false }
     try check(data.count <= 65_536, context, "upstream body size bound")
-    try check(profile.id > 0 && profileLoginIsBounded(profile.login, firstMustBeAlphanumeric: true),
+    try check(profile.userID > 0 && profileLoginIsBounded(profile.login, firstMustBeAlphanumeric: true),
               context, "accepted upstream profile exceeded its public value contract")
     let publicData = try JSONEncoder().encode(profile)
-    try check(Set(jsonObject(publicData)?.keys ?? Dictionary<String, Any>().keys) == ["login", "id"],
+    try check(Set(jsonObject(publicData)?.keys ?? Dictionary<String, Any>().keys) == ["login", "userID"],
               context, "upstream fields escaped the typed profile projection")
     try check(publicData.count <= 100, context, "typed profile output bound")
     return true

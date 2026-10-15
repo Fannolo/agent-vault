@@ -7,10 +7,10 @@ import Testing
 @Test(.timeLimit(.minutes(1))) func bridgeExposesOnlyClosedOperationsAndSuppressesErrors() async throws {
     let (clientTransport, serverTransport) = await InMemoryTransport.createConnectedPair()
     let server = await BridgeServer.makeServer { request in
-        if request.operation == .accounts { return .init(status: "completed", accounts: []) }
-        if request.operation == .resume { return .init(status: "approval_required", requestID: request.requestID) }
+        if request.operation == .accounts { return .init(.outcome(.completed), accounts: []) }
+        if request.operation == .resume { return .init(.outcome(.approvalRequired), requestID: request.requestID) }
         if request.operation == .cancel { throw NSError(domain: "SYNTHETIC-error-secret", code: 1) }
-        return .init(status: "access_denied")
+        return .init(.failure(.accessDenied))
     }
     try await server.start(transport: serverTransport)
     let client = Client(name: "synthetic-client", version: "1")
@@ -38,4 +38,33 @@ import Testing
     #expect(text == "broker_unavailable")
     await client.disconnect()
     await server.stop()
+}
+
+@Test(.timeLimit(.minutes(1))) func bridgeReportsEveryClosedFailureVerbatimAndNothingElse() async throws {
+    let failures = ReadFailureStatus.allCases
+    let unknown = try JSONDecoder().decode(ReadReply.self, from: Data(#"{"status":"failed:login_rejected"}"#.utf8))
+    let (clientTransport, serverTransport) = await InMemoryTransport.createConnectedPair()
+    let index = Counter()
+    let server = await BridgeServer.makeServer { _ in
+        let next = index.next()
+        return next < failures.count ? ReadReply(.failure(failures[next])) : unknown
+    }
+    try await server.start(transport: serverTransport)
+    let client = Client(name: "synthetic-client", version: "1")
+    _ = try await client.connect(transport: clientTransport)
+    let arguments: [String: Value] = ["requestId": .string(UUID().uuidString)]
+    for expected in failures.map(\.rawValue) + ["operation_failed"] {
+        let result = try await client.callTool(name: "request_resume", arguments: arguments)
+        #expect(result.isError == true)
+        guard case .text(let text, _, _) = result.content.first else { Issue.record("Missing failure"); continue }
+        #expect(text == expected)
+    }
+    await client.disconnect()
+    await server.stop()
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func next() -> Int { lock.withLock { defer { value += 1 }; return value } }
 }

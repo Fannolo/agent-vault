@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import AppKit
 import WebKit
 

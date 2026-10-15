@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import Foundation
 import WebKit
 
@@ -86,7 +87,7 @@ struct FixedRecipes {
          "submitSel": definition.submitSelector]
     }
 
-    func fill(_ credential: WebCredential) async -> LoginResult {
+    func fill(_ credential: WebLoginCredential) async -> LoginResult {
         var arguments = formArguments
         arguments["username"] = credential.username
         arguments["password"] = credential.password
@@ -106,18 +107,12 @@ struct FixedRecipes {
     }
 
     /// Returns validated, typed values only. Nothing else about the page leaves this function.
-    func readProfile() async -> WebProfile? {
+    func readProfile() async -> AccountProfile? {
         let arguments: [String: Any] = ["origin": origin.serialized, "loginSel": definition.profileLoginSelector,
                                         "idSel": definition.profileIDSelector]
         guard let raw = await call(Self.profileBody, arguments) as? [String: Any],
-              let login = raw["login"] as? String,
-              login.range(of: "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$", options: .regularExpression) != nil
-        else { return nil }
-        var userID: Int?
-        if let text = raw["id"] as? String {
-            guard text.count <= 12, let value = Int(text), value > 0 else { return nil }
-            userID = value
-        }
-        return WebProfile(login: login, userID: userID)
+              let login = raw["login"] as? String, let text = raw["id"] as? String,
+              text.count <= 12, let userID = Int(text) else { return nil }
+        return AccountProfile(login: login, userID: userID)
     }
 }

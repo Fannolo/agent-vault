@@ -14,7 +14,7 @@ synthetic loopback website (`AgentVaultBrowserFixture`) and prove, for that fixt
 - subresources limited to allowed origins by a WebKit content rule list;
 - credential injection only on the exact origin, into one known form whose action stays on that
   origin, with exactly one username and one password field;
-- typed output (`profile`, `human_step_required`, `failed(code)`); no HTML, cookie, URL or script
+- typed output (`profile`, `human_step_required`, closed failure codes); no HTML, cookie, URL or script
   entry point is exposed, enforced by source-invariant tests;
 - MFA and CAPTCHA pause the session; the library never submits or bypasses them.
 
@@ -38,3 +38,13 @@ isolated GUI host exists. A suitable design runs the web view in a separate per-
 process with its own signing requirement, receives fixed workflow requests and credential bytes
 over an authenticated channel, shows the human step itself, and returns only the typed outcomes
 above. That host, its IPC and its review are future work.
+
+## Selected production path (in progress)
+
+The selected design is a separate `_agentvaultweb` headless host
+([rationale](design/browser-host/selected-headless/RATIONALE.md)). Unit U0 is implemented:
+the broker owns every browser run through the `WebSessionExecutor` port, the closed read
+statuses and the credential and profile formats. This is verified only against a scripted
+in-process host. The production broker still configures no browser host, and the app still
+refuses browser enrollment. The host link, the host executable, the human continuation channel
+and every installed isolation and egress proof gate (P0–P4) remain open.

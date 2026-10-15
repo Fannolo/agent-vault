@@ -95,8 +95,8 @@ public struct ReadReply: Codable, Sendable {
     public let requestID: UUID?
     public let login: String?
     public let userID: Int?
-    public init(status: String, accounts: [AccountSummary]? = nil, requestID: UUID? = nil,
-                login: String? = nil, userID: Int? = nil) {
+    // Construct replies with `init(_: ReadStatus, ...)`; the string form is the decoded wire shape.
+    init(status: String, accounts: [AccountSummary]?, requestID: UUID?, login: String?, userID: Int?) {
         self.status = status; self.accounts = accounts; self.requestID = requestID
         self.login = login; self.userID = userID
     }

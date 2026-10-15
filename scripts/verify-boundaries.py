@@ -26,6 +26,8 @@ def main():
     for target in ("AgentVaultBridge", "AgentVaultApp", "AgentVaultAppSupport"):
         assert "AgentVaultCore" not in closure(target), f"{target} must not link the secret store"
     assert "AgentVaultBrowser" not in closure("AgentVaultBrokerDaemon"), "Headless production daemon cannot present a human WebKit view"
+    # Core owns browser-run authority through a domain port; no renderer may be linked into it.
+    assert "AgentVaultBrowser" not in closure("AgentVaultCore"), "Core must reach a browser only through its WebSessionExecutor port"
     assert "AgentVaultMCPTransport" in closure("AgentVaultBridge"), "Bridge must bound input before SDK decoding"
     assert {"AgentVaultCore", "AgentVaultIPC", "AgentVaultRuntime"} <= closure("AgentVaultBrokerDaemon")
     print("PASS: package graph preserves broker, app and MCP bridge boundaries")

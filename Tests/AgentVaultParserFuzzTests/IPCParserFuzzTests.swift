@@ -132,7 +132,8 @@ private func replyFixtures(login: String, count: Int) -> [ReplyFixture] {
     let pending = "{\"id\":\(id),\"clientID\":\(id),\"accountID\":\(id),\"action\":\"demo.status\",\"expiresAt\":1234,\"status\":\"approved\"}"
     let audit = "{\"timestamp\":1234,\"clientID\":\(id),\"accountID\":\(id),\"action\":\"demo.status\",\"outcome\":\"denied\"}"
     return [
-        .init(kind: .readReply, value: "{\"status\":\"ok\",\"login\":\(quoted(login)),\"userID\":42,\"accounts\":\(array(account))}"),
+        .init(kind: .readReply, value: "{\"status\":\"completed\",\"login\":\(quoted(login)),\"userID\":42}"),
+        .init(kind: .readReply, value: "{\"status\":\"completed\",\"accounts\":\(array(account))}"),
         .init(kind: .snapshot, value: "{\"accounts\":\(array(account)),\"clients\":\(array(client)),\"grants\":\(array(grant)),\"pending\":\(array(pending)),\"audit\":\(array(audit))}"),
         .init(kind: .challenge, value: "{\"id\":\(id),\"payload\":\(quoted(Data(repeating: 0x41, count: 16).base64EncodedString())),\"expiresAt\":1234,\"nonce\":\(quoted(Data(count: 32).base64EncodedString()))}"),
         .init(kind: .adminReply, value: "{\"status\":\"granted\",\"id\":\(id)}"),
@@ -145,11 +146,11 @@ private func inspectReply(_ data: Data, kind: WireCodec.ReplyKind, context: Fuzz
     try check(data.count <= 524_288, context, "reply size bound")
     switch value {
     case .readReply(let reply):
-        try check(statusIsBounded(reply.status), context, "read status bound")
+        try check(reply.parsedStatus != nil && reply.isWellFormed, context, "read status is closed with its exact fields")
         try check((reply.accounts?.count ?? 0) <= 128, context, "account count bound")
         try check((reply.accounts ?? []).allSatisfy { statusIsBounded($0.status) }, context, "account status bound")
-        try check(reply.login.map { profileLoginIsBounded($0, firstMustBeAlphanumeric: false) } ?? true, context, "read login bound")
-        try check(reply.userID.map { $0 >= 0 } ?? true, context, "read user ID bound")
+        try check(reply.login.map { profileLoginIsBounded($0, firstMustBeAlphanumeric: true) } ?? true, context, "read login bound")
+        try check(reply.userID.map { $0 > 0 } ?? true, context, "read user ID bound")
     case .snapshot(let snapshot):
         try check(snapshot.accounts.count <= 128 && snapshot.clients.count <= 128 && snapshot.grants.count <= 512
                   && snapshot.pending.count <= 128 && snapshot.audit.count <= 1000, context, "snapshot collection bound")
@@ -250,14 +251,14 @@ private func inspectReply(_ data: Data, kind: WireCodec.ReplyKind, context: Fuzz
         let context = FuzzCase(seed: seed, index: index, mutation: "signature-byte-bound", data: Data(count: count)); index += 1
         try check(accepted == (count == 8 || count == 72), context, "signature boundary outcome")
     }
-    let replyBase = #"{"readReply":{"status":"ok"}}"#
+    let replyBase = #"{"readReply":{"status":"ready"}}"#
     for size in [524_288, 524_289] {
         let context = FuzzCase(seed: seed, index: index, mutation: "reply-byte-bound", data: Data((replyBase + String(repeating: " ", count: size - replyBase.utf8.count)).utf8)); index += 1
         try check(try inspectReply(context.data, kind: .readReply, context: context) == (size == 524_288), context, "reply boundary outcome")
     }
     for count in [128, 129] {
         let account = "{\"id\":\(quoted(ParserCorpus.uuid)),\"service\":\"demo\",\"status\":\"active\"}"
-        let text = "{\"readReply\":{\"status\":\"ok\",\"accounts\":[\(Array(repeating: account, count: count).joined(separator: ","))]}}"
+        let text = "{\"readReply\":{\"status\":\"completed\",\"accounts\":[\(Array(repeating: account, count: count).joined(separator: ","))]}}"
         let context = FuzzCase(seed: seed, index: index, mutation: "account-count-bound", data: Data(text.utf8)); index += 1
         try check(try inspectReply(context.data, kind: .readReply, context: context) == (count == 128), context, "account boundary outcome")
     }

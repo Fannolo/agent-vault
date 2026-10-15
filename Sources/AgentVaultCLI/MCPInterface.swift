@@ -42,19 +42,19 @@ enum MCPInterface {
                     switch result {
                     case .demoReady:
                         return try response(.object(["status": "ready", "service": "demo"]))
-                    case .githubProfile(let profile):
+                    case .profile(let profile):
                         return try response(.object(["status": "completed", "profile": .object([
-                            "login": .string(profile.login), "id": .int(profile.id)
+                            "login": .string(profile.login), "id": .int(profile.userID)
                         ])]))
                     case .approvalRequired(let id):
-                        return try response(.object(["status": "approval_required", "requestId": .string(id.uuidString)]))
+                        return try response(.object(["status": "approval_required", "requestId": .string(id.uuid.uuidString)]))
                     case .humanStepRequired(let id):
-                        return try response(.object(["status": "human_step_required", "requestId": .string(id.uuidString)]))
+                        return try response(.object(["status": "human_step_required", "requestId": .string(id.uuid.uuidString)]))
                     }
                 default: throw VaultError.invalidInput
                 }
             } catch {
-                let code = (error as? VaultError)?.rawValue ?? "operation_failed"
+                let code = ((error as? VaultError)?.readFailure ?? .operationFailed).rawValue
                 return .init(content: [.text(text: code, annotations: nil, _meta: nil)], isError: true)
             }
         }

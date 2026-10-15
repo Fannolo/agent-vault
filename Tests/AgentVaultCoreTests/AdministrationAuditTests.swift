@@ -40,7 +40,7 @@ private func auditBytes(_ events: [AuditEvent]) throws -> Data {
     for _ in 0..<400 {
         guard case .approvalRequired(let id) = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
         else { Issue.record("Missing approval request"); return }
-        try await f.broker.cancelInvocation(id, clientID: f.client.id)
+        try await f.broker.cancel(id.uuid, clientID: f.client.id)
     }
     let state = try f.state.snapshot()
     #expect(state.audit.map(\.outcome) == ["approval_requested", "approval_cancelled"])
@@ -59,7 +59,7 @@ private func auditBytes(_ events: [AuditEvent]) throws -> Data {
     guard case .approvalRequired(let first) = try await broker.run(clientID: client.id, accountID: account.id, action: .demoStatus)
     else { Issue.record("Missing first approval request"); return }
     try await broker.approveInvocation(first)
-    #expect(try await broker.resume(first, clientID: client.id) == .demoReady)
+    #expect(try await broker.resume(first.uuid, clientID: client.id) == .demoReady)
     guard case .approvalRequired(let second) = try await broker.run(clientID: client.id, accountID: account.id, action: .demoStatus)
     else { Issue.record("Missing second approval request"); return }
     try await broker.rejectInvocation(second)
