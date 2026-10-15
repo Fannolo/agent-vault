@@ -14,6 +14,19 @@ private func ask(_ url: String, _ method: String = "GET", _ type: String = "Docu
 }
 
 @Suite struct RequestGateTests {
+    @Test func productionOriginNeverMatchesSuffixesSubdomainsOtherPortsOrSchemes() {
+        let production = RequestGate(policy: .production, workflow: .github)
+        for address in ["https://github.com.evil.example/login", "https://evilgithub.com/login", "https://api.github.com/login",
+                        "http://github.com/login", "https://github.com:8443/login", "https://user@github.com/login",
+                        "data:text/html,x", "javascript:alert(1)", "about:blank", "file:///etc/passwd"] {
+            let request = GateRequest(url: URL(string: address)!, method: "GET", resourceType: "Document", isMainFrame: true)
+            #expect(production.decide(request, phase: .login) == .deny(.originMismatch))
+        }
+        let request = GateRequest(url: URL(string: "https://GITHUB.com:443/login")!, method: "GET",
+                                  resourceType: "Document", isMainFrame: true)
+        #expect(production.decide(request, phase: .login) == .allow)
+    }
+
     static let phases: [GatePhase] = [.login, .submitted, .human(.mfa), .human(.captcha), .locked]
 
     @Test(arguments: phases) func offOriginDocumentsAreHostileInEveryPhase(_ phase: GatePhase) {

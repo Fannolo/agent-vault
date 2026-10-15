@@ -63,6 +63,39 @@ challenge. The direct U2 regression and browser mutations cover regression and w
   now has 19 cases; only the two changed reopen defenses were rerun in this unit, so this note
   makes no claim that all 19 cases ran on this source.
 
+## Unit B: one renderer path
+
+The unused `Sources/AgentVaultBrowser` engine and `Tests/AgentVaultBrowserTests` were removed,
+including the old in-process HumanContinuationView. BrowserFixture remains renderer-independent.
+The app invariant now inspects the two real app targets, and the package graph refuses the old
+engine/test targets while retaining the fixture and all product-role isolation checks.
+
+| Removed verification | Current coverage |
+|---|---|
+| Exact origins, scheme/port/suffix/userinfo refusal | RequestGateTests, including migrated production-origin vectors |
+| Off-origin navigation, resources, frames, popups and unsafe forms | RealBrowserTests hostile loopback cases and RequestGate/CSP cases |
+| Reflected/invalid profile fields and typed results | RealBrowserTests plus U5 agent read-XPC collection |
+| MFA/CAPTCHA, pause expiry and revocation | RealBrowserTests, Core run lifecycle and U5 native-model/XPC scenarios |
+| Ephemeral per-account stores and independent destruction | RealBrowserTests now observes distinct fixture cookies, clean login requests and an unaffected second context after ending the first |
+| Credential grammar/redaction and fixed recipes | HostWireTests and migrated host source/credential invariants |
+
+The cookie-separation test passed before mutation. Removing the target's private-browser-context
+binding then caused actual inherited Cookie headers on the second and later login POSTs; the
+test detected both. The restored tree passed all 42 registered host/U5 tests in 8 suites,
+without skips, in 28.483 seconds. Private logs:
+`verification-logs/u5-context-mutation-vbsm8iq7/`.
+
+The default suite passed 342 registered tests / 26 suites in 32.740 seconds, with explicit
+Chromium/native-Keychain opt-out skips. Default synthetic MCP and package boundaries passed.
+Private default log: `verification-logs/u5-unit-b-algvn96f/swift.log`. The browser mutator now
+has 20 cases; this unit reran the new context-isolation mutant, not the complete catalogue.
+
+Shared-doc updates left to the parent: README's WebKit feature bullet, ARCHITECTURE's Browser
+row, BROWSER-DEPLOYMENT's legacy-library status and deleted test paths, THREAT-MODEL's engine
+description, and IMPLEMENTATION-PLAN's current U5 state. Selected-design current-state text
+can now mark U5 complete. Historical grounding and verification records must retain their
+original source/artifact references rather than being rewritten as new proof.
+
 ## Limits
 
 This proves native model/ImageIO behavior and authenticated XPC with a real synthetic browser.

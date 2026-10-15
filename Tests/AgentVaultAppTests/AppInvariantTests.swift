@@ -21,7 +21,7 @@ struct AppInvariantTests {
     }
 
     @Test func appNeverLinksCoreOrSecretStores() throws {
-        let files = try sources(["Sources/AgentVaultApp", "Sources/AgentVaultAppSupport", "Sources/AgentVaultBrowser"])
+        let files = try sources(["Sources/AgentVaultApp", "Sources/AgentVaultAppSupport"])
         #expect(files.count >= 20)
         for (path, text) in files {
             #expect(!text.contains("import AgentVaultCore"), Comment(rawValue: String(describing: path)))
@@ -32,7 +32,7 @@ struct AppInvariantTests {
         }
         let manifest = try String(contentsOf: Self.root.appendingPathComponent("Package.swift"), encoding: .utf8)
         let lines = manifest.components(separatedBy: "\n")
-        for name in ["AgentVaultAppSupport", "AgentVaultApp", "AgentVaultBrowser"] {
+        for name in ["AgentVaultAppSupport", "AgentVaultApp"] {
             let index = try #require(lines.firstIndex { $0.contains("Target(name: \"\(name)\"") || $0.contains("target(name: \"\(name)\"") })
             #expect(!lines[index].contains("AgentVaultCore"), Comment(rawValue: lines[index]))
         }

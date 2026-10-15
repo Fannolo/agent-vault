@@ -1,4 +1,5 @@
 @testable import AgentVaultWebHost
+import AgentVaultContracts
 import Foundation
 import Testing
 
@@ -12,6 +13,19 @@ private let hostSources: [(name: String, text: String)] = {
 }()
 
 @Suite struct SourceInvariantTests {
+    @Test func credentialGrammarAndAllDescriptionsStayRedacted() throws {
+        let credential = try #require(WebLoginCredential(Data("fixture-user\nSYNTHETIC-redaction-fixture".utf8)))
+        var mirrored = ""
+        dump(credential, to: &mirrored)
+        for text in [credential.description, credential.debugDescription, String(reflecting: credential), mirrored] {
+            #expect(!text.contains("SYNTHETIC-redaction-fixture"))
+        }
+        for invalid in [Data(), Data("one-line".utf8), Data("user\n".utf8), Data("\npassword".utf8),
+                        Data("user\npassword\u{7}".utf8), Data([0xFF, 0x0A, 0x41]), Data(repeating: 0x41, count: 5000)] {
+            #expect(WebLoginCredential(invalid) == nil)
+        }
+    }
+
     @Test func hostSourcesAreReadable() {
         #expect(hostSources.count >= 7 && hostSources.allSatisfy { !$0.text.isEmpty })
     }

@@ -26,9 +26,8 @@ def main():
 
     for target in ("AgentVaultBridge", "AgentVaultApp", "AgentVaultAppSupport"):
         assert "AgentVaultCore" not in closure(target), f"{target} must not link the secret store"
-    assert "AgentVaultBrowser" not in closure("AgentVaultBrokerDaemon"), "Headless production daemon cannot present a human WebKit view"
-    # Core owns browser-run authority through a domain port; no renderer may be linked into it.
-    assert "AgentVaultBrowser" not in closure("AgentVaultCore"), "Core must reach a browser only through its WebSessionExecutor port"
+    assert "AgentVaultBrowser" not in targets and "AgentVaultBrowserTests" not in targets, "the legacy WebKit engine must stay removed"
+    assert "AgentVaultBrowserFixture" in targets, "retain the browser-independent synthetic fixture"
     # The credential-bearing web host wire stays with the broker daemon's link and the host.
     for target in ("AgentVaultCore", "AgentVaultContracts", "AgentVaultBridge", "AgentVaultMCPBridge",
                    "AgentVaultApp", "AgentVaultAppSupport", "AgentVaultCLI", "AgentVaultRuntime", "AgentVaultIPC"):
@@ -43,7 +42,7 @@ def main():
         assert "AgentVaultWebHostLink" not in closure(target), f"{target} must not link the broker's host link"
     # The web host owns the browser but never the secret store, the broker's link or WebKit.
     host = closure("AgentVaultWebHost")
-    for forbidden in ("AgentVaultCore", "AgentVaultWebHostLink", "AgentVaultBrowser", "AgentVaultRuntime"):
+    for forbidden in ("AgentVaultCore", "AgentVaultWebHostLink", "AgentVaultRuntime"):
         assert forbidden not in host, f"AgentVaultWebHost must not link {forbidden}"
     assert kinds["AgentVaultWebHost"] == "executable", "the web host must be a separate executable"
     assert "AgentVaultMCPTransport" in closure("AgentVaultBridge"), "Bridge must bound input before SDK decoding"

@@ -38,14 +38,8 @@ let package = Package(
         .testTarget(name: "AgentVaultParserFuzzTests", dependencies: [
             "AgentVaultIPC", "AgentVaultMCPTransport", "AgentVaultCore", "AgentVaultContracts", "AgentVaultWebHostProtocol"
         ], exclude: ["README.md"]),
-        // Broker-linked WebKit component. Depends only on data contracts: it receives
-        // credential bytes from its caller and never links Core or any secret store.
-        .target(name: "AgentVaultBrowser", dependencies: ["AgentVaultContracts"],
-                linkerSettings: [.linkedFramework("WebKit"), .linkedFramework("AppKit")]),
         // Synthetic loopback websites used only by automated and GUI verification.
         .target(name: "AgentVaultBrowserFixture", linkerSettings: [.linkedFramework("Network")]),
-        .testTarget(name: "AgentVaultBrowserTests",
-                    dependencies: ["AgentVaultBrowser", "AgentVaultBrowserFixture", "AgentVaultContracts"]),
         .target(name: "AgentVaultIPC", dependencies: ["AgentVaultContracts", "AgentVaultJSON"], linkerSettings: [.linkedFramework("Security")]),
         // Credential-bearing broker <-> web host wire. Linked only by the host link and the host:
         // never by Core, the app or the MCP bridge (enforced by scripts/verify-boundaries.py).

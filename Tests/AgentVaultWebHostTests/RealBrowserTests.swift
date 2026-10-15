@@ -102,6 +102,28 @@ struct RealBrowserTests {
         }
     }
 
+    @Test func separateContextsNeverReuseAnotherSessionsCookieAndEndIndependently() async throws {
+        try await Host.using { h in
+            let (first, firstReply) = await h.start(user: "mfa-user")
+            let (second, secondReply) = await h.start(user: "captcha-user")
+            #expect(firstReply == .humanStep(.mfa) && secondReply == .humanStep(.captcha))
+            let steps = h.site.trusted.requests.filter { $0.method == "GET" && ["/mfa", "/captcha"].contains($0.path) }
+            let cookies = steps.compactMap { $0.headers["cookie"] }
+            #expect(cookies.count == 2 && Set(cookies).count == 2, "the fixture sees two distinct private sessions")
+            #expect(h.posts.count == 2 && h.posts.allSatisfy { $0.headers["cookie"] == nil }, "neither login inherits a previous cookie")
+            await h.service.end(first)
+            #expect(await h.service.liveRuns == 1)
+            #expect(await h.service.perform(.showHuman(run: second, step: 1)) == .accepted)
+            guard case .frame = await h.service.perform(.frame(run: second, step: 1, after: 0)) else {
+                Issue.record("ending one context destroyed the other"); return
+            }
+            await h.service.end(second)
+            #expect(await h.service.liveRuns == 0)
+            #expect(await h.start(user: "mfa-user").1 == .humanStep(.mfa))
+            #expect(h.posts.count == 3 && h.posts.allSatisfy { $0.headers["cookie"] == nil }, "a later run also starts clean")
+        }
+    }
+
     @Test func rejectedPasswordAndUnsupportedWorkflow() async throws {
         try await Host.using { h in
             #expect(await h.start(password: "wrong").1 == .failed(.loginRejected))
