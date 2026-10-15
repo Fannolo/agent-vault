@@ -11,11 +11,19 @@
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
-Current source `73cb4d5` passed all nine selected checks in the
+Round seven found no High/Medium issue at `f7ca91c`. The parent reproduced and corrected
+its interrupted-wait/output-pipe cleanup findings and cancellation during initial result
+collection; focused checks pass, with a full source-specific recording pending. The host
+and human-continuation submissions remain outside this root while their independent
+findings are corrected: U2 blocking CDP writes and cold-start readiness, and U3/U4 dead
+connection opens and finishing/input races. Production remains disabled.
+
+Latest recorded source `73cb4d5` passed all nine selected checks in the
 [U1 integration record](verification/browser-u1-integration.json): 281 registered Swift
 tests in sixteen suites, including two explicit native-storage skips; default and synthetic
 native MCP; boundaries; five owned-process checks; ten recorder checks; twenty same-UID
-cross-process XPC scenarios; eight XPC guard mutations; and a passing baseline followed by
+cross-process XPC scenarios; eight XPC guard variants, including two expected redundant
+layers; and a passing baseline followed by
 all twenty-four web-link mutations being detected. Source remained unchanged. Full mutation
 detail logs are retained privately at unique paths with hashes. This proves local synthetic
 behavior; the actual headless host, human relay and installed isolation remain open.
@@ -38,7 +46,7 @@ incremental build caches and synthetic data, and do not establish installed isol
 Verified baseline `198786e` reported 222 tests in ten suites, plus MCP, boundaries,
 48 installer tests in each Python mode with 14 guard mutations, five release tests,
 nine cleanup tests, eight recorder tests, two separate native Keychain checks, 20
-same-UID XPC scenarios and eight XPC mutations. The
+same-UID XPC scenarios and eight XPC variants, including two expected redundant layers. The
 [baseline record](verification/browser-u0-r4-integration.json) includes full source hashes,
 cache-reuse limits and durable local raw-log paths/hashes. Logs are ignored and private.
 
@@ -49,15 +57,15 @@ verification of the original findings and the final task-registration handshake.
 losses name only affected runs. Core owns start/classify deadlines; a start's deadline is
 capped by grant expiry, and credential dispatch rechecks authority after the host probe.
 Initial read cancellation tears down its run; admin handlers retain completion semantics.
-Claude Sonnet round five found no High/Medium issue at `198786e`; later R6 fixes and U1
-need a fresh combined review. U2 and U3/U4 continue in isolated worktrees. Production browser
+Claude Sonnet round seven found no High/Medium issue in the combined R6/U1 checkpoint
+at `f7ca91c`. U2 and U3/U4 continue in isolated worktrees. Production browser
 services remain disabled.
 
 The two CI runs at `5b1fb9a` failed synthetic I/O setup and a yield-based browser-start
 ordering assertion. The blocked-worker cases are now serialized, unrelated account setup
 is synchronous, and the startup test uses an explicit debug-only gate. Full local
-verification passes. Both macOS CI jobs passed on `0d944eb`; the later R6 changes need
-their own CI. Production timeout stays five seconds.
+verification passes. Both macOS CI jobs passed on `f09f8d8`, including the R6/U1 changes;
+their raw logs are retained locally by hash. Production timeout stays five seconds.
 A new signed review bundle from clean `5955f50` passed all three hardened
 Bite signatures, exact review entitlements, manifest hashes and the signed installer sandbox.
 [Its record](verification/signed-review-bundle-r4.json) does not prove later changes,

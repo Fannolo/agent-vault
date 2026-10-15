@@ -16,7 +16,8 @@ public enum CredentialFormat {
 }
 
 /// UTF-8 `username` LF `password`: at most 4096 bytes in total, a username of at most 255
-/// characters, both parts non-empty and free of control characters. Descriptions are redacted.
+/// characters, both parts non-empty and excluding Unicode Cc/Cf control and format scalars.
+/// Unicode separators such as U+2028 remain allowed. Descriptions are redacted.
 public struct WebLoginCredential: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public static let maximumBytes = 4096
     public static let maximumUsernameCharacters = 255

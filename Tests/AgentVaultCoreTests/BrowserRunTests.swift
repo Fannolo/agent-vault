@@ -204,6 +204,31 @@ import Testing
                 "an overdue notice for an older request changes nothing")
     }
 
+    @Test func cancellationDuringInitialCollectionEndsTheUndeliveredPause() async throws {
+        let f = try await WebFixture.make(start: [.humanStep(.mfa), .humanStep(.captcha)], duration: 30)
+        let earlier = try await f.startPausedRun()
+        let account = try await f.broker.enroll(service: .githubWeb, credential: syntheticWebCredential)
+        _ = try await f.broker.grant(clientID: f.client.id, accountID: account.id, duration: 3600, callLimit: 1)
+        f.clock.advance(29)
+        await f.host.startHold.arm()
+        let call = Task {
+            try await f.broker.run(clientID: f.client.id, accountID: account.id, action: .githubWebProfile)
+        }
+        await f.host.startHold.waitUntilReached()
+        // The first run expires during the second start. Its teardown suspends collect's sweep.
+        f.clock.advance(2)
+        await f.host.endHold.arm()
+        await f.host.startHold.open()
+        await f.host.endHold.waitUntilReached()
+        call.cancel()
+        await f.host.endHold.open()
+        await #expect(throws: VaultError.denied) { _ = try await call.value }
+        #expect(try await f.broker.pendingHumanSteps().isEmpty)
+        #expect(!f.host.contextOpen(earlier) && f.host.openContexts == 0)
+        let audit = try f.state.snapshot().audit.filter { $0.accountID == account.id }.map(\.outcome)
+        #expect(audit == ["reserved", "human_step_required", "run_cancelled"])
+    }
+
     @Test func cancelledInitialCallerLeavesNoPausedRunOrContext() async throws {
         let f = try await WebFixture.make(start: [.humanStep(.mfa)])
         await f.host.startHold.arm()

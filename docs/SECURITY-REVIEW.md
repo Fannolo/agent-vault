@@ -12,7 +12,8 @@ The four U1 commits were integrated as `d6fa363`, `267549d`, `171ccd5` and `bc67
 [Verification at clean `73cb4d5`](verification/browser-u1-integration.json) passed all nine
 checks: 281 registered Swift tests including two explicit skips; default and synthetic
 native MCP; module boundaries; five owned-process and ten recorder checks; twenty
-same-UID cross-process scenarios; eight XPC guard mutations; and a passing web-link
+same-UID cross-process scenarios; eight XPC variants, including two expected redundant
+layers; and a passing web-link
 baseline followed by all twenty-four mutations being detected. Full detail logs are
 retained locally at unique private paths with hashes. Source remained unchanged.
 
@@ -20,8 +21,38 @@ This closes the reviewed U1 defects, including the Core deadline gap R5-2 and ad
 lifetime gap R5-3. It does not prove an actual headless host, its system-domain service,
 private-UID isolation, egress or a deployed human channel. U2 must refuse context creation
 after teardown begins, beyond the listener's terminal peer-loss behavior. Production
-browser services remain disabled. A fresh Claude Sonnet 5.5 round-seven review is running
-against frozen `f7ca91c`; no verdict has been received.
+browser services remain disabled. Claude Sonnet 5.5 round seven reviewed frozen `f7ca91c`
+and reported no High/Medium issue. Its follow-ups are tracked below.
+
+## Round seven follow-up: 15 October 2026
+
+The reviewer checked the 43-file diff, all 168 recorded source hashes, the nine logs and
+auxiliary/detail hashes, the final judge evidence and the recent parent-thread tail. It
+used four tiny pure/mocked probes, not SwiftPM, real processes, XPC, Keychain or network.
+Its nine enumerated items comprise five Low and four Info observations; the opening
+count differs. This is a bounded model review, not certification.
+
+| Item | Response and measured limit |
+|---|---|
+| R7-1/2, Low: interrupted waits leak owned workers; an escaped stdout holder can block close | Cleanup now runs in `finally`; CLI SIGTERM unwinds like Ctrl-C; raw nonblocking output reads stop without waiting for escaped descendants. Both regressions failed before and pass after. Escaped processes are never signalled; SIGKILL remains unable to run cleanup. |
+| R7-3, Low: text grammar rejects more than Cc | Contract comments now name Unicode Cc/Cf controls and format scalars; U+2028 remains accepted. No credential or input bytes were changed. |
+| R7-4, Low: eight XPC mutations sounds like eight killed defenses | Current summaries explicitly include the two intentionally redundant layers whose expected failure set is empty. |
+| R7-5, Info: mutation summary is empty in the public record | New runs emit standard mutation-summary lines, retained by the recorder. Historical records remain unchanged. |
+| R7-6, Info: an expired run can leave its initial caller waiting for the start window | The run/context ends at expiry; the caller wait remains bounded by 15 s and the 30 s transport budget. No credential authority is extended. |
+| R7-7, Low: cancellation during collection can retain an undelivered human pause | A public-Broker regression suspends collection in another run's teardown, cancels the caller, and verifies removal, host teardown and `run_cancelled`. It failed before and passes after the post-collection check. Final transport delivery still has no acknowledgement. |
+| R7-8, Info: genuine unrelated lifecycle completion can start a fresh recovery episode | This adds at most one start per real administrative completion; failure coalescing and the 256-entry ring hold. The pure-state reviewer probe confirmed the bound. |
+| R7-9, Info: two teardown/cancellation defenses lack standalone mutants | New variants target late-reply teardown and the read peer's cancellation flag. The authority-guard mutant still removes a group of conditions; it does not prove each condition independently. |
+
+The helper also refuses a failed restored-source build instead of reporting mutation
+success. Ten helper checks and the focused collection regression pass; full combined
+verification is pending. Both remote macOS jobs passed on `f09f8d8`, with 281 registered
+tests including two explicit native-storage skips. Their logs are retained privately.
+
+Separate unmerged U2 review found a blocking CDP write holding the state lock (High),
+cold-start auto-attach readiness (Medium), and reusable completed run IDs (Low). U3/U4
+review reproduced three Medium issues: a signed open after disconnect, queued input lost
+at Finish, and polling an invalidated lease during reclassification. Owners are correcting
+these before acceptance; none is part of this root checkpoint or proof of installed use.
 
 ## Round six: 15 October 2026
 

@@ -39,7 +39,7 @@ public enum HumanInput: Sendable, Equatable {
     case pointer(PointerPhase, x: Int, y: Int)
     case wheel(dx: Int, dy: Int)
     case key(NamedKey)
-    /// One to 64 UTF-8 bytes, no control characters.
+    /// One to 64 UTF-8 bytes, excluding Unicode Cc/Cf control and format scalars.
     case text(String)
 
     public static let maximumTextBytes = 64

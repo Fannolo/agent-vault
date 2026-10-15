@@ -12,6 +12,7 @@ ever found or signalled by name, path or search, so other test runs, worktrees a
 applications are untouched.
 """
 import argparse
+import contextlib
 import os
 import pathlib
 import select
@@ -27,6 +28,15 @@ TEST_TIMEOUT = 90
 TERM_GRACE = 5
 
 M = [
+ ("initial collection ignores cancellation", "Sources/AgentVaultCore/Broker.swift",
+  "            if Task.isCancelled { throw VaultError.denied }\n", "",
+  "cancellationDuringInitialCollectionEndsTheUndeliveredPause"),
+ ("late host reply keeps its context", "Sources/AgentVaultCore/Broker.swift",
+  "            if runs[id]?.phase.hostMayHoldContext != true { await web?.end(id) }\n", "",
+  "revocationDuringHostStartSuppressesOutputAndEndsTheLateContext"),
+ ("read peer does not track cancellable work", "Sources/AgentVaultIPC/VaultXPCServer.swift",
+  "cancelsOnInvalidation: !admin)", "cancelsOnInvalidation: false)",
+  "readHandlersAreCancelledWhenTheirConnectionGoes"),
  ("finished handler retained", "Sources/AgentVaultIPC/VaultXPCServer.swift",
   "            guard reserved.contains(key) else { return true }   // already finished: nothing to keep\n", "",
   "handlerFinishingBeforeRegistrationIsNotRetained"),
@@ -132,24 +142,80 @@ def wait_for_exit_without_reaping(pid, timeout):
         queue.close()
 
 
+@contextlib.contextmanager
+def interrupt_on_termination():
+    """CLI termination unwinds source restoration and owned-child cleanup, like Ctrl-C."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt
+    previous = signal.signal(signal.SIGTERM, interrupted)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
 def run_owned(command, timeout, cwd=ROOT):
     """Runs `command` as the leader of a new session and process group.
 
     Returns (returncode, or None on timeout; combined output). The group ID is the child's PID,
     taken from the spawn handle before anything else, and is the only group ever signalled.
     """
-    child = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             start_new_session=True)
-    pgid = child.pid
+    child = reader = None
+    stop = threading.Event()
+    eof = threading.Event()
     chunks = []
-    reader = threading.Thread(target=lambda: chunks.append(child.stdout.read()), daemon=True)
-    reader.start()
-    exited = wait_for_exit_without_reaping(pgid, timeout)
-    # The leader is alive or a zombie here; either way the group ID is still ours.
-    terminate_group(pgid)
-    code = child.wait()
-    reader.join(TERM_GRACE)
-    child.stdout.close()
+    with interrupt_on_termination():
+        try:
+            child = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     bufsize=0, start_new_session=True)
+            pgid = child.pid
+            descriptor = child.stdout.fileno()
+            os.set_blocking(descriptor, False)
+
+            def read_output():
+                # Raw, nonblocking reads hold no BufferedReader lock across a blocking read.
+                # An escaped descendant may keep the pipe open; stop never waits for its EOF.
+                while not stop.is_set():
+                    if not select.select([descriptor], [], [], 0.05)[0]:
+                        continue
+                    if stop.is_set():
+                        return
+                    try:
+                        part = os.read(descriptor, 65536)
+                    except BlockingIOError:
+                        continue
+                    if not part:
+                        eof.set()
+                        return
+                    chunks.append(part)
+
+            reader = threading.Thread(target=read_output, daemon=True)
+            reader.start()
+            exited = wait_for_exit_without_reaping(pgid, timeout)
+        finally:
+            # Keep the leader unreaped until its group has been cleaned. A second interrupt
+            # is deferred until cleanup is finished, so restoration cannot race a live worker.
+            mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+            try:
+                if child is not None:
+                    try:
+                        terminate_group(child.pid)
+                        code = child.wait(timeout=TERM_GRACE)
+                    finally:
+                        if reader is not None:
+                            reader.join(0.25)  # drain normal EOF; do not await an escaped holder
+                            stop.set()
+                            reader.join(1)
+                            if reader.is_alive():
+                                raise RuntimeError("owned output reader did not stop")
+                        child.stdout.close()
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+    if not eof.is_set():
+        chunks.append(b"\n[output capture ended without EOF after owned-group cleanup]\n")
     output = b"".join(chunks).decode("utf-8", "replace")
     return (code if exited else None), output
 
@@ -175,7 +241,7 @@ def main():
     if code != 0:
         print("baseline FAILED: targeted tests must pass before mutating", flush=True)
         return 2
-    print("baseline passed", flush=True)
+    print("PASS: mutation baseline", flush=True)
     results = []
     for name, path, old, new, test in M:
         source = ROOT / path
@@ -197,10 +263,16 @@ def main():
         results.append((name, status))
         with open(LOG, "a") as log:
             log.write(f"=== {name} [{test}] -> {status}\n{out}\n")
-        print(name, status, flush=True)
-    run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=600)
+        print(f"mutation {name}: {status}", flush=True)
+    code, out = run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=600)
+    with LOG.open("a") as log:
+        log.write(f"=== restored source build -> {code}\n{out}\n")
+    if code != 0:
+        print("FAIL: restored source build", flush=True)
+        return 2
     return 0 if all(status.startswith("KILLED") for _, status in results) else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    with interrupt_on_termination():
+        sys.exit(main())

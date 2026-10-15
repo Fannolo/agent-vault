@@ -374,7 +374,18 @@ public actor Broker {
             await apply(id, .agentCancelled)
             throw VaultError.denied
         }
-        return try await collect(id)
+        do {
+            let result = try await collect(id)
+            // Collection can suspend while sweeping another run's host teardown.
+            if Task.isCancelled { throw VaultError.denied }
+            return result
+        } catch {
+            if Task.isCancelled {
+                await apply(id, .agentCancelled)
+                throw VaultError.denied
+            }
+            throw error
+        }
     }
 
     /// Live authority at the instant the link is about to send the credential.

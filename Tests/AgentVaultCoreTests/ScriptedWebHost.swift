@@ -43,6 +43,7 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
     private var lifetimes: [Int] = []
     let log: EventLog
     let startHold = Hold(), reclassifyHold = Hold()
+    let endHold = Hold()
     /// Holds a start where the real link authenticates the host, before it asks for authority.
     let authorityHold = Hold()
     let losses: AsyncStream<Set<BrowserRunID>>
@@ -82,6 +83,7 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
 
     func end(_ run: BrowserRunID) async {
         log.append("end")
+        await endHold.pass()
         lock.withLock { open.remove(run); ended.append(run) }
     }
 

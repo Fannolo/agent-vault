@@ -4,11 +4,15 @@ Real child processes are used: an owned shell with a backgrounded descendant, an
 independent sentinel in its own session that the harness must never touch. `os.killpg`
 is wrapped to record every group the harness signals.
 """
+import contextlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -84,6 +88,112 @@ class OwnedProcessTests(unittest.TestCase):
         self.assertEqual((code, output), (0, "synthetic\n"))
         self.assertEqual([sig for _, sig in self.signalled if sig != 0], [])
         self.assertIsNone(self.sentinel.poll())
+
+    def test_interrupted_wait_cleans_the_owned_group_before_returning(self):
+        children = []
+        spawn = subprocess.Popen
+
+        def record(*args, **kwargs):
+            child = spawn(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def interrupt(pid, timeout):
+            deadline = time.monotonic() + 5
+            while not (self.work / "descendant").exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            raise KeyboardInterrupt
+
+        try:
+            with mock.patch.object(harness.subprocess, "Popen", side_effect=record), \
+                    mock.patch.object(harness, "wait_for_exit_without_reaping", side_effect=interrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    harness.run_owned(self.owned_command(
+                        "echo $$ > WORK/leader; /bin/sleep 60 & echo $! > WORK/descendant; wait"), timeout=10)
+            self.assertTrue(gone(self.pids("leader")) and gone(self.pids("descendant")))
+            self.assertIsNone(self.sentinel.poll())
+        finally:
+            # Also cleans the intentionally broken implementation when this regression fails.
+            for child in children:
+                if child.returncode is None:
+                    harness.terminate_group(child.pid)
+                    child.wait()
+                    child.stdout.close()
+
+    def test_escaped_pipe_holder_cannot_block_output_cleanup(self):
+        script = ("import pathlib,subprocess,sys; "
+                  "child=subprocess.Popen(['/bin/sleep','5'],start_new_session=True); "
+                  "pathlib.Path(sys.argv[1]).write_text(str(child.pid)); print('synthetic',flush=True)")
+        started = time.monotonic()
+        code, output = harness.run_owned([sys.executable, "-I", "-c", script, str(self.work / "escaped")], 10)
+        elapsed = time.monotonic() - started
+        escaped = self.pids("escaped")
+        # It exits naturally; neither the harness nor this test signals its escaped group.
+        self.assertTrue(gone(escaped, within=6))
+        self.assertLess(elapsed, 3, "an inherited output pipe cannot extend cleanup to the holder's lifetime")
+        self.assertEqual(code, 0)
+        self.assertIn("synthetic", output)
+        self.assertNotIn(escaped, {pgid for pgid, _ in self.signalled})
+        self.assertIsNone(self.sentinel.poll())
+
+    def test_termination_handler_unwinds_and_restores_the_callers_handler(self):
+        previous = signal.getsignal(signal.SIGTERM)
+        with self.assertRaises(KeyboardInterrupt):
+            with harness.interrupt_on_termination():
+                signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+
+    def test_sigterm_restores_source_after_cleaning_the_owned_worker(self):
+        source = self.work / "source"
+        script = ("import importlib.util,pathlib,sys; "
+                  "spec=importlib.util.spec_from_file_location('h',sys.argv[1]); "
+                  "h=importlib.util.module_from_spec(spec); spec.loader.exec_module(h); "
+                  "source=pathlib.Path(sys.argv[2])\n"
+                  "with h.interrupt_on_termination():\n"
+                  " try:\n"
+                  "  source.write_text('in flight'); h.run_owned(sys.argv[3:],10)\n"
+                  " finally:\n"
+                  "  source.write_text('restored')\n")
+        command = self.owned_command(
+            "echo $$ > WORK/leader; /bin/sleep 2 & echo $! > WORK/descendant; wait")
+        with tempfile.TemporaryFile() as output:
+            wrapper = subprocess.Popen([sys.executable, "-I", "-c", script,
+                                        str(ROOT / "scripts/verify-webhost-link-mutations.py"), str(source), *command],
+                                       stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+            try:
+                deadline = time.monotonic() + 5
+                while not (self.work / "descendant").exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue((self.work / "descendant").exists())
+                wrapper.terminate()  # exact Popen handle; no signal by name or search
+                wrapper.wait(timeout=10)
+                self.assertEqual(source.read_text(), "restored")
+                self.assertTrue(gone(self.pids("leader")) and gone(self.pids("descendant")))
+                self.assertIsNone(self.sentinel.poll())
+            finally:
+                if wrapper.poll() is None:
+                    wrapper.kill()
+                wrapper.wait()
+                # Broken variants leave only the explicit two-second fixture to exit naturally.
+                for name in ("leader", "descendant"):
+                    if (self.work / name).exists():
+                        gone(self.pids(name), within=3)
+
+    def test_failed_restore_build_cannot_report_successful_mutation_verification(self):
+        source = self.work / "source"
+        source.write_text("guard is_safe\n")
+        detail = self.work / "details.log"
+        mutation = ("guard", str(source), "is_safe", "true", "focused")
+        with mock.patch.object(harness, "M", [mutation]), \
+                mock.patch.object(harness, "LOG", detail), \
+                mock.patch.object(harness.sys, "argv", ["harness"]), \
+                mock.patch.object(harness, "run_owned", side_effect=[
+                    (0, "build"), (0, "baseline"), (0, "mutant build"), (1, "detected"), (1, "restore failed")]):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(harness.main(), 2)
+            self.assertIn("FAIL: restored source build", output.getvalue())
+        self.assertEqual(source.read_text(), "guard is_safe\n")
+        self.assertIn("restored source build -> 1", detail.read_text())
 
     def test_refuses_groups_it_does_not_own(self):
         for pgid in (0, 1, os.getpgrp()):

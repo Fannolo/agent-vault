@@ -201,6 +201,10 @@ port exposes show/frame/input for a preexisting `HumanStepID`; this does not yet
 an authenticated human-app relay or native rendering. Those remain U3/U4 work. No MCP
 human-input or generic browser operation was added.
 
+Text events and web credentials exclude Unicode Cc/Cf control and format scalars,
+including ZWJ, LRM and BOM. Separators such as U+2028 remain accepted within the byte
+limits. Named key events carry Enter/Tab separately.
+
 ## Production layout
 
 `deploy/ipc/agentvault_installer.py` implements this layout. Reference config/plist templates
