@@ -80,9 +80,9 @@ Read traffic has 32 handler slots and administration has four independent slots.
 authentication probes do not consume those handler slots. Pending invocation approvals have
 a 120-second lifetime; waiting resumes report that approval is still required. The dedicated
 broker's explicit Keychain is unlocked with its private seed before every access, including
-after sleep or an explicit lock. Its lock policy stays unchanged: changing it required a GUI
-authorization hypothesis that was not confirmed: the native trace showed a blocked Security
-framework call, but no dialog was observed. The settings change was removed. No Keychain
+after sleep or an explicit lock. Its lock policy stays unchanged. The native settings-change
+probe blocked inside Security.framework; no GUI dialog was observed. The settings change was
+removed. No Keychain
 setting or search list is changed.
 
 Synchronous credential operations run off the broker actor with at most four actual operations
