@@ -1,0 +1,5 @@
+{
+  "format": "agent-vault-chromium-pin-v1",
+  "status": "unconfigured",
+  "reason": "No source archive, reviewed signed-tree inventory or measured P0 entitlement policy is pinned. Browser packaging must fail closed."
+}
