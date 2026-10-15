@@ -47,10 +47,13 @@ public enum HumanInput: Sendable, Equatable {
 
     /// Bounds that hold for any frame; the host also checks pointers against the frame it served.
     public func fits(width: Int = HumanFrame.maximumWidth, height: Int = HumanFrame.maximumHeight) -> Bool {
-        switch self {
+        guard width > 0, height > 0 else { return false }
+        return switch self {
         case .pointer(_, let x, let y): (0..<width).contains(x) && (0..<height).contains(y)
         case .wheel(let dx, let dy):
-            abs(dx) <= Self.maximumWheelDelta && abs(dy) <= Self.maximumWheelDelta && (dx != 0 || dy != 0)
+            // Range checks, not `abs`, so `Int.min` is refused instead of trapping.
+            (-Self.maximumWheelDelta...Self.maximumWheelDelta).contains(dx)
+                && (-Self.maximumWheelDelta...Self.maximumWheelDelta).contains(dy) && (dx != 0 || dy != 0)
         case .key: true
         case .text(let text):
             (1...Self.maximumTextBytes).contains(text.utf8.count)

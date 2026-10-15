@@ -125,12 +125,27 @@ public enum WebFailure: String, CaseIterable, Sendable {
     }
 }
 
+/// Issued by the broker for one run's `start`. The host link consults it after authenticating the
+/// host and immediately before writing the credential, with no suspension in between. `nil` means
+/// the run lost its authority, its grant has (nearly) expired or the start deadline passed: send nothing.
+public struct WebStartAuthority: Sendable {
+    private let check: @Sendable () async -> TimeInterval?
+    init(_ check: @escaping @Sendable () async -> TimeInterval?) { self.check = check }
+    /// The whole seconds of browser context the host may hold, at least one, if still authorized now.
+    public func lifetimeIfStillAuthorized() async -> Int? {
+        guard let seconds = await check(), seconds.isFinite, seconds >= 1 else { return nil }
+        return Int(min(seconds, LifecycleWindows.hostLifetimeCap).rounded(.down))
+    }
+}
+
 /// A browser host. Every call is bounded by the implementation; `end` is idempotent and must
 /// also dispose a context whose `start` is still in flight. The broker remains the only
 /// authority: the host never decides whether a result may be delivered.
 public protocol WebSessionExecutor: Sendable {
+    /// Must obtain a lifetime from `authority` after any connection setup and immediately before
+    /// the credential leaves the process; without one it sends nothing.
     func start(_ run: BrowserRunID, workflow: WebWorkflow, credential: WebLoginCredential,
-               lifetime: TimeInterval) async -> WebStep
+               authority: WebStartAuthority) async -> WebStep
     /// Re-examine the page after a person says they finished. Never submits anything itself.
     func reclassify(_ run: BrowserRunID) async -> WebStep
     func end(_ run: BrowserRunID) async
@@ -258,10 +273,16 @@ struct BrowserRun: Sendable {
         var next = self
         switch (phase, event) {
         case (.loadingCredential, .credentialLoaded):
-            next.phase = .dispatching(.init(date: now.addingTimeInterval(windows.startReply)))
+            next.phase = .dispatching(.init(date: min(grantExpiresAt, now.addingTimeInterval(windows.startReply))))
             next.epoch += 1
             return (next, [])
 
+        // A grant that expires while the host works ends the run as a loss of authority.
+        case (.dispatching, .host(_, let replyEpoch)) where replyEpoch == epoch && now >= grantExpiresAt,
+             (.dispatching, .hostReplyOverdue(let replyEpoch)) where replyEpoch == epoch && now >= grantExpiresAt:
+            return (nil, [.audit("response_suppressed"), .endHost])
+        case (.dispatching, .clock(let time)) where time >= grantExpiresAt:
+            return (nil, [.audit("response_suppressed"), .endHost])
         // A reply is applied only before its deadline; the original pause deadline wins first.
         case (.classifying(_, let pause, _), .host(_, let replyEpoch)) where replyEpoch == epoch && now >= pause.date,
              (.classifying(_, let pause, _), .hostReplyOverdue(let replyEpoch)) where replyEpoch == epoch && now >= pause.date:

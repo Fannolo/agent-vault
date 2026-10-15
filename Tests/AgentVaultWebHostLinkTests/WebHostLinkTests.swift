@@ -12,7 +12,7 @@ import Testing
         let host = TestHost(handler: pausingHost)
         let link = link { host.endpoint }
         let run = BrowserRunID()
-        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, lifetime: 600) == .humanStep(.mfa))
+        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(600)) == .humanStep(.mfa))
         #expect(await link.showHuman(step(run)))
         let frame = await link.frame(step(run), after: 0)
         #expect(frame?.sequence == 1 && frame?.width == 4)
@@ -30,7 +30,7 @@ import Testing
         let raw = RawHost { _ in errorEnvelope(.invalidRequest) }
         let link = link { raw.endpoint }
         let run = BrowserRunID()
-        _ = await link.start(run, workflow: .browserDemo, credential: credential, lifetime: 60)
+        _ = await link.start(run, workflow: .browserDemo, credential: credential, authority: authority(60))
         let received = raw.received.all
         #expect(received.count == 2 && received.first == Data())
         guard received.count == 2, case .start(let started, _, let sent, _)? = try? HostWire.decodeRequest(received[1]).command else {
@@ -43,7 +43,7 @@ import Testing
         let impostor = RawHost { _ in errorEnvelope(.invalidRequest) }
         let link = link({ impostor.endpoint }, configuration: developmentConfiguration(host: "cdhash H\"\(wrongCDHash)\""))
         let run = BrowserRunID()
-        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .failed(.hostUnavailable))
+        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .failed(.hostUnavailable))
         #expect(impostor.received.all == [Data()])
         #expect(await link.reclassify(run) == .failed(.hostLost))
         #expect(impostor.received.all == [Data()])
@@ -52,7 +52,7 @@ import Testing
     @Test func hostWithAnotherKernelUIDReceivesOnlyTheEmptyProbe() async {
         let impostor = RawHost { _ in errorEnvelope(.invalidRequest) }
         let link = link({ impostor.endpoint }, configuration: developmentConfiguration(hostUID: me + 1))
-        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, lifetime: 60)
+        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, authority: authority(60))
                 == .failed(.hostUnavailable))
         #expect(impostor.received.all == [Data()])
     }
@@ -62,7 +62,7 @@ import Testing
             try? HostWire.encode(HostResponse(request: 1, run: UUID(), reply: .ended))
         }
         let link = link { impostor.endpoint }
-        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, lifetime: 60)
+        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, authority: authority(60))
                 == .failed(.hostUnavailable))
         #expect(impostor.received.all == [Data()])
     }
@@ -74,7 +74,7 @@ import Testing
                               developmentConfiguration(brokerUID: me + 1)] {
             let host = TestHost(configuration: configuration, handler: pausingHost)
             let link = link { host.endpoint }
-            #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, lifetime: 60)
+            #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, authority: authority(60))
                     == .failed(.hostUnavailable))
             #expect(host.commands.all.isEmpty)
         }
@@ -94,11 +94,34 @@ import Testing
         // A second concurrent peer is refused while the first is connected.
         let second = RawClient(host.endpoint)
         #expect(await second.send(Data()) == nil)
-        // Once the peer is gone and teardown ran, the next broker connection is served.
+        // Losing the peer is terminal: teardown runs and no later broker connection is served.
         first.connection.invalidate()
         #expect(await eventually { host.peerLosses.all.count == 1 })
+        #expect(host.server.isTerminated)
         let third = RawClient(host.endpoint)
-        #expect(await third.send(Data()) == errorEnvelope(.invalidRequest))
+        #expect(await third.send(Data()) == nil)
+    }
+
+    @Test func peerLossCancelsRunningHandlersAndDropsTheirResults() async {
+        let cancelled = Log<Bool>()
+        let host = TestHost { command in
+            if case .start = command {
+                await withTaskCancellationHandler { try? await Task.sleep(for: .seconds(5)) }
+                    onCancel: { cancelled.append(true) }
+                return .humanStep(.mfa)
+            }
+            return .ended
+        }
+        let client = RawClient(host.endpoint)
+        #expect(await client.send(Data()) == errorEnvelope(.invalidRequest))
+        let start = try! HostWire.encode(HostRequest(id: 1, command: .start(run: UUID(), workflow: .browserDemo,
+                                                                            credential: credential, lifetime: 60)))
+        let pending = Task { await client.send(start, timeout: 3) }
+        #expect(await eventually { host.count(where: isStart) == 1 })
+        client.connection.invalidate()
+        #expect(await eventually { cancelled.all == [true] }, "the old peer's handler is cancelled at loss")
+        #expect(await pending.value == nil)
+        #expect(host.server.isTerminated)
     }
 
     @Test func hostReplyWithAnotherRunIsAViolationThatDropsTheConnection() async {
@@ -107,7 +130,7 @@ import Testing
             return try? HostWire.encode(HostResponse(request: request.id, run: UUID(), reply: .humanStep(.mfa)))
         }
         let link = link { raw.endpoint }
-        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, lifetime: 60)
+        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, authority: authority(60))
                 == .failed(.rendererUnavailable))
         #expect(await eventually { raw.invalidations.all.count == 1 })
     }
@@ -123,7 +146,7 @@ import Testing
         let link = link { host.endpoint }
         let run = BrowserRunID()
         let began = Date()
-        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .failed(.timeout))
+        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .failed(.timeout))
         let elapsed = Date().timeIntervalSince(began)
         #expect(elapsed >= fastBudgets.start && elapsed < fastBudgets.start + fastBudgets.end + 0.5)
         #expect(host.commands.all.last == .end(run: run.uuid), "a timed-out start is ended before returning")
@@ -137,7 +160,7 @@ import Testing
         }
         let link = link { host.endpoint }
         let run = BrowserRunID()
-        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .failed(.timeout))
+        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .failed(.timeout))
         try? await Task.sleep(for: .seconds(1))
         #expect(await link.reclassify(run) == .failed(.hostLost), "the timed-out run is no longer bound")
         #expect(host.count(where: isEnd) == 1)
@@ -147,7 +170,7 @@ import Testing
         let silent = RawHost { _ in nil }
         let link = link { silent.endpoint }
         let began = Date()
-        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, lifetime: 60)
+        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, authority: authority(60))
                 == .failed(.timeout))
         #expect(Date().timeIntervalSince(began) < fastBudgets.start + 0.5)
         #expect(silent.received.all == [Data()])
@@ -165,8 +188,8 @@ import Testing
         let link = link { host.endpoint }
         let losses = Losses(link)
         let stuck = BrowserRunID(), other = BrowserRunID()
-        #expect(await link.start(stuck, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .humanStep(.mfa))
-        #expect(await link.start(other, workflow: .browserDemo, credential: credential, lifetime: 60) == .humanStep(.mfa))
+        #expect(await link.start(stuck, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .humanStep(.mfa))
+        #expect(await link.start(other, workflow: .browserDemo, credential: credential, authority: authority(60)) == .humanStep(.mfa))
         let began = Date()
         #expect(await link.reclassify(stuck) == .failed(.timeout))
         #expect(Date().timeIntervalSince(began) < fastBudgets.classify + 0.5)
@@ -185,14 +208,14 @@ import Testing
         let link = link { current.value }
         let losses = Losses(link)
         let old = BrowserRunID()
-        #expect(await link.start(old, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .humanStep(.mfa))
+        #expect(await link.start(old, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .humanStep(.mfa))
         // The host dies; launchd would start a new one under the same name.
         let second = TestHost(handler: pausingHost)
         current.value = second.endpoint
         first.server.invalidate()
         #expect(await eventually { losses.all == [[old]] })
         let new = BrowserRunID()
-        #expect(await link.start(new, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .humanStep(.mfa))
+        #expect(await link.start(new, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .humanStep(.mfa))
         // Commands for the old run never reach the new host, and teardown of it is a no-op.
         #expect(await link.reclassify(old) == .failed(.hostLost))
         #expect(!(await link.showHuman(step(old))))
@@ -212,7 +235,7 @@ import Testing
         let link = link({ host.endpoint }, budgets: .standard)
         let losses = Losses(link)
         let run = BrowserRunID()
-        let call = Task { await link.start(run, workflow: .githubWebProfile, credential: credential, lifetime: 60) }
+        let call = Task { await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(60)) }
         #expect(await eventually { host.count(where: isStart) == 1 })
         let began = Date()
         host.server.invalidate()
@@ -227,11 +250,39 @@ import Testing
         let link = link { host.endpoint }
         let run = BrowserRunID()
         await link.end(run)
-        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .failed(.unknownRun))
+        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .failed(.unknownRun))
         let twice = BrowserRunID()
-        #expect(await link.start(twice, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .humanStep(.mfa))
-        #expect(await link.start(twice, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .failed(.unknownRun))
+        #expect(await link.start(twice, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .humanStep(.mfa))
+        #expect(await link.start(twice, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .failed(.unknownRun))
         #expect(host.runs == [twice.uuid])
+    }
+
+    @Test func endedRunsDoNotAccumulateOnALongLivedConnection() async {
+        let host = TestHost(handler: pausingHost)
+        let link = link { host.endpoint }
+        for _ in 0..<200 {
+            let run = BrowserRunID()
+            #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(600))
+                    == .humanStep(.mfa))
+            await link.end(run)
+        }
+        let counts = link.retainedRunCounts
+        #expect(counts.bound == 0 && counts.generation == 0)
+        #expect(host.peerLosses.all.isEmpty, "one connection served all 200 runs")
+    }
+
+    @Test func withdrawnAuthorityAfterTheProbeSendsNoCredential() async {
+        let raw = RawHost { _ in errorEnvelope(.invalidRequest) }
+        let link = link { raw.endpoint }
+        let run = BrowserRunID()
+        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential,
+                                 authority: WebStartAuthority { nil }) == .failed(.unknownRun))
+        #expect(raw.received.all == [Data()], "authenticated, then nothing: authority was gone")
+        // Teardown racing the authority answer: the run is tombstoned before it could bind.
+        let raced = BrowserRunID()
+        #expect(await link.start(raced, workflow: .githubWebProfile, credential: credential,
+                                 authority: WebStartAuthority { await link.end(raced); return 60 }) == .failed(.unknownRun))
+        #expect(raw.received.all == [Data()])
     }
 
     // MARK: Bounded concurrency and teardown priority
@@ -249,12 +300,12 @@ import Testing
         let limits = WebHostLink.Limits(control: 2, frame: 1, teardown: 4)
         let link = link({ host.endpoint }, budgets: .standard, limits: limits)
         let paused = BrowserRunID()
-        #expect(await link.start(paused, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .humanStep(.mfa))
+        #expect(await link.start(paused, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .humanStep(.mfa))
         let slow = (0..<2).map { BrowserRunID(UUID(uuidString: "0000000\($0)-0000-4000-8000-000000000000")!) }
-        let calls = slow.map { run in Task { await link.start(run, workflow: .githubWebProfile, credential: credential, lifetime: 60) } }
+        let calls = slow.map { run in Task { await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(60)) } }
         let frame = Task { await link.frame(step(paused), after: 0) }
         #expect(await eventually { host.count(where: isStart) == 3 && host.commands.all.contains { if case .frame = $0 { true } else { false } } })
-        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, lifetime: 60) == .failed(.busy))
+        #expect(await link.start(BrowserRunID(), workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .failed(.busy))
         #expect(await link.frame(step(paused), after: 0) == nil, "frame lane full")
         let began = Date()
         await link.end(paused)
@@ -275,8 +326,8 @@ import Testing
         }
         let link = link({ host.endpoint }, budgets: .standard)
         let a = BrowserRunID(), b = BrowserRunID()
-        #expect(await link.start(a, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .humanStep(.mfa))
-        #expect(await link.start(b, workflow: .githubWebProfile, credential: credential, lifetime: 60) == .humanStep(.mfa))
+        #expect(await link.start(a, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .humanStep(.mfa))
+        #expect(await link.start(b, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .humanStep(.mfa))
         let stuck = Task { await link.reclassify(a) }
         #expect(await eventually { host.commands.all.contains(.classify(run: a.uuid)) })
         #expect(await link.reclassify(b) == .failed(.busy))

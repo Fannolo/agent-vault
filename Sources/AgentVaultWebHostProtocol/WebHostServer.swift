@@ -1,9 +1,10 @@
 import AgentVaultIPC
 import Foundation
 
-/// The web host's listener. It serves one peer at a time: the broker, identified by kernel UID
-/// and code requirement on the connection and again on every message. When that peer goes
-/// away, `peerLost` tears every browser context down before another peer can be accepted.
+/// The web host's listener. It serves exactly one peer in its lifetime: the broker, identified by
+/// kernel UID and code requirement on the connection and again on every message. Losing that peer
+/// is terminal: its in-flight handlers are cancelled, their results are dropped, no other peer is
+/// ever accepted, and `peerLost` tears every browser context down; the host process then exits.
 public final class WebHostServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     public typealias Handler = @Sendable (HostCommand) async -> HostReply
 
@@ -28,8 +29,11 @@ public final class WebHostServer: NSObject, NSXPCListenerDelegate, @unchecked Se
     private let limits: Limits
     private let lock = NSLock()
     private var peer: NSXPCConnection?
-    private var tearingDown = false
+    private var terminated = false
     private var inFlight: [HostLane: Int] = [:]
+    /// Admitted requests of the current peer; a handler may answer only while its key is here.
+    private var active: Set<UUID> = []
+    private var handlers: [UUID: Task<Void, Never>] = [:]
 
     public convenience init(configuration: WebHostConfiguration, handler: @escaping Handler,
                             peerLost: @escaping @Sendable () async -> Void) throws(IPCError) {
@@ -61,7 +65,7 @@ public final class WebHostServer: NSObject, NSXPCListenerDelegate, @unchecked Se
         let uid = UInt32(connection.effectiveUserIdentifier)
         guard uid == configuration.brokerUID, uid != 0 else { return false }
         let accepted = lock.withLock { () -> Bool in
-            guard peer == nil, !tearingDown else { return false }
+            guard peer == nil, !terminated else { return false }
             peer = connection
             return true
         }
@@ -75,18 +79,20 @@ public final class WebHostServer: NSObject, NSXPCListenerDelegate, @unchecked Se
         return true
     }
 
+    /// True once the peer was lost. Nothing the host does afterwards may outlive teardown.
+    public var isTerminated: Bool { lock.withLock { terminated } }
+
     private func ended(_ connection: NSXPCConnection?) {
-        let lost = lock.withLock { () -> Bool in
-            guard let connection, peer === connection else { return false }
-            peer = nil; tearingDown = true
-            return true
+        let running = lock.withLock { () -> [Task<Void, Never>]? in
+            guard let connection, peer === connection, !terminated else { return nil }
+            peer = nil; terminated = true
+            defer { handlers = [:]; active = [] }
+            return Array(handlers.values)
         }
-        guard lost else { return }
+        guard let running else { return }
+        for handler in running { handler.cancel() }
         let peerLost = peerLost
-        Task(priority: .high) {
-            await peerLost()
-            self.lock.withLock { self.tearingDown = false }
-        }
+        Task(priority: .high) { await peerLost() }
     }
 
     fileprivate func perform(_ data: Data, uid: UInt32, reply block: @escaping (Data) -> Void) {
@@ -102,22 +108,35 @@ public final class WebHostServer: NSObject, NSXPCListenerDelegate, @unchecked Se
         do { request = try HostWire.decodeRequest(data) }
         catch { return reply.send(HostWire.errorReply(error)) }
         let lane = request.command.lane
+        let key = UUID()
         let admitted = lock.withLock { () -> Bool in
-            guard inFlight[lane, default: 0] < limits.limit(lane) else { return false }
+            guard !terminated, inFlight[lane, default: 0] < limits.limit(lane) else { return false }
             inFlight[lane, default: 0] += 1
+            active.insert(key)
             return true
         }
         guard admitted else { return reply.send(HostWire.errorReply(.busy)) }
         let handler = handler
-        Task(priority: lane == .frame ? .low : .high) {
+        let task = Task(priority: lane == .frame ? .low : .high) {
             let result = await handler(request.command)
-            self.lock.withLock { self.inFlight[lane, default: 0] -= 1 }
+            let live = self.lock.withLock { () -> Bool in
+                self.inFlight[lane, default: 0] -= 1
+                self.handlers.removeValue(forKey: key)
+                return self.active.remove(key) != nil && !self.terminated
+            }
+            guard live else { return }
             let response = HostResponse(request: request.id, run: request.command.run, reply: result)
             guard response.answers(request), let data = try? HostWire.encode(response) else {
                 return reply.send(HostWire.errorReply(.unavailable))
             }
             reply.send(data)
         }
+        let orphaned = lock.withLock { () -> Bool in
+            guard active.contains(key) else { return terminated }
+            handlers[key] = task
+            return false
+        }
+        if orphaned { task.cancel() }
     }
 
     private final class Endpoint: NSObject, WebHostRPC {

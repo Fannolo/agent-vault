@@ -26,9 +26,33 @@ TEST_TIMEOUT = 90
 TERM_GRACE = 5
 
 M = [
+ ("cancelled caller keeps waiting", "Sources/AgentVaultCore/Broker.swift",
+  "        await withTaskCancellationHandler { await settled.wait() } onCancel: { settled.fire() }\n        timer.cancel()\n        if Task.isCancelled { return true }",
+  "        await settled.wait()\n        timer.cancel()", "cancelledInitialCallerLeavesNoPausedRunOrContext"),
+ ("ended runs retained by generation", "Sources/AgentVaultWebHostLink/WebHostLink.swift",
+  "            generation?.runs.remove(run)\n", "", "endedRunsDoNotAccumulateOnALongLivedConnection"),
+ ("link sends without asking authority", "Sources/AgentVaultWebHostLink/WebHostLink.swift",
+  "            guard let lifetime = await authority.lifetimeIfStillAuthorized() else { return nil }",
+  "            let lifetime = 60", "withdrawnAuthorityAfterTheProbeSendsNoCredential"),
+ ("broker authority callback unconditional", "Sources/AgentVaultCore/Broker.swift",
+  "        await sweep()\n        guard let run = runs[id], run.epoch == epoch, case .dispatching(let deadline) = run.phase,\n              now() < deadline.date else { return nil }\n        guard isAuthorized(run) else {\n            await apply(id, .authorityLost)\n            return nil\n        }\n        return min",
+  "        guard let run = runs[id] else { return nil }\n        return min", "startPastItsDeadlineIsWithheldEvenWithAValidGrant"),
+ ("dispatch deadline outlives grant", "Sources/AgentVaultCore/BrowserRuns.swift",
+  "min(grantExpiresAt, now.addingTimeInterval(windows.startReply))", "now.addingTimeInterval(windows.startReply)",
+  "grantExpiryWhileDispatchingEndsTheRunAsALossOfAuthority"),
+ ("host accepts a peer after loss", "Sources/AgentVaultWebHostProtocol/WebHostServer.swift",
+  "guard peer == nil, !terminated else { return false }", "guard peer == nil else { return false }", "hostServesOnePeer"),
+ ("peer loss leaves handlers running", "Sources/AgentVaultWebHostProtocol/WebHostServer.swift",
+  "        for handler in running { handler.cancel() }\n", "        _ = running\n", "peerLossCancelsRunningHandlers"),
+ ("read handlers outlive their connection", "Sources/AgentVaultIPC/VaultXPCServer.swift",
+  "            peer.connectionInvalidated()\n", "", "readHandlersAreCancelledWhenTheirConnectionGoes"),
+ ("wheel bound uses abs", "Sources/AgentVaultContracts/HumanContinuation.swift",
+  "            (-Self.maximumWheelDelta...Self.maximumWheelDelta).contains(dx)\n                && (-Self.maximumWheelDelta...Self.maximumWheelDelta).contains(dy) && (dx != 0 || dy != 0)",
+  "            abs(dx) <= Self.maximumWheelDelta && abs(dy) <= Self.maximumWheelDelta && (dx != 0 || dy != 0)",
+  "extremeValuesAreRefusedWithoutTrapping"),
  ("no broker reply deadline", "Sources/AgentVaultCore/Broker.swift",
-  "        await settled.wait()\n        timer.cancel()", "        timer.cancel(); _ = await request()\n        await settled.wait()",
-  "hungHostStartEndsAtTheBrokerDeadline"),
+  "        await withTaskCancellationHandler { await settled.wait() } onCancel: { settled.fire() }\n        timer.cancel()",
+  "        timer.cancel(); _ = await request()", "hungHostStartEndsAtTheBrokerDeadline"),
  ("no lifetime guard", "Sources/AgentVaultCore/Broker.swift",
   "guard lifetime.isFinite, lifetime >= 1 else {", "guard lifetime.isFinite || true else {", "clockJumpLeavingLessThanOneSecond"),
  ("unscoped loss ends every run", "Sources/AgentVaultCore/Broker.swift",
@@ -44,9 +68,9 @@ M = [
  ("unconfirmed end keeps host", "Sources/AgentVaultWebHostLink/WebHostLink.swift",
   "        generation.connection.invalidate()\n    }\n\n    public func showHuman", "    }\n\n    public func showHuman", "stalledClassifyAndUnconfirmedEnd"),
  ("no late-start tombstone", "Sources/AgentVaultWebHostLink/WebHostLink.swift",
-  "            tombstones.insert(run)\n            return bound.removeValue", "            return bound.removeValue", "startAfterEndIsRefused"),
+  "            tombstones.insert(run)\n            let generation = bound.removeValue", "            let generation = bound.removeValue", "startAfterEndIsRefused"),
  ("host accepts second peer", "Sources/AgentVaultWebHostProtocol/WebHostServer.swift",
-  "guard peer == nil, !tearingDown else { return false }", "guard !tearingDown else { return false }", "hostServesOnePeer"),
+  "guard peer == nil, !terminated else { return false }", "guard !terminated else { return false }", "hostServesOnePeer"),
  ("host ignores broker UID", "Sources/AgentVaultWebHostProtocol/WebHostServer.swift",
   "guard uid == configuration.brokerUID, uid != 0 else { return false }", "guard uid != 0 else { return false }", "hostRefusesBroker"),
  ("teardown shares frame lane", "Sources/AgentVaultWebHostProtocol/HostCommand.swift",
@@ -127,6 +151,17 @@ def run_owned(command, timeout, cwd=ROOT):
 def main():
     LOG.parent.mkdir(exist_ok=True)
     LOG.write_text("")
+    # A mutant only counts as detected if its test passes on the unmutated tree.
+    code, out = run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=600)
+    filters = "|".join(sorted({test for *_, test in M}))
+    if code == 0:
+        code, out = run_owned(["swift", "test", "--skip-build", "--filter", filters], timeout=TEST_TIMEOUT * 3)
+    with open(LOG, "a") as log:
+        log.write(f"=== baseline [{filters}] -> {code}\n{out[-4000:]}\n")
+    if code != 0:
+        print("baseline FAILED: targeted tests must pass before mutating", flush=True)
+        return 2
+    print("baseline passed", flush=True)
     results = []
     for name, path, old, new, test in M:
         source = ROOT / path

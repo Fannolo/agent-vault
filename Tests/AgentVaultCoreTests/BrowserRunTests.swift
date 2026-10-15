@@ -143,10 +143,10 @@ import Testing
         let windows = try LifecycleWindows(approval: 120, humanPause: 600, collect: 120, startReply: 60)
         let f = try await WebFixture.make(start: [.humanStep(.mfa)], windows: windows)
         await f.host.startHold.arm()
+        // The caller's own 60 s wait has not fired; the run's deadline acts independently of it.
         let call = Task { try await f.run() }
         await f.host.startHold.waitUntilReached()
         #expect(await f.broker.scheduledDeadlineCount == 1, "an unanswered start has its own deadline task")
-        call.cancel()
         f.clock.advance(61)
         _ = try await f.broker.pendingHumanSteps()
         #expect(f.host.log.all.filter { $0 == "end" }.count == 1, "the sweep ends the context without the caller")
@@ -202,6 +202,74 @@ import Testing
         #expect(swept.1 == [.audit("web_timeout"), .endHost])
         #expect(dispatching!.applying(.hostReplyOverdue(epoch: 0), now: t0, windows: windows).1.isEmpty,
                 "an overdue notice for an older request changes nothing")
+    }
+
+    @Test func cancelledInitialCallerLeavesNoPausedRunOrContext() async throws {
+        let f = try await WebFixture.make(start: [.humanStep(.mfa)])
+        await f.host.startHold.arm()
+        let call = Task { try await f.run() }
+        await f.host.startHold.waitUntilReached()
+        call.cancel()
+        await #expect(throws: VaultError.denied) { _ = try await call.value }
+        await f.host.startHold.open()
+        for _ in 0..<100 where f.host.openContexts != 0 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(f.host.openContexts == 0, "the late context is ended, not left paused")
+        #expect(try await f.broker.pendingHumanSteps().isEmpty)
+        #expect(f.audit == ["reserved", "run_cancelled"])
+        #expect(f.callsUsed == 1)
+    }
+
+    @Test func callerCancelledDuringCredentialLoadNeverReachesTheHost() async throws {
+        let f = try await WebFixture.make(start: [.humanStep(.mfa)])
+        let started = AsyncStream.makeStream(of: Void.self)
+        f.secrets.blockNextLoad { started.continuation.yield() }
+        let call = Task { try await f.run() }
+        var iterator = started.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        call.cancel()
+        f.secrets.releaseLoad()
+        await #expect(throws: VaultError.denied) { _ = try await call.value }
+        #expect(f.host.log.all.isEmpty, "no start, not even a withheld one")
+        #expect(f.audit == ["reserved", "run_cancelled"])
+    }
+
+    @Test func authorityIsRecheckedAtTheMomentTheCredentialWouldBeSent() async throws {
+        // The scripted host asks for authority when it would send, like the link after its probe.
+        let f = try await WebFixture.make(start: [.humanStep(.mfa)], duration: 3600)
+        let run = try await f.startPausedRun()
+        #expect(f.host.startLifetimes == [900], "a live lifetime capped at the host maximum")
+        try await f.broker.cancel(run.uuid, clientID: f.client.id)
+        let short = try await WebFixture.make(start: [.humanStep(.mfa)], duration: 100)
+        _ = try await short.startPausedRun()
+        #expect(short.host.startLifetimes == [100])
+    }
+
+    @Test func startPastItsDeadlineIsWithheldEvenWithAValidGrant() async throws {
+        let windows = try LifecycleWindows(approval: 120, humanPause: 600, collect: 120, startReply: 60)
+        let f = try await WebFixture.make(start: [.humanStep(.mfa)], windows: windows)
+        await f.host.authorityHold.arm()
+        let call = Task { try await f.run() }
+        await f.host.authorityHold.waitUntilReached()
+        // Authentication took longer than the start window; the grant itself is still valid.
+        f.clock.advance(61)
+        await f.host.authorityHold.open()
+        await #expect(throws: VaultError.upstreamUnavailable) { _ = try await call.value }
+        #expect(f.host.startCount == 0 && !f.host.log.all.contains("start"))
+        #expect(f.host.log.all.contains("start_withheld"))
+        #expect(f.audit == ["reserved", "web_timeout", "failed"])
+    }
+
+    @Test func grantExpiryWhileDispatchingEndsTheRunAsALossOfAuthority() throws {
+        let windows = LifecycleWindows.standard
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let binding = RunBinding(client: UUID(), account: UUID(), action: .githubWebProfile, grant: UUID(), credential: UUID())
+        let run = BrowserRun(id: BrowserRunID(), binding: binding, grantExpiresAt: t0 + 5)
+        let (dispatching, _) = run.applying(.credentialLoaded, now: t0, windows: windows)
+        #expect(dispatching?.phase.deadline == t0 + 5, "the dispatch deadline never outlives the grant")
+        let expired = dispatching!.applying(.clock(t0 + 5), now: t0 + 5, windows: windows)
+        #expect(expired.0 == nil && expired.1 == [.audit("response_suppressed"), .endHost])
+        let late = dispatching!.applying(.host(.humanStep(.mfa), epoch: 1), now: t0 + 6, windows: windows)
+        #expect(late.0 == nil && late.1 == [.audit("response_suppressed"), .endHost])
     }
 
     @Test func revocationDuringCredentialLoadNeverReachesTheHost() async throws {

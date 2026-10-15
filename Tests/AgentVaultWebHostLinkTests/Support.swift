@@ -39,6 +39,9 @@ let credential = WebLoginCredential(Data("synthetic-user\nSYNTHETIC-only-passwor
 let profile = AccountProfile(login: "synthetic-user", userID: 4242)!
 let tinyJPEG = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0xFF, 0xD9])
 
+/// A broker authority that always grants `seconds`; the broker's real callback is tested in Core.
+func authority(_ seconds: Int) -> WebStartAuthority { WebStartAuthority { TimeInterval(seconds) } }
+
 func step(_ run: BrowserRunID, _ epoch: UInt64 = 1) -> HumanStepID { HumanStepID(run: run, epoch: epoch) }
 
 /// Thread-safe ordered log.

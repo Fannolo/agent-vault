@@ -30,6 +30,26 @@ import Testing
         #expect(reply.status == "applied" && reply.id == challenge.id)
     }
 
+    @Test func readHandlersAreCancelledWhenTheirConnectionGoesButAdminWorkCompletes() async throws {
+        let events = Recorder()
+        let loop = Loopback(read: { _, _ in
+            await withTaskCancellationHandler { try? await Task.sleep(for: .seconds(5)) } onCancel: { events.record(1) }
+            return ReadReply(.outcome(.ready))
+        }, begin: { _, _ in
+            try? await Task.sleep(for: .milliseconds(400))
+            events.record(Task.isCancelled ? 3 : 2)
+            return AdminChallenge(id: UUID(), payload: Data(repeating: 7, count: 32), expiresAt: Date() + 60)
+        })
+        let read = loop.readClient(timeout: 3), admin = loop.adminClient(timeout: 3)
+        let pendingRead = Task { try? await read.perform(ReadRequest(operation: .accounts)) }
+        let pendingAdmin = Task { try? await admin.begin(AdminRequest(operation: .prune)) }
+        try await Task.sleep(for: .milliseconds(150))
+        read.invalidate(); admin.invalidate()
+        _ = await pendingRead.value; _ = await pendingAdmin.value
+        for _ in 0..<100 where events.uids.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(events.uids.sorted() == [1, 2], "the read is cancelled; the admin mutation is not")
+    }
+
     @Test func maximalSnapshotCrossesXPC() async throws {
         let loop = Loopback(snapshot: { _ in maximalSnapshot() })
         let snapshot = try await loop.adminClient().snapshot()

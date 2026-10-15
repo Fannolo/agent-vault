@@ -340,6 +340,11 @@ public actor Broker {
             abandon(id)
             throw publicError(error)
         }
+        // The caller is gone: nobody could learn this run's ID, so it never reaches the host.
+        if Task.isCancelled {
+            await apply(id, .agentCancelled)
+            throw VaultError.denied
+        }
         // A revocation during the load has already removed the run and audited the suppression.
         guard let run = runs[id], run.phase == .loadingCredential else { throw VaultError.denied }
         guard isAuthorized(run) else {
@@ -359,17 +364,36 @@ public actor Broker {
         }
         await apply(id, .credentialLoaded)
         guard let dispatched = runs[id] else { throw VaultError.denied }
-        await awaitHost(id, epoch: dispatched.epoch, within: windows.startReply) {
-            await web.start(id, workflow: workflow, credential: credential, lifetime: lifetime)
+        let epoch = dispatched.epoch
+        let authority = WebStartAuthority { [weak self] in await self?.startLifetime(id, epoch: epoch) }
+        let cancelled = await awaitHost(id, epoch: epoch, within: windows.startReply) {
+            await web.start(id, workflow: workflow, credential: credential, authority: authority)
+        }
+        if cancelled {
+            // Whatever the host created is ended: an unreachable caller cannot own a paused run.
+            await apply(id, .agentCancelled)
+            throw VaultError.denied
         }
         return try await collect(id)
     }
 
-    /// Waits for one host request at most `window`, whatever the host does. The request itself
-    /// keeps running unowned: a late reply still reaches `hostReplied`, which ends any context it
-    /// created. The caller disappearing does not stop the deadline either.
+    /// Live authority at the instant the link is about to send the credential.
+    private func startLifetime(_ id: BrowserRunID, epoch: UInt64) async -> TimeInterval? {
+        await sweep()
+        guard let run = runs[id], run.epoch == epoch, case .dispatching(let deadline) = run.phase,
+              now() < deadline.date else { return nil }
+        guard isAuthorized(run) else {
+            await apply(id, .authorityLost)
+            return nil
+        }
+        return min(LifecycleWindows.hostLifetimeCap, run.grantExpiresAt.timeIntervalSince(now()))
+    }
+
+    /// Waits for one host request at most `window`, whatever the host does, and stops early if the
+    /// waiting task is cancelled; returns whether it was. The request itself keeps running unowned:
+    /// a late reply still reaches `hostReplied`, which ends any context it created.
     private func awaitHost(_ id: BrowserRunID, epoch: UInt64, within window: TimeInterval,
-                           _ request: @escaping @Sendable () async -> WebStep) async {
+                           _ request: @escaping @Sendable () async -> WebStep) async -> Bool {
         let settled = Signal()
         let timer = Task {
             try? await Task.sleep(for: .seconds(window))
@@ -380,9 +404,11 @@ public actor Broker {
             await self?.hostReplied(id, step, epoch: epoch)
             settled.fire()
         }
-        await settled.wait()
+        await withTaskCancellationHandler { await settled.wait() } onCancel: { settled.fire() }
         timer.cancel()
+        if Task.isCancelled { return true }
         await apply(id, .hostReplyOverdue(epoch: epoch))
+        return false
     }
 
     public func snapshot() throws -> VaultState { try state.snapshot() }
@@ -667,7 +693,8 @@ extension Broker {
         case .finished:
             await apply(run.id, .humanFinished(lease))
             guard let web, let classifying = runs[run.id] else { throw VaultError.denied }
-            await awaitHost(run.id, epoch: classifying.epoch, within: windows.classifyReply) {
+            // A person's cancelled request only stops waiting; the run keeps its own deadlines.
+            _ = await awaitHost(run.id, epoch: classifying.epoch, within: windows.classifyReply) {
                 await web.reclassify(run.id)
             }
             switch runs[run.id]?.phase {

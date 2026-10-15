@@ -149,3 +149,16 @@ private func rejectsReply(_ json: String) -> Bool {
         #expect(!HostResponse(request: 3, run: UUID(), reply: .ended).answers(request))
     }
 }
+
+@Suite struct HumanInputBoundsTests {
+    @Test func extremeValuesAreRefusedWithoutTrapping() {
+        #expect(!HumanInput.wheel(dx: Int.min, dy: 0).fits())
+        #expect(!HumanInput.wheel(dx: 0, dy: Int.min).fits())
+        #expect(!HumanInput.pointer(.down, x: Int.min, y: 0).fits())
+        #expect(!HumanInput.pointer(.down, x: 0, y: 0).fits(width: 0, height: 10))
+        #expect(!HumanInput.pointer(.down, x: 0, y: 0).fits(width: Int.min, height: Int.min))
+        #expect(HumanInputBatch([.key(.tab)], width: -1, height: 5) == nil)
+        #expect(HumanInputBatch([.wheel(dx: Int.max, dy: 1)]) == nil)
+        #expect(HumanInputBatch([.wheel(dx: -2000, dy: 2000)]) != nil)
+    }
+}

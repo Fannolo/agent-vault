@@ -57,7 +57,36 @@ private struct Composition {
     func resume(_ run: BrowserRunID) async throws -> OperationResult { try await broker.resume(run.uuid, clientID: client.id) }
 }
 
+private final class Clock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date = Date(timeIntervalSince1970: 1_700_000_000)
+    func now() -> Date { lock.withLock { date } }
+    func advance(_ seconds: TimeInterval) { lock.withLock { date.addTimeInterval(seconds) } }
+}
+
 @Suite(.serialized) struct BrokerOverLinkTests {
+    @Test func grantExpiringDuringTheAuthenticationProbeSendsNoCredential() async throws {
+        let clock = Clock()
+        let raw = RawHost { bytes in
+            if bytes.isEmpty { clock.advance(3); return errorEnvelope(.invalidRequest) }
+            guard let request = try? HostWire.decodeRequest(bytes) else { return errorEnvelope(.invalidRequest) }
+            let reply: HostReply = isEnd(request.command) ? .ended : .humanStep(.mfa)
+            return try? HostWire.encode(HostResponse(request: request.id, run: request.command.run, reply: reply))
+        }
+        let link = link({ raw.endpoint }, budgets: .standard)
+        let broker = Broker(state: State(), secrets: Secrets(), webSessions: link, now: { clock.now() })
+        let account = try await broker.enroll(service: .githubWeb, credential: credential.bytes)
+        let client = try await broker.registerClient()
+        _ = try await broker.grant(clientID: client.id, accountID: account.id, duration: 2, callLimit: 1)
+        await #expect(throws: VaultError.denied) {
+            _ = try await broker.run(clientID: client.id, accountID: account.id, action: .githubWebProfile)
+        }
+        let commands = raw.received.all.compactMap { try? HostWire.decodeRequest($0).command }
+        #expect(!commands.contains(where: isStart), "the credential-bearing start is never written after expiry")
+        #expect(raw.received.all.first == Data())
+        #expect(try await broker.snapshot().audit.map(\.outcome) == ["reserved", "response_suppressed"])
+    }
+
     @Test func pausedRunCompletesThroughTheHumanStepAndTheHostContextEnds() async throws {
         let host = TestHost(handler: pausingHost)
         let c = try await Composition.make { host.endpoint }

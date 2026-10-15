@@ -77,8 +77,11 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
         guard slots.acquire() else { return false }
 
         connection.setCodeSigningRequirement(admin ? configuration.adminRequirement : configuration.readRequirement)
+        // A read whose bridge connection is gone is cancelled, so a browser run it started cannot be
+        // left paused with no caller that knows its ID. Admin work always runs to completion: signed
+        // lifecycle mutations keep their journal and uncertainty semantics.
         let peer = Peer(uid: uid, limits: limits, connectionInFlight: Gate(limit: limits.maxInFlightPerConnection),
-                        serviceInFlight: admin ? adminInFlight : readInFlight)
+                        serviceInFlight: admin ? adminInFlight : readInFlight, cancelsOnInvalidation: !admin)
         if admin {
             connection.exportedInterface = NSXPCInterface(with: VaultAdminRPC.self)
             connection.exportedObject = AdminEndpoint(peer: peer, handlers: handlers)
@@ -86,7 +89,10 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
             connection.exportedInterface = NSXPCInterface(with: VaultReadRPC.self)
             connection.exportedObject = ReadEndpoint(peer: peer, handlers: handlers)
         }
-        connection.invalidationHandler = { slots.release() }
+        connection.invalidationHandler = {
+            slots.release()
+            peer.connectionInvalidated()
+        }
         connection.activate()
         return true
     }
@@ -127,15 +133,31 @@ final class ReplyOnce: @unchecked Sendable {
 }
 
 /// State bound to one accepted connection.
-final class Peer: Sendable {
+final class Peer: @unchecked Sendable {
     let uid: UInt32
     let limits: IPCLimits
     private let connectionInFlight: Gate
     private let serviceInFlight: Gate
+    private let cancelsOnInvalidation: Bool
+    private let lock = NSLock()
+    private var running: [UUID: Task<Void, Never>] = [:]
+    private var invalidated = false
 
-    init(uid: UInt32, limits: IPCLimits, connectionInFlight: Gate, serviceInFlight: Gate) {
+    init(uid: UInt32, limits: IPCLimits, connectionInFlight: Gate, serviceInFlight: Gate,
+         cancelsOnInvalidation: Bool = false) {
         self.uid = uid; self.limits = limits
         self.connectionInFlight = connectionInFlight; self.serviceInFlight = serviceInFlight
+        self.cancelsOnInvalidation = cancelsOnInvalidation
+    }
+
+    /// The connection is gone. For a read peer, its in-flight handlers are cancelled.
+    func connectionInvalidated() {
+        let tasks = lock.withLock { () -> [Task<Void, Never>] in
+            invalidated = true
+            defer { running = [:] }
+            return cancelsOnInvalidation ? Array(running.values) : []
+        }
+        for task in tasks { task.cancel() }
     }
 
     /// Validates size and shape before allocating capacity, then runs `work` off the XPC queue.
@@ -159,12 +181,20 @@ final class Peer: Sendable {
             connectionInFlight.release()
             return reply.send(WireCodec.errorReply(.busy))
         }
-        let uid = uid
-        Task {
+        let uid = uid, key = UUID()
+        let task = Task {
             let data = await work(uid, input)
             self.release()
+            _ = self.lock.withLock { self.running.removeValue(forKey: key) }
             reply.send(data)
         }
+        guard cancelsOnInvalidation else { return }
+        let late = lock.withLock { () -> Bool in
+            if invalidated { return true }
+            running[key] = task
+            return false
+        }
+        if late { task.cancel() }
     }
 
     private func release() {

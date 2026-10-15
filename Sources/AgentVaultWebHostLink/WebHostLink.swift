@@ -100,13 +100,14 @@ public final class WebHostLink: WebSessionExecutor, @unchecked Sendable {
     // MARK: WebSessionExecutor
 
     public func start(_ run: BrowserRunID, workflow: WebWorkflow, credential: WebLoginCredential,
-                      lifetime: TimeInterval) async -> WebStep {
+                      authority: WebStartAuthority) async -> WebStep {
         let deadline = Deadline(budgets.start)
-        let seconds = Int(min(lifetime, TimeInterval(HostCommand.maximumLifetime)).rounded(.down))
-        guard seconds >= 1 else { return .failed(.timeout) }
-        let command = HostCommand.start(run: run.uuid, workflow: workflow.host, credential: credential,
-                                        lifetime: seconds)
-        let outcome = await exchange(command, route: .bind(run), deadline: deadline)
+        // Asked only once the host is authenticated, and the start is written right after.
+        let outcome = await exchange(route: .bind(run), deadline: deadline) {
+            guard let lifetime = await authority.lifetimeIfStillAuthorized() else { return nil }
+            return .start(run: run.uuid, workflow: workflow.host, credential: credential,
+                          lifetime: min(lifetime, HostCommand.maximumLifetime))
+        }
         if case .failure(.timeout) = outcome {
             // The host may still create the context: end it now rather than leave a paid run behind.
             await end(run)
@@ -121,7 +122,9 @@ public final class WebHostLink: WebSessionExecutor, @unchecked Sendable {
     public func end(_ run: BrowserRunID) async {
         let generation = lock.withLock { () -> Generation? in
             tombstones.insert(run)
-            return bound.removeValue(forKey: run)
+            let generation = bound.removeValue(forKey: run)
+            generation?.runs.remove(run)
+            return generation
         }
         // Never started here, or its generation is gone: the host holds no context for it.
         guard let generation else { return }
@@ -164,6 +167,8 @@ public final class WebHostLink: WebSessionExecutor, @unchecked Sendable {
         case busy
         /// A late or duplicate start for a run this link already ended or started.
         case refused
+        /// The broker withdrew authority before the credential was written; nothing was sent.
+        case withheld
         /// The host answered outside the protocol; its generation is invalidated.
         case violation
         /// The host's transport refused the request with a fixed code.
@@ -179,6 +184,13 @@ public final class WebHostLink: WebSessionExecutor, @unchecked Sendable {
     }
 
     private func exchange(_ command: HostCommand, route: Route, deadline: Deadline) async -> Result<HostReply, Failure> {
+        await exchange(route: route, deadline: deadline) { command }
+    }
+
+    /// `prepare` runs after the generation is authenticated; the command it returns is admitted
+    /// and written without any further suspension.
+    private func exchange(route: Route, deadline: Deadline,
+                          prepare: () async -> HostCommand?) async -> Result<HostReply, Failure> {
         let generation: Generation
         switch route {
         case .bind(let run):
@@ -201,6 +213,7 @@ public final class WebHostLink: WebSessionExecutor, @unchecked Sendable {
             if case .bind = route { return .failure(.unavailable) }
             return .failure(.lost)
         }
+        guard let command = await prepare() else { return .failure(.withheld) }
         let lane = command.lane
         let admission = lock.withLock { () -> Result<HostRequest, Failure> in
             guard !generation.closed else { return .failure(.lost) }
@@ -252,7 +265,7 @@ public final class WebHostLink: WebSessionExecutor, @unchecked Sendable {
         case .failure(.lost): .failed(.hostLost)
         case .failure(.timeout): .failed(.timeout)
         case .failure(.busy), .failure(.transport(.busy)): .failed(.busy)
-        case .failure(.refused): .failed(.unknownRun)
+        case .failure(.refused), .failure(.withheld): .failed(.unknownRun)
         case .failure(.violation), .failure(.transport): .failed(.rendererUnavailable)
         }
     }
@@ -285,6 +298,11 @@ public final class WebHostLink: WebSessionExecutor, @unchecked Sendable {
             generation.probe(until: Deadline(budgets.start))
             return generation
         }
+    }
+
+    /// Test visibility into retained state: runs still bound, and runs held by the current generation.
+    var retainedRunCounts: (bound: Int, generation: Int) {
+        lock.withLock { (bound.count, current?.runs.count ?? 0) }
     }
 
     private func closed(_ generation: Generation) {

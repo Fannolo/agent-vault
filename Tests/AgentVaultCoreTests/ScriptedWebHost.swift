@@ -40,8 +40,11 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
     private var ended: [BrowserRunID] = []
     private var usernames: [String] = []
     private var starts = 0
+    private var lifetimes: [Int] = []
     let log: EventLog
     let startHold = Hold(), reclassifyHold = Hold()
+    /// Holds a start where the real link authenticates the host, before it asks for authority.
+    let authorityHold = Hold()
     let losses: AsyncStream<Set<BrowserRunID>>
     private let lossSignal: AsyncStream<Set<BrowserRunID>>.Continuation
 
@@ -51,8 +54,14 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
     }
 
     func start(_ run: BrowserRunID, workflow: WebWorkflow, credential: WebLoginCredential,
-               lifetime: TimeInterval) async -> WebStep {
-        lock.withLock { starts += 1; usernames.append(credential.username) }
+               authority: WebStartAuthority) async -> WebStep {
+        await authorityHold.pass()
+        // Like the real link: the credential is "sent" only with a live lifetime.
+        guard let lifetime = await authority.lifetimeIfStillAuthorized() else {
+            log.append("start_withheld")
+            return .failed(.unknownRun)
+        }
+        lock.withLock { starts += 1; usernames.append(credential.username); lifetimes.append(lifetime) }
         log.append("start")
         await startHold.pass()
         return lock.withLock {
@@ -98,6 +107,7 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
 
     var openContexts: Int { lock.withLock { open.count } }
     var startCount: Int { lock.withLock { starts } }
+    var startLifetimes: [Int] { lock.withLock { lifetimes } }
     var startedUsernames: [String] { lock.withLock { usernames } }
     func endCount(_ run: BrowserRunID) -> Int { lock.withLock { ended.filter { $0 == run }.count } }
     func contextOpen(_ run: BrowserRunID) -> Bool { lock.withLock { open.contains(run) } }
