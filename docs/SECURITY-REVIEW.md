@@ -152,6 +152,15 @@ Its callback rechecks the run, step, live grant and deadline immediately before 
 binds and sends without another suspension. It is a design response being implemented,
 not a verified fix. U2 and U3/U4 remain in isolated worktrees; production stays disabled.
 
+The subsequent frozen `0986606` review independently verified those original fixes in
+six focused checks, including actual read-connection cancellation, expiry during the
+authentication probe and physical grant expiry without polling. Cleanup-helper mock checks
+also passed. A new Medium issue still holds U1: `Peer.dispatch` can retain a completed
+read Task if it finishes before insertion into the tracking map. A normal 4,000-call run
+did not trigger it; a scratch-only 1 ms pause exposing that legal interleaving produced
+20 completed replies and 20 retained handles. This is not a natural-frequency measurement.
+The task-registration handshake needs a deterministic regression before acceptance.
+
 ## Round three: 15 October 2026
 
 Claude Sonnet 5.5 reviewed `d39b1c2` (documentation at `fe7f1dc`) in an independent,
