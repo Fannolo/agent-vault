@@ -35,8 +35,16 @@ and polling stopped during Finish. The parent reproduced and fixed an additional
 connection Finish/Cancel admission gap in `9a37625`. Eight focused tests pass, including
 the original race regressions and reaper error paths. The native continuation re-review
 ended with a provider policy error and supplied no final acceptance. Claude follow-ups
-hit an API rate limit; the parent made the last fixes. Combined recording, 18 browser
-mutations and 32 bounded continuation mutations are pending. Production stays disabled.
+hit an API rate limit; the parent made the last fixes. Production stays disabled.
+
+The [combined U2–U4 record](verification/browser-u2-u4-integration.json) passes all nine
+checks at `9390b46`: 358 registered Swift tests with explicit opt-out skip reports, the
+separate 31-test real-host run with no skips, both MCP modes, boundaries, thirteen process
+ownership/harness checks, eleven recorder checks, all 18 browser mutations and all 32
+continuation mutations. Both mutation sets pass their baseline and restored-source build;
+compile failures do not count as detection. Source and selected browser executable stayed
+unchanged. Raw outputs are private and indexed by hash. These synthetic, same-UID checks
+do not establish U5's real host-to-app integration or any installed runtime gate.
 
 The prior source `73cb4d5` passed all nine selected checks in the
 [U1 integration record](verification/browser-u1-integration.json): 281 registered Swift

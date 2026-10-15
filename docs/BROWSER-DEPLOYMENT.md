@@ -62,7 +62,11 @@ The [normal U2 record](verification/browser-u2-normal.json) includes the parent'
 and does not run U2 browser mutations. Fixtures now await independent cleanup even when
 teardown is mutated. Failed exit observation kills and waits; interrupted waits retry.
 Only a confirmed reap reports success. An unconfirmed wait disables further signals.
-Bounded source review accepted these corrections at `a7a2a4c`; combined proof is pending.
+Bounded source review accepted these corrections at `a7a2a4c`. The
+[combined record](verification/browser-u2-u4-integration.json) at `9390b46` passes a
+31-test real-host run and all 18 browser mutations after a passing baseline, with restored
+source rebuilt. It also passes all 32 synthetic continuation mutations. Source and browser
+executable hashes stay unchanged. The real host and human relay are still separate fixtures.
 
 The measured renderer/GPU sandbox is not whole-process egress confinement: the browser and
 network utility are unsandboxed. Fetch and CSP are in-browser policy. Interactive same-UID

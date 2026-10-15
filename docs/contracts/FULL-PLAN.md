@@ -26,9 +26,11 @@ applying the frozen request. Tokens/signatures from one challenge cannot authori
 another challenge. For fixture testing only, a generated software P256 key is used.
 Production signing uses a Keychain/Secure Enclave user-presence protected key.
 
-Browser ownership remains in a broker-linked adapter. Workflows are fixed demo and
-GitHub web-profile reads. The app may show a human continuation view, but the MCP
-bridge receives no raw page, cookie, password, profile path or automation endpoint.
+Browser ownership belongs to a separate headless host behind the broker's authenticated
+domain port. Workflows are fixed demo and GitHub web-profile reads. The app relays signed,
+connection-bound human continuation through the broker; the MCP bridge receives no raw
+page, cookie, password, profile path or automation endpoint. Production stays disabled
+pending real-host integration and installed isolation, egress and live-service proof.
 Tests use a fixed local fixture origin supplied by trusted test configuration only;
 production uses HTTPS GitHub origins. MFA/CAPTCHA require human continuation.
 
