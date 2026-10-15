@@ -108,6 +108,7 @@ final class ChromiumPipe: @unchecked Sendable {
     private let commands: Int32
     private let replies: Int32
     private let lock = NSLock()
+    private let owned: OwnedGroup
     /// Writes happen only here, one message at a time, never under `lock`; it alone closes `commands`.
     private let writer = DispatchQueue(label: "agentvault.cdp.writer")
     private var commandsOpen = true
@@ -159,12 +160,14 @@ final class ChromiumPipe: @unchecked Sendable {
         close(toChild[0]); close(fromChild[1])
         guard status == 0 else { close(toChild[1]); close(fromChild[0]); throw CDPError.closed }
         processGroup = pid; commands = toChild[1]; replies = fromChild[0]
+        owned = OwnedGroup(pid)
         // A browser that stops reading must never block a writer past its deadline.
         _ = fcntl(commands, F_SETFL, fcntl(commands, F_GETFL) | O_NONBLOCK)
         signal(SIGPIPE, SIG_IGN)
         let thread = Thread { [weak self] in self?.readLoop() }
         thread.stackSize = 1 << 20
         thread.start()
+        owned.startReaper()
     }
 
     deinit {
@@ -207,14 +210,20 @@ final class ChromiumPipe: @unchecked Sendable {
         for continuation in waiting { continuation.resume(returning: .failure(.closed)) }
         guard !alreadyClosed else { return }
         // Never waits for a writer: kill first; the writer notices within one poll slice.
-        kill(-processGroup, SIGKILL)
+        killGroup()
         writer.async { [weak self] in self?.closeCommandsIfShut() }
-        let group = processGroup
-        DispatchQueue.global().async {
-            var status: Int32 = 0
-            _ = waitpid(group, &status, 0)
-        }
     }
+
+    /// SIGKILLs every process of the owned group, but only while its leader is unreaped: the group
+    /// ID is then still ours. After reaping there is nothing left to signal, and nothing is.
+    func killGroup() { owned.signal() }
+
+    /// Sends `signal` to the owned group only while it is still pinned; `false` otherwise.
+    @discardableResult
+    func signalGroup(_ signal: Int32) -> Bool { owned.signal(signal) }
+
+    /// True once the leader has been reaped, after every member of its group was ended.
+    var isReaped: Bool { owned.isReaped }
 
     var isClosed: Bool { lock.withLock { closed } }
 
@@ -290,8 +299,70 @@ final class ChromiumPipe: @unchecked Sendable {
     }
 }
 
+/// The browser's process group, owned from spawn until its leader is reaped.
+///
+/// The leader is a child of this process, so its PID, and with it the group ID, cannot be reused
+/// until it is reaped, and it is reaped only here, under `lock`. Signalling under the same lock
+/// while `reaped` is false therefore can only reach this browser's processes.
+final class OwnedGroup: @unchecked Sendable {
+    let id: pid_t
+    private let lock = NSLock()
+    private var reaped = false
+
+    init(_ leader: pid_t) { id = leader }
+
+    /// Returns `false` once the leader is reaped: the group ID may then belong to someone else.
+    @discardableResult
+    func signal(_ signal: Int32 = SIGKILL) -> Bool {
+        lock.withLock {
+            guard !reaped else { return false }
+            return Darwin.kill(-id, signal) == 0
+        }
+    }
+
+    var isReaped: Bool { lock.withLock { reaped } }
+
+    /// Waits for the leader to exit without reaping it, ends any member it left behind while the
+    /// group ID is still pinned, then reaps it. Holds itself alive until then.
+    func startReaper() {
+        let reaper = Thread { [self] in
+            // Not `waitid(WEXITED | WNOWAIT)`: measured on macOS 15, it also returns for a stopped
+            // child. A kqueue exit event fires only on exit and does not reap.
+            guard waitForExit() else { return }
+            lock.withLock {
+                _ = Darwin.kill(-id, SIGKILL)
+                var status: Int32 = 0
+                _ = waitpid(id, &status, 0)
+                reaped = true
+            }
+        }
+        reaper.stackSize = 1 << 16
+        reaper.start()
+    }
+
+    /// Blocks until the leader exits; `false` if exit cannot be observed (then nothing is reaped).
+    private func waitForExit() -> Bool {
+        let queue = kqueue()
+        guard queue >= 0 else { return false }
+        defer { close(queue) }
+        var change = kevent(ident: UInt(id), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_ONESHOT),
+                            fflags: NOTE_EXIT, data: 0, udata: nil)
+        var event = kevent()
+        while true {
+            let count = kevent(queue, &change, 1, &event, 1, nil)
+            if count > 0 {
+                // An exited but unreaped leader cannot be registered: that is an exit too.
+                if event.flags & UInt16(EV_ERROR) != 0 { return event.data == Int(ESRCH) }
+                return event.fflags & NOTE_EXIT != 0
+            }
+            if count < 0 && errno == EINTR { continue }
+            return count < 0 && errno == ESRCH
+        }
+    }
+}
+
 private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeMutablePointer<CChar>?>) -> R) -> R {
-    var pointers: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) } + [nil]
+    let pointers: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) } + [nil]
     defer { for pointer in pointers { free(pointer) } }
     return pointers.withUnsafeBufferPointer { body($0.baseAddress!) }
 }

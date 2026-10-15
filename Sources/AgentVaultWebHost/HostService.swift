@@ -23,6 +23,8 @@ actor HostService {
     /// The one launch every run waits for: no run creates a target before every new target is
     /// guaranteed to start paused under auto-attach.
     private var launch: Task<ChromiumPipe?, Never>?
+    /// The browser this service started, kept after teardown so its owner can confirm it is gone.
+    private(set) var launched: ChromiumPipe?
     private var runs: [UUID: WebRun] = [:]
     private var lifetimes: [UUID: Task<Void, Never>] = [:]
     private var tombstones: Set<UUID> = []
@@ -139,6 +141,7 @@ actor HostService {
         }
         router.pipe = created
         pipe = created
+        launched = created
         // Every new target, ours included, starts paused and attached, so nothing runs ungated.
         guard (try? await created.call(.targetSetAutoAttach, ["autoAttach": true, "waitForDebuggerOnStart": true,
                                                                "flatten": true])) != nil, !terminal else {

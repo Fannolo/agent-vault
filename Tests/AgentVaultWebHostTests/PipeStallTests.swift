@@ -25,6 +25,15 @@ private struct StalledReader {
     }
 
     func remove() { try? FileManager.default.removeItem(at: directory) }
+
+    /// Ends the fake through its owned group handle and waits until its leader is reaped.
+    static func release(_ pipe: ChromiumPipe?) {
+        guard let pipe else { return }
+        pipe.killGroup()
+        let deadline = Date().addingTimeInterval(5)
+        while !pipe.isReaped && Date() < deadline { usleep(20_000) }
+        #expect(pipe.isReaped, "owned group \(pipe.processGroup) was not reaped")
+    }
 }
 
 /// Runs `work` on its own thread; `true` if it returned within `seconds`.
@@ -34,13 +43,11 @@ private func returns(within seconds: Double, _ work: @escaping @Sendable () -> V
     return done.wait(timeout: .now() + seconds) == .success
 }
 
-private func groupGone(_ group: pid_t, within seconds: Double = 3) -> Bool {
+/// The owned group's leader has been reaped, after every member was ended.
+private func reaped(_ pipe: ChromiumPipe, within seconds: Double = 3) -> Bool {
     let deadline = Date().addingTimeInterval(seconds)
-    while Date() < deadline {
-        if kill(-group, 0) != 0 && errno == ESRCH { return true }
-        usleep(20_000)
-    }
-    return false
+    while Date() < deadline && !pipe.isReaped { usleep(20_000) }
+    return pipe.isReaped
 }
 
 @Suite(.serialized) struct PipeStallTests {
@@ -48,22 +55,20 @@ private func groupGone(_ group: pid_t, within seconds: Double = 3) -> Bool {
 
     @Test func teardownIsBoundedWhileALargeWriteIsStalled() async throws {
         let reader = try StalledReader(); defer { reader.remove() }
-        let pipe = try reader.pipe()
-        let group = pipe.processGroup
+        let pipe = try reader.pipe(); defer { StalledReader.release(pipe) }
         let began = Date()
         let stalled = Task { try? await pipe.call(.fetchFulfillRequest, ["requestId": "r", "body": Self.large], timeout: 30) }
         try await Task.sleep(for: .milliseconds(300))
         // Teardown must not wait for the writer: it kills the owned group and returns.
         #expect(returns(within: 1) { pipe.terminate() }, "terminate waited on a stalled pipe write")
-        #expect(groupGone(group), "the owned browser group is gone")
+        #expect(reaped(pipe), "the owned browser group is gone")
         _ = await stalled.value
         #expect(Date().timeIntervalSince(began) < 5, "the stalled call ends with the pipe, not at its 30 s timeout")
     }
 
     @Test func stalledWriteEndsAtItsOwnDeadlineAndBreaksThePipe() async throws {
         let reader = try StalledReader(); defer { reader.remove() }
-        let pipe = try reader.pipe()
-        let group = pipe.processGroup
+        let pipe = try reader.pipe(); defer { StalledReader.release(pipe) }
         let began = Date()
         let result: Result<JSONValue, CDPError>
         do { result = .success(try await pipe.call(.fetchFulfillRequest, ["requestId": "r", "body": Self.large], timeout: 1)) }
@@ -71,12 +76,12 @@ private func groupGone(_ group: pid_t, within seconds: Double = 3) -> Bool {
         #expect(result == .failure(.timeout) || result == .failure(.closed))
         #expect(Date().timeIntervalSince(began) < 3, "a write cannot outlive its call's deadline")
         // A half-written message would corrupt the framing: the whole browser goes.
-        #expect(groupGone(group) && pipe.isClosed)
+        #expect(reaped(pipe) && pipe.isClosed)
     }
 
     @Test func callsQueuedBehindAStalledWriteKeepTheirOwnDeadlines() async throws {
         let reader = try StalledReader(); defer { reader.remove() }
-        let pipe = try reader.pipe()
+        let pipe = try reader.pipe(); defer { StalledReader.release(pipe) }
         let stalled = Task { try? await pipe.call(.fetchFulfillRequest, ["requestId": "r", "body": Self.large], timeout: 10) }
         try await Task.sleep(for: .milliseconds(300))
         let began = Date()
@@ -86,6 +91,20 @@ private func groupGone(_ group: pid_t, within seconds: Double = 3) -> Bool {
         #expect(Date().timeIntervalSince(began) < 2, "a queued call is not held past its deadline by another's write")
         pipe.terminate()
         _ = await stalled.value
+    }
+}
+
+@Suite(.serialized) struct OwnedGroupTests {
+    @Test func aStoppedBrowserIsNeitherExitedNorReapedUntilItIsKilled() async throws {
+        let reader = try StalledReader(); defer { reader.remove() }
+        let pipe = try reader.pipe(); defer { StalledReader.release(pipe) }
+        #expect(pipe.signalGroup(SIGSTOP))
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(!pipe.isReaped, "a stop is not an exit: the group ID must stay pinned")
+        #expect(pipe.signalGroup(SIGCONT))
+        pipe.killGroup()
+        #expect(reaped(pipe), "killed through the owned handle, then reaped")
+        #expect(!pipe.signalGroup(SIGKILL), "after reaping, the handle never signals again")
     }
 }
 
@@ -115,6 +134,7 @@ private func groupGone(_ group: pid_t, within seconds: Double = 3) -> Bool {
         let terminal = await service.terminal
         #expect(fatal.marked && terminal, "an unconfirmed auto-attach is fatal")
         await service.teardown()
+        StalledReader.release(await service.launched)
     }
 }
 
