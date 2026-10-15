@@ -35,6 +35,12 @@ contains the commands, results, log hashes and complete tracked-file hashes. The
 same-UID process checks; installed private-UID isolation remains unproven. A fresh Claude
 Sonnet follow-up review of the fixes is running.
 
+A fresh Bite Developer ID review bundle was built from clean `1e4a2ea`. All three
+hardened signatures and manifest hashes verified, and the installer sandbox passed
+against those exact binaries. [The signed-bundle record](verification/signed-review-bundle-r3.json)
+is separate from the historical `425c6af` record. This build has no provisioning profile
+and is not notarized; no protected-key probe was repeated on it.
+
 No existing application, browser profile, host MCP configuration, company evidence or real
 service credential has been modified. No dedicated user, daemon or app has been installed.
 The complete plan is **not finished** while the runtime and distribution gates below remain open.

@@ -44,6 +44,12 @@ successful check exits (including two separate native Keychain opt-ins). A new C
 Sonnet review, `agent-vault-security-followup-review-v4-20261015`, is running against the
 fixes and evidence trail; it has not yet returned a verdict.
 
+After that review started, clean `1e4a2ea` was rebuilt with Bite Developer ID. The
+[new signed-bundle record](verification/signed-review-bundle-r3.json) verifies all three
+signatures, exact empty review entitlements, manifest file hashes and installer sandbox
+against the new binaries. It records no fresh protected-key probe, provisioning or
+notarization; the older `425c6af` probe remains historical evidence only.
+
 Round 2 had identified synchronous Keychain calls blocking the broker actor and denial
 floods evicting invocation history. `d39b1c2` moved actual I/O to four bounded workers
 with deadlines and retained late-worker bookkeeping, compensated ordinary lifecycle
