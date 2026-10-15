@@ -3,15 +3,22 @@
 import argparse
 import fnmatch
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import plistlib
 import shutil
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 TEAM = "3JWAQ92CB4"
 APP = "dev.agentvault.app"
+# The installer's entitlement reader, so release and install apply one parser.
+_SPEC = importlib.util.spec_from_file_location("agentvault_installer", ROOT / "deploy/ipc/agentvault_installer.py")
+installer = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = installer
+_SPEC.loader.exec_module(installer)
 
 
 def run(*args, **kwargs):
@@ -24,10 +31,10 @@ def require(condition, message):
 
 
 def signed_entitlements(path):
-    declared = run("/usr/bin/codesign", "-d", "--entitlements", ":-", "--xml", str(path), capture_output=True).stdout
-    claims = plistlib.loads(declared) if declared.strip() else {}
-    require(isinstance(claims, dict), "signed entitlements are not a dictionary")
-    return claims
+    try:
+        return installer.signed_entitlements(str(path))
+    except installer.Refusal as error:
+        raise SystemExit(str(error)) from None
 
 
 def verify_entitlements(path, expected):

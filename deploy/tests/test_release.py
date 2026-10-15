@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("build_release", ROOT / "scripts/build-release.py")
@@ -55,6 +56,18 @@ class ReleaseEntitlementsTests(unittest.TestCase):
         binary = self.signed({"com.apple.security.cs.debugger": True})
         with self.assertRaisesRegex(SystemExit, "exact declared policy"):
             release.verify_entitlements(binary, {})
+
+    def test_release_and_installer_share_one_publisher_and_parser(self):
+        self.assertEqual(release.TEAM, release.installer.TEAM)
+        self.assertEqual(release.installer.__file__, str(ROOT / "deploy/ipc/agentvault_installer.py"))
+
+    def test_unreadable_or_contradictory_claims_stop_the_release(self):
+        for xml, default in ((b"<plist><dict>", b"[Dict]"), (b"", b"[Dict]")):
+            def run(argv, check=True):
+                return subprocess.CompletedProcess(argv, 0, xml if "--xml" in argv else default, b"")
+            with self.subTest(xml=xml), mock.patch.object(release.installer, "run_command", side_effect=run), \
+                    self.assertRaises(SystemExit):
+                release.verify_entitlements(self.root / "fixture", {})
 
 
 if __name__ == "__main__":

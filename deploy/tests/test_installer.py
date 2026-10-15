@@ -750,6 +750,36 @@ class RealCodesignTests(unittest.TestCase):
         self.assertEqual(identity.entitlements, {key: True for key in av.UNSAFE_ENTITLEMENTS})
         self.assertFalse(av.role_entitlements_allowed(identity.identifier, identity.entitlements))
 
+    def test_entitled_app_claims_are_read_exactly_and_bound_to_its_role(self):
+        claims = {
+            "com.apple.application-identifier": av.TEAM + ".dev.agentvault.app",
+            "com.apple.developer.team-identifier": av.TEAM,
+            "keychain-access-groups": [av.TEAM + ".dev.agentvault.app"],
+        }
+        entitlements = os.path.join(self.tmp, "app.plist")
+        with open(entitlements, "wb") as handle:
+            handle.write(plistlib.dumps(claims))
+        path = os.path.join(self.tmp, "app")
+        shutil.copy("/usr/bin/true", path)
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", "dev.agentvault.app",
+                        "--options", "runtime", "--entitlements", entitlements, path], check=True, capture_output=True)
+        identity = av.CodeInspector().identity(path)
+        self.assertEqual(identity.identifier, "dev.agentvault.app")
+        self.assertEqual(identity.entitlements, claims)
+        self.assertTrue(av.role_entitlements_allowed("dev.agentvault.app", identity.entitlements))
+        self.assertFalse(av.role_entitlements_allowed("dev.agentvault.broker", identity.entitlements))
+        with open(entitlements, "wb") as handle:
+            handle.write(plistlib.dumps({**claims, "com.apple.security.network.client": True}))
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", "--identifier", "dev.agentvault.app",
+                        "--options", "runtime", "--entitlements", entitlements, path], check=True, capture_output=True)
+        extra = av.CodeInspector().identity(path).entitlements
+        self.assertEqual(extra["com.apple.security.network.client"], True)
+        self.assertFalse(av.role_entitlements_allowed("dev.agentvault.app", extra))
+
+    def test_unentitled_code_has_empty_claims_in_both_codesign_forms(self):
+        path = self.signed("plain", "--options", "runtime")
+        self.assertEqual(av.signed_entitlements(path), {})
+
     def test_unsigned_and_tampered_code_is_refused(self):
         path = self.signed("tampered", "--options", "runtime")
         with open(path, "r+b") as handle:
@@ -757,6 +787,49 @@ class RealCodesignTests(unittest.TestCase):
             handle.write(b"\xff\xff\xff\xff")
         with self.assertRaises(av.Refusal):
             av.CodeInspector().identity(path)
+
+
+class EntitlementOutputTests(unittest.TestCase):
+    """codesign output that real signing cannot produce, injected at run_command."""
+
+    XML = plistlib.dumps({"keychain-access-groups": [av.TEAM + ".dev.agentvault.app"]})
+    DEFAULT = b"[Dict]\n\t[Key] keychain-access-groups\n"
+
+    def read(self, xml, default):
+        def run(argv, check=True):
+            return subprocess.CompletedProcess(argv, 0, xml if "--xml" in argv else default, b"")
+        with mock.patch.object(av, "run_command", side_effect=run) as fake:
+            claims = av.signed_entitlements("/fixture")
+        self.assertTrue(all(":-" not in call.args[0] for call in fake.call_args_list))
+        return claims
+
+    def test_matching_forms_are_parsed(self):
+        self.assertEqual(self.read(self.XML, self.DEFAULT), plistlib.loads(self.XML))
+        self.assertEqual(self.read(b"", b""), {})
+
+    def test_contradictory_empty_output_is_refused(self):
+        for xml, default in ((b"", self.DEFAULT), (b"\n", self.DEFAULT), (self.XML, b"")):
+            with self.subTest(xml=xml, default=default), self.assertRaisesRegex(av.Refusal, "disagree"):
+                self.read(xml, default)
+
+    def test_malformed_or_non_dictionary_claims_are_refused(self):
+        for xml in (b"<?xml version='1.0'?><plist><dict><key>x</key>", b"\xff\xfe not xml",
+                    plistlib.dumps({"a": True}, fmt=plistlib.FMT_BINARY),
+                    b"<?xml version='1.0'?><plist version='1.0'><integer>x</integer></plist>",
+                    plistlib.dumps(["keychain-access-groups"])):
+            with self.subTest(xml=xml), self.assertRaises(av.Refusal):
+                self.read(xml, self.DEFAULT)
+
+    def test_malformed_claims_are_a_signature_refusal_during_install_checks(self):
+        installer = av.Installer(av.Host(None, None, None, av.CodeInspector()))
+        def run(argv, check=True):
+            if "--entitlements" not in argv:
+                details = b"Identifier=dev.agentvault.broker\nTeamIdentifier=" + av.TEAM.encode() + b"\n"
+                return subprocess.CompletedProcess(argv, 0, b"", details)
+            return subprocess.CompletedProcess(argv, 0, b"<plist><dict>" if "--xml" in argv else self.DEFAULT, b"")
+        with mock.patch.object(av, "run_command", side_effect=run), \
+                self.assertRaisesRegex(av.Refusal, "no valid signature"):
+            installer.inspect(av.PROGRAMS[0], "/fixture")
 
 
 def read_file(path):

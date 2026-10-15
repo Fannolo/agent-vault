@@ -27,6 +27,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+from xml.parsers.expat import ExpatError
 
 TEAM = "3JWAQ92CB4"
 LABEL = "dev.agentvault.broker"
@@ -370,6 +371,25 @@ def role_entitlements_allowed(identifier: str, claims: dict) -> bool:
     }
 
 
+def signed_entitlements(path: str) -> dict:
+    """The sealed claims in codesign's documented XML form. Its default form is read
+    independently; only its emptiness is compared, so an XML answer that went empty
+    while the signature still carries entitlements is refused instead of read as none."""
+    xml = run_command(["/usr/bin/codesign", "-d", "--entitlements", "-", "--xml", path]).stdout
+    default = run_command(["/usr/bin/codesign", "-d", "--entitlements", "-", path]).stdout
+    if bool(xml.strip()) != bool(default.strip()):
+        raise Refusal("codesign's XML and default entitlement output disagree")
+    if not xml.strip():
+        return {}
+    try:
+        claims = plistlib.loads(xml, fmt=plistlib.FMT_XML)
+    except (ValueError, ExpatError):
+        raise Refusal("signed entitlements are not an XML property list") from None
+    if not isinstance(claims, dict):
+        raise Refusal("signed entitlements are not a dictionary")
+    return claims
+
+
 class CodeInspector:
     """Read-only codesign queries. The host-native slice's cdhash is the one that runs."""
 
@@ -377,10 +397,7 @@ class CodeInspector:
         run_command(["/usr/bin/codesign", "--verify", "--strict", "--deep", path])
         details = run_command(["/usr/bin/codesign", "-d", "--verbose=4", path]).stderr.decode(errors="replace")
         fields = dict(line.split("=", 1) for line in details.splitlines() if "=" in line)
-        entitlements = run_command(["/usr/bin/codesign", "-d", "--entitlements", ":-", "--xml", path]).stdout
-        claims = plistlib.loads(entitlements) if entitlements.strip() else {}
-        if not isinstance(claims, dict):
-            raise Refusal("signed entitlements are not a dictionary")
+        claims = signed_entitlements(path)
         flags = re.search(r"flags=0x[0-9a-f]+\(([^)]*)\)", fields.get("CodeDirectory v", ""))
         return CodeIdentity(fields.get("Identifier", ""), fields.get("TeamIdentifier", ""),
                             fields.get("CDHash", ""), bool(flags and "runtime" in flags.group(1).split(",")),
