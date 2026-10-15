@@ -172,13 +172,14 @@ actor WebRun {
 
     // MARK: Human continuation
 
-    /// Begins showing the step numbered `epoch` by the broker. Epochs only move forward.
+    /// Begins showing the step numbered by the broker. A new lease may reopen the same step;
+    /// that does not reset its frame watermark. Epochs never move backwards.
     func showHuman(step epoch: UInt64) async -> HostReply {
         guard case .human = stage else { return .rejected(.notPaused) }
-        guard epoch > step else { return .rejected(.staleStep) }
         guard await challenge() != nil else { return .rejected(.captureUnavailable) }
-        step = epoch
-        latest = nil
+        guard case .human = stage else { return .rejected(.notPaused) }
+        guard epoch > 0, epoch >= step else { return .rejected(.staleStep) }
+        if epoch > step { step = epoch; latest = nil }
         return .accepted
     }
 

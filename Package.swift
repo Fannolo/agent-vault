@@ -69,6 +69,11 @@ let package = Package(
         // test target may link the app with Core; verify-boundaries.py checks product targets.
         .testTarget(name: "AgentVaultContinuationE2ETests", dependencies: [
             "AgentVaultAppSupport", "AgentVaultCore", "AgentVaultIPC", "AgentVaultContracts"
+        ]),
+        // Synthetic composition only: no product role may link these implementation surfaces.
+        .testTarget(name: "AgentVaultHeadlessE2ETests", dependencies: [
+            "AgentVaultWebHost", "AgentVaultWebHostLink", "AgentVaultWebHostProtocol", "AgentVaultCore",
+            "AgentVaultAppSupport", "AgentVaultIPC", "AgentVaultContracts", "AgentVaultBrowserFixture"
         ])
     ]
 )

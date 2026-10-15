@@ -177,7 +177,7 @@ struct RealBrowserTests {
             // Frames and input exist only for the step the broker named.
             #expect(await h.service.perform(.frame(run: run, step: 1, after: 0)) == .rejected(.staleStep))
             #expect(await h.service.perform(.showHuman(run: run, step: 1)) == .accepted)
-            #expect(await h.service.perform(.showHuman(run: run, step: 1)) == .rejected(.staleStep), "epochs only move forward")
+            #expect(await h.service.perform(.showHuman(run: run, step: 1)) == .accepted, "another signed lease may reopen this same step")
             guard case .frame(1, let frame) = await h.service.perform(.frame(run: run, step: 1, after: 0)) else {
                 Issue.record("no frame"); return
             }
@@ -202,6 +202,25 @@ struct RealBrowserTests {
             #expect(await h.service.perform(.classify(run: run)) == fixtureProfile)
             #expect(await h.service.liveRuns == 0)
             #expect(h.site.elsewhereRequests.isEmpty)
+        }
+    }
+
+    @Test func reopeningAStepPreservesItsFrameWatermarkAndRefusesOlderEpochs() async throws {
+        try await Host.using { h in
+            let (run, reply) = await h.start(user: "mfa-user")
+            #expect(reply == .humanStep(.mfa))
+            #expect(await h.service.perform(.showHuman(run: run, step: 1)) == .accepted)
+            guard case .frame(1, let first) = await h.service.perform(.frame(run: run, step: 1, after: 0)) else {
+                Issue.record("first frame missing"); return
+            }
+            #expect(await h.service.perform(.showHuman(run: run, step: 1)) == .accepted)
+            guard case .frame(1, let second) = await h.service.perform(.frame(run: run, step: 1, after: first.sequence)) else {
+                Issue.record("reopen reset the frame watermark"); return
+            }
+            #expect(second.sequence > first.sequence)
+            #expect(await h.service.perform(.showHuman(run: run, step: 2)) == .accepted)
+            #expect(await h.service.perform(.showHuman(run: run, step: 1)) == .rejected(.staleStep))
+            #expect(await h.service.perform(.showHuman(run: run, step: 0)) == .rejected(.staleStep))
         }
     }
 
