@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Show that each XPC defense is what makes its verify-xpc scenario pass.
 
-Copies the source tree (without .build or .git) to a private temporary directory,
+Copies the source tree (without build output, private logs or .git) to a private temporary directory,
 disables one defense at a time there, reruns scripts/verify-xpc.py and checks that
 exactly the expected scenarios fail, the harness exit status agrees and every fixture
 job was confirmed unloaded and its files removed. Two mutations remove one of the two server requirement
@@ -90,7 +90,7 @@ def main():
     tree = work / "tree"
     report = []
     try:
-        shutil.copytree(ROOT, tree, ignore=shutil.ignore_patterns(".build", ".git", ".swiftpm", "dist", "__pycache__"))
+        shutil.copytree(ROOT, tree, ignore=shutil.ignore_patterns(".build", ".git", ".swiftpm", "dist", "verification-logs", "__pycache__"))
         for name, relative, old, new, expected in MUTATIONS:
             target = tree / relative
             original = target.read_text()

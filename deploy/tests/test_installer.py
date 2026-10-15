@@ -820,6 +820,15 @@ class EntitlementOutputTests(unittest.TestCase):
             with self.subTest(xml=xml), self.assertRaises(av.Refusal):
                 self.read(xml, self.DEFAULT)
 
+    def test_duplicate_signed_keys_are_refused_at_every_depth(self):
+        for body in (b"<key>k</key><true/><key>k</key><false/>",
+                     b"<key>k</key><true/><key>k</key><true/>",
+                     b"<key>outer</key><dict><key>k</key><true/><key>k</key><false/></dict>",
+                     b"<key>k</key><true/><key>&#107;</key><false/>"):
+            xml = b"<?xml version='1.0'?><plist version='1.0'><dict>" + body + b"</dict></plist>"
+            with self.subTest(xml=xml), self.assertRaises(av.Refusal):
+                self.read(xml, self.DEFAULT)
+
     def test_malformed_claims_are_a_signature_refusal_during_install_checks(self):
         installer = av.Installer(av.Host(None, None, None, av.CodeInspector()))
         def run(argv, check=True):

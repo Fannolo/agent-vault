@@ -18,6 +18,7 @@ public enum ReadFailureStatus: String, CaseIterable, Codable, Sendable, Error {
     case invalidResponse = "invalid_response"
     case busy
     case operationFailed = "operation_failed"
+    case brokerUnavailable = "broker_unavailable"
     case loginRejected = "login_rejected"
     /// The page, origin or profile contract of a fixed web workflow no longer matched.
     case pageChanged = "page_changed"

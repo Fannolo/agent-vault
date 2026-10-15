@@ -46,6 +46,20 @@ test run; WebKit, App UI, XPC server internals, the JSON guard, the broader inst
 the signed bundle were outside this round. Its documentation-lag flag refers to the frozen
 source, before the later committed checkpoint records and current top sections.
 
+Parent corrections for R5-5/R5-6 reject duplicate keys at every XML dictionary depth,
+including entity-equivalent keys, and derive CLI run replies and bridge-local failures
+from the shared contract. The installer adds a mutation for the duplicate-key guard.
+R5-8 mutation copies now exclude private verification logs. Cleanup still confirms
+launchd unregistration, not process exit; a killed harness may leave registrations behind.
+Global SwiftPM cache provenance remains unmeasured. These are verification limits,
+not evidence of installed isolation.
+
+R5-7's Unicode grammar observations do not change the credential bytes: the documented
+username bound counts Swift characters, and both fields reject Unicode control scalars.
+U+2028 is a separator and remains accepted within the byte limit. R5-9's last-opener-wins
+behavior is intentional: a fresh signed open for the same step replaces its old lease,
+so only the current connection can conclude it.
+
 Clean `5955f50` was rebuilt and verified with Bite Developer ID. The
 [artifact record](verification/signed-review-bundle-r4.json) includes all three hardened
 signatures, exact review entitlements, file hashes and a signed installer sandbox pass.

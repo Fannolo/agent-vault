@@ -144,7 +144,7 @@ def main():
             result = rpc.call("tools/call", {"name": "action_run", "arguments": {
                 "accountId": fixture["accountId"], "action": "demo.status"}})
             if args.keychain_demo:
-                assert tool_payload(result) == {"status": "ready", "service": "demo"}
+                assert tool_payload(result) == {"status": "ready"}
                 admin("revoke-grant", "--grant-id", fixture["grantId"])
                 result = rpc.call("tools/call", {"name": "action_run", "arguments": {
                     "accountId": fixture["accountId"], "action": "demo.status"}})

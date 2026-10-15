@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import AgentVaultCore
 import Foundation
 import MCP
@@ -41,15 +42,13 @@ enum MCPInterface {
                     let result = try await broker.run(clientID: clientID, accountID: id, action: action)
                     switch result {
                     case .demoReady:
-                        return try response(.object(["status": "ready", "service": "demo"]))
+                        return try response(ReadReply(.outcome(.ready)))
                     case .profile(let profile):
-                        return try response(.object(["status": "completed", "profile": .object([
-                            "login": .string(profile.login), "id": .int(profile.userID)
-                        ])]))
+                        return try response(ReadReply(.outcome(.completed), profile: profile))
                     case .approvalRequired(let id):
-                        return try response(.object(["status": "approval_required", "requestId": .string(id.uuid.uuidString)]))
+                        return try response(ReadReply(.outcome(.approvalRequired), requestID: id.uuid))
                     case .humanStepRequired(let id):
-                        return try response(.object(["status": "human_step_required", "requestId": .string(id.uuid.uuidString)]))
+                        return try response(ReadReply(.outcome(.humanStepRequired), requestID: id.uuid))
                     }
                 default: throw VaultError.invalidInput
                 }
@@ -62,7 +61,7 @@ enum MCPInterface {
         await server.waitUntilCompleted()
     }
 
-    private static func response(_ value: Value) throws -> CallTool.Result {
+    private static func response(_ value: some Encodable) throws -> CallTool.Result {
         let data = try JSONEncoder().encode(value)
         return .init(content: [.text(text: String(decoding: data, as: UTF8.self), annotations: nil, _meta: nil)], isError: false)
     }

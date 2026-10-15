@@ -32,7 +32,7 @@ let package = Package(
         .testTarget(name: "AgentVaultMCPBridgeTests", dependencies: ["AgentVaultMCPBridge", "AgentVaultContracts", .product(name: "MCP", package: "swift-sdk")]),
         .target(name: "AgentVaultCore", dependencies: ["AgentVaultContracts", "AgentVaultApproval", "AgentVaultJSON"], linkerSettings: [.linkedFramework("Security")]),
         .executableTarget(name: "AgentVaultCLI", dependencies: [
-            "AgentVaultCore", .product(name: "MCP", package: "swift-sdk")
+            "AgentVaultCore", "AgentVaultContracts", .product(name: "MCP", package: "swift-sdk")
         ]),
         .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCore", "AgentVaultContracts"]),
         .testTarget(name: "AgentVaultParserFuzzTests", dependencies: [

@@ -62,7 +62,8 @@ class ReleaseEntitlementsTests(unittest.TestCase):
         self.assertEqual(release.installer.__file__, str(ROOT / "deploy/ipc/agentvault_installer.py"))
 
     def test_unreadable_or_contradictory_claims_stop_the_release(self):
-        for xml, default in ((b"<plist><dict>", b"[Dict]"), (b"", b"[Dict]")):
+        duplicate = b"<plist><dict><key>k</key><true/><key>k</key><false/></dict></plist>"
+        for xml, default in ((b"<plist><dict>", b"[Dict]"), (b"", b"[Dict]"), (duplicate, b"[Dict]")):
             def run(argv, check=True):
                 return subprocess.CompletedProcess(argv, 0, xml if "--xml" in argv else default, b"")
             with self.subTest(xml=xml), mock.patch.object(release.installer, "run_command", side_effect=run), \

@@ -371,6 +371,13 @@ def role_entitlements_allowed(identifier: str, claims: dict) -> bool:
     }
 
 
+class UniquePlistDictionary(dict):
+    def __setitem__(self, key, value):
+        if key in self:
+            raise ValueError("duplicate property list key")
+        super().__setitem__(key, value)
+
+
 def signed_entitlements(path: str) -> dict:
     """The sealed claims in codesign's documented XML form. Its default form is read
     independently; only its emptiness is compared, so an XML answer that went empty
@@ -382,7 +389,7 @@ def signed_entitlements(path: str) -> dict:
     if not xml.strip():
         return {}
     try:
-        claims = plistlib.loads(xml, fmt=plistlib.FMT_XML)
+        claims = plistlib.loads(xml, fmt=plistlib.FMT_XML, dict_type=UniquePlistDictionary)
     except (ValueError, ExpatError):
         raise Refusal("signed entitlements are not an XML property list") from None
     if not isinstance(claims, dict):

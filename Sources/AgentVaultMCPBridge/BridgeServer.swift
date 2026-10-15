@@ -35,21 +35,21 @@ public enum BridgeServer {
                 let reply = try await perform(request)
                 switch reply.parsedStatus {
                 case .outcome?: break
-                case .failure(let status)?: return failure(status.rawValue)
-                case nil: return failure(ReadFailureStatus.operationFailed.rawValue)
+                case .failure(let status)?: return failure(status)
+                case nil: return failure(.operationFailed)
                 }
                 let data = try JSONEncoder().encode(reply)
                 return .init(content: [.text(text: String(decoding: data, as: UTF8.self), annotations: nil, _meta: nil)], isError: false)
             } catch {
-                return failure(error as? BridgeError == .invalidInput ? "invalid_input" : "broker_unavailable")
+                return failure(error as? BridgeError == .invalidInput ? .invalidInput : .brokerUnavailable)
             }
         }
         return server
     }
 
     private enum BridgeError: Error { case invalidInput }
-    private static func failure(_ code: String) -> CallTool.Result {
-        .init(content: [.text(text: code, annotations: nil, _meta: nil)], isError: true)
+    private static func failure(_ code: ReadFailureStatus) -> CallTool.Result {
+        .init(content: [.text(text: code.rawValue, annotations: nil, _meta: nil)], isError: true)
     }
     private static var tools: [Tool] {
         let id: Value = .object(["type": "string", "format": "uuid"])
