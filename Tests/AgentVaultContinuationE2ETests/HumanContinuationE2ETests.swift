@@ -51,6 +51,8 @@ private final class FrameHost: WebSessionExecutor, @unchecked Sendable {
     private var open: Set<BrowserRunID> = []
     private var sequence: UInt64 = 1
     private var events: [HumanInput] = []
+    private var shows = 0
+    let reclassifyGate = Gate()
     let losses: AsyncStream<Set<BrowserRunID>> = AsyncStream { _ in }
 
     func start(_ run: BrowserRunID, workflow: WebWorkflow, credential: WebLoginCredential,
@@ -60,10 +62,11 @@ private final class FrameHost: WebSessionExecutor, @unchecked Sendable {
         return .humanStep(.mfa)
     }
     func reclassify(_ run: BrowserRunID) async -> WebStep {
-        lock.withLock { open.contains(run) } ? .profile(profile) : .failed(.unknownRun)
+        await reclassifyGate.pass()
+        return lock.withLock { open.contains(run) } ? .profile(profile) : .failed(.unknownRun)
     }
     func end(_ run: BrowserRunID) async { _ = lock.withLock { open.remove(run) } }
-    func showHuman(_ step: HumanStepID) async -> Bool { lock.withLock { open.contains(step.run) } }
+    func showHuman(_ step: HumanStepID) async -> Bool { lock.withLock { shows += 1; return open.contains(step.run) } }
     func frame(_ step: HumanStepID, after: UInt64) async -> HumanFrame? {
         let current = lock.withLock { open.contains(step.run) ? sequence : 0 }
         return current > after ? SyntheticFrames.frame(current) : nil
@@ -78,6 +81,28 @@ private final class FrameHost: WebSessionExecutor, @unchecked Sendable {
     }
     var received: [HumanInput] { lock.withLock { events } }
     var contexts: Int { lock.withLock { open.count } }
+    var showCount: Int { lock.withLock { shows } }
+}
+
+/// Parks the next armed call until released.
+private actor Gate {
+    private var armed = false, reached = false
+    private var parked: [CheckedContinuation<Void, Never>] = []
+    func arm() { armed = true; reached = false }
+    func pass() async {
+        guard armed else { return }
+        armed = false; reached = true
+        await withCheckedContinuation { parked.append($0) }
+    }
+    var wasReached: Bool { reached }
+    func release() { parked.forEach { $0.resume() }; parked = [] }
+}
+
+private final class Closed: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: [UUID] = []
+    func add(_ id: UUID) { lock.withLock { ids.append(id) } }
+    var all: [UUID] { lock.withLock { ids } }
 }
 
 private final class Stack: @unchecked Sendable {
@@ -90,11 +115,14 @@ private final class Stack: @unchecked Sendable {
     let account: Account
     let client: ClientRecord
     let grant: Grant
+    let authorizeGate = Gate()
+    let closed = Closed()
 
     init() async throws {
         broker = Broker(state: state, secrets: Secrets(), webSessions: host)
         let admin = try Administration(broker: broker, publicKey: signer.publicKey.x963Representation)
         let operations = ContinuationOperations(broker: broker), broker = broker
+        let authorizeGate = authorizeGate, closedLog = closed
         account = try await broker.enroll(service: .githubWeb, credential: credential)
         // A paired agent always has a UID; the snapshot wire refuses UID 0.
         client = try await broker.registerClient(uid: 4242)
@@ -104,15 +132,19 @@ private final class Stack: @unchecked Sendable {
             read: { _, _ in ReadReply(.failure(.accessDenied)) },
             snapshot: { _ in try await admin.snapshot() },
             begin: { peer, request in
-                do { return try await admin.begin(request, connection: ContinuationConnectionID(minted: peer.id)) }
+                do { return try await admin.begin(request, connection: ContinuationConnectionID(peer)) }
                 catch { throw AdminRejection(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
             },
             authorize: { peer, id, signature in
-                do { return try await admin.authorize(id, signature: signature, connection: ContinuationConnectionID(minted: peer.id)) }
+                await authorizeGate.pass()
+                do { return try await admin.authorize(id, signature: signature, connection: ContinuationConnectionID(peer)) }
                 catch { return AdminReply(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
             },
-            continuation: { peer, request in await operations.perform(request, connection: ContinuationConnectionID(minted: peer.id)) },
-            closed: { peer in await broker.continuationConnectionClosed(ContinuationConnectionID(minted: peer.id)) })
+            continuation: { peer, request in await operations.perform(request, connection: ContinuationConnectionID(peer)) },
+            closed: { peer in
+                await broker.continuationConnectionClosed(ContinuationConnectionID(peer))
+                closedLog.add(peer.id)
+            })
         let read = NSXPCListener.anonymous(), adminListener = NSXPCListener.anonymous()
         server = VaultXPCServer(validated: configuration, limits: .standard, readListener: read,
                                 adminListener: adminListener, handlers: handlers)
@@ -141,6 +173,10 @@ private final class Stack: @unchecked Sendable {
         request.stepEpoch = step.epoch; request.humanStepKind = step.kind
         return request
     }
+}
+
+private extension ContinuationConnectionID {
+    init(_ peer: AdminConnection) { self.init(minted: peer.id, isOpen: { peer.isOpen }) }
 }
 
 @MainActor
@@ -239,6 +275,51 @@ struct HumanContinuationE2ETests {
         #expect(model.notice?.text.contains("access_denied") == true)
         #expect(stack.signer.signCount == 0, "nobody is asked to sign a step that does not exist")
         #expect(model.humanStep == nil)
+    }
+
+    @Test func aSignedOpenThatCompletesAfterItsConnectionClosedGrantsNoLease() async throws {
+        let stack = try await Stack()
+        let run = try await stack.pausedRun()
+        let (transport, client) = stack.transport()
+        let step = try #require(try await transport.snapshot().humanSteps.first)
+        guard case .challenge(let challenge) = try await client.begin(stack.openRequest(step)) else {
+            Issue.record("no challenge"); return
+        }
+        let signature = try await stack.signer.sign(payload: challenge.payload, reason: "synthetic open")
+        await stack.authorizeGate.arm()
+        let call = Task { try? await client.authorize(id: challenge.id, signature: signature) }
+        #expect(await eventually { await stack.authorizeGate.wasReached })
+        client.invalidate()
+        _ = await call.value
+        #expect(await eventually { !stack.closed.all.isEmpty })
+        await stack.authorizeGate.release()
+        // The held authorize now runs on the broker for a connection that no longer exists.
+        #expect(await eventually { await stack.broker.relayCount == 0 && stack.host.showCount == 0 })
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await stack.broker.relayCount == 0, "no lease or relay for a closed connection")
+        #expect(stack.host.showCount == 0)
+        #expect(!(try stack.state.snapshot().adminAudit.map(\.outcome).contains("continuation_opened")))
+        #expect(try await stack.broker.resume(run.uuid, clientID: stack.client.id) == .humanStepRequired(run))
+    }
+
+    @Test func pollingDuringAFinishCannotTurnItsSuccessIntoUnavailable() async throws {
+        let stack = try await Stack()
+        let run = try await stack.pausedRun()
+        let model = stack.app()
+        await model.refresh()
+        #expect(await model.openHumanStep(try #require(model.humanSteps.first)))
+        let window = try #require(model.humanStep)
+        #expect(await eventually { window.phase == .live })
+        await stack.host.reclassifyGate.arm()
+        let finishing = Task { await window.finish() }
+        #expect(await eventually { await stack.host.reclassifyGate.wasReached })
+        // Several poll intervals pass while the broker waits for the host.
+        try await Task.sleep(for: .milliseconds(350))
+        #expect(window.phase == .finishing)
+        await stack.host.reclassifyGate.release()
+        await finishing.value
+        #expect(window.phase == .ended(.concluded))
+        #expect(try await stack.broker.resume(run.uuid, clientID: stack.client.id) == .profile(profile))
     }
 
     @Test func theAgentReadWireHasNoContinuationOperation() {

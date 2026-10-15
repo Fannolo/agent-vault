@@ -21,10 +21,15 @@ public struct ContinuationLeaseID: Hashable, Sendable {
 /// connection. A lease is valid only on the connection that opened it, never by process ID.
 public struct ContinuationConnectionID: Hashable, Sendable {
     public let uuid: UUID
-    public init() { uuid = UUID() }
-    /// Wraps the identity the XPC listener minted when it accepted the connection. Never pass a
-    /// value that arrived in a request.
-    public init(minted uuid: UUID) { self.uuid = uuid }
+    private let liveness: @Sendable () -> Bool
+    public init() { uuid = UUID(); liveness = { true } }
+    /// Wraps the identity the XPC listener minted when it accepted the connection, and that
+    /// connection's liveness. Never pass a value that arrived in a request.
+    public init(minted uuid: UUID, isOpen: @escaping @Sendable () -> Bool) { self.uuid = uuid; liveness = isOpen }
+    /// `false` once the transport has seen the connection end, before its closed callback runs.
+    var isOpen: Bool { liveness() }
+    public static func == (a: Self, b: Self) -> Bool { a.uuid == b.uuid }
+    public func hash(into hasher: inout Hasher) { hasher.combine(uuid) }
 }
 
 /// A challenge that already exists before the human app asks to open it.

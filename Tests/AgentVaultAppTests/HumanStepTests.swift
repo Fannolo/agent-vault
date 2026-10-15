@@ -16,6 +16,16 @@ private actor ScriptedContinuation: VaultAdminTransport {
     private(set) var requests: [ContinuationRequest] = []
     private var holdInput = false
     private var held: [CheckedContinuation<Void, Never>] = []
+    private var holdOthers: Set<String> = []
+    private var heldOthers: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Parks frame or finish calls ("frame", "finish") until released.
+    func hold(_ kind: String) { holdOthers.insert(kind) }
+    func release(_ kind: String) { holdOthers.remove(kind); heldOthers.removeValue(forKey: kind)?.forEach { $0.resume() } }
+    func heldCount(_ kind: String) -> Int { heldOthers[kind]?.count ?? 0 }
+    private func park(_ kind: String) async {
+        guard holdOthers.contains(kind) else { return }
+        await withCheckedContinuation { heldOthers[kind, default: []].append($0) }
+    }
 
     func script(frames: [ContinuationReply]) { frameReplies += frames }
     func set(input: ContinuationReply) { inputReply = input }
@@ -32,6 +42,17 @@ private actor ScriptedContinuation: VaultAdminTransport {
     }
     var frameRequests: Int { requests.filter { if case .frame = $0.operation { true } else { false } }.count }
     var last: ContinuationRequest.Operation? { requests.last?.operation }
+    var finished: Bool { requests.contains { $0.operation == .finish } }
+    /// Request kinds in order, without payloads.
+    var order: [String] {
+        requests.compactMap {
+            switch $0.operation {
+            case .input: "input"
+            case .finish: "finish"
+            default: nil
+            }
+        }
+    }
 
     func snapshot() async throws -> AdminSnapshot { AdminSnapshot(accounts: [], clients: [], grants: [], pending: []) }
     func begin(_ request: AdminRequest) async throws -> AdminChallenge { throw AdminTransportError.unsupported }
@@ -41,11 +62,15 @@ private actor ScriptedContinuation: VaultAdminTransport {
         requests.append(request)
         if failAll { throw AdminTransportError.unavailable }
         switch request.operation {
-        case .frame: return frameReplies.isEmpty ? .noFrame : frameReplies.removeFirst()
+        case .frame:
+            await park("frame")
+            return frameReplies.isEmpty ? .noFrame : frameReplies.removeFirst()
         case .input:
             if holdInput { await withCheckedContinuation { held.append($0) } }
             return inputReply
-        case .finish: return finishReply
+        case .finish:
+            await park("finish")
+            return finishReply
         case .cancel: return .concluded
         case .close: return .closed
         }
@@ -291,6 +316,57 @@ struct HumanStepTests {
         await cancelled.cancel()
         #expect(cancelled.phase == .ended(.cancelled))
         #expect(await other.last == .cancel)
+    }
+
+    @Test func finishDeliversQueuedInputInOrderBeforeAskingTheBroker() async throws {
+        let transport = ScriptedContinuation()
+        let model = await liveModel(transport)
+        await transport.holdInputs()
+        model.type("A")
+        #expect(await eventually { await transport.heldCount == 1 })
+        model.type("B")
+        let finishing = Task { await model.finish() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await transport.finished == false, "finish waits for the batch in flight")
+        model.type("C")
+        await transport.releaseInputs()
+        await finishing.value
+        let texts = await transport.inputs.flatMap(\.events)
+        #expect(texts == [.text("A"), .text("B")], "queued input is delivered; input typed while finishing is refused")
+        #expect(await transport.order == ["input", "input", "finish"])
+        #expect(model.phase == .ended(.concluded))
+    }
+
+    @Test func undeliveredInputBlocksFinishExplicitlyAndTheWindowStaysLive() async throws {
+        let transport = ScriptedContinuation()
+        let model = await liveModel(transport)
+        await transport.set(input: .notDelivered)
+        model.type("A")
+        await model.finish()
+        #expect(await transport.finished == false)
+        #expect(model.phase == .live && model.finishBlockedByUndeliveredInput)
+        #expect(await eventually { await transport.frameRequests >= 3 }, "polling resumes")
+        await transport.set(input: .delivered)
+        await model.finish()
+        #expect(model.phase == .ended(.concluded) && !model.finishBlockedByUndeliveredInput)
+    }
+
+    @Test func aPollReplyArrivingDuringFinishDoesNotDecideTheEnding() async throws {
+        let transport = ScriptedContinuation()
+        let model = await liveModel(transport)
+        await transport.hold("frame")
+        #expect(await eventually { await transport.heldCount("frame") == 1 }, "a poll is in flight")
+        await transport.hold("finish")
+        let finishing = Task { await model.finish() }
+        #expect(await eventually { await transport.heldCount("finish") == 1 })
+        // The broker has already invalidated the lease for polling; that reply arrives now.
+        await transport.script(frames: [.failure(.accessDenied)])
+        await transport.release("frame")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(model.phase == .finishing)
+        await transport.release("finish")
+        await finishing.value
+        #expect(model.phase == .ended(.concluded))
     }
 
     @Test func pollingIsPaced() async throws {

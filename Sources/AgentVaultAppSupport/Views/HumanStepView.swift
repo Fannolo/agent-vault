@@ -52,8 +52,13 @@ struct HumanStepView: View {
 
     private var footer: some View {
         HStack {
-            Text("Only this sign-in step is shown. Click and type here as you would on the page.")
-                .font(.caption).foregroundStyle(.secondary)
+            if model.finishBlockedByUndeliveredInput && !model.isEnded {
+                Label("Some input was not delivered. Check the picture, then press I finished again.",
+                      systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+            } else {
+                Text("Only this sign-in step is shown. Click and type here as you would on the page.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
             if model.isEnded {
                 Button("Close", action: dismiss).keyboardShortcut(.defaultAction)

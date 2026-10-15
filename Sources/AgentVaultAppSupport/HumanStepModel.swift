@@ -35,6 +35,9 @@ public final class HumanStepModel: Identifiable {
     public private(set) var rejectedFrames = 0
     /// Input batches the broker declined because the page had moved on.
     public private(set) var declinedBatches = 0
+    /// The last finish was not sent because earlier input was not delivered. The window is live
+    /// again so the person can check the picture before finishing.
+    public private(set) var finishBlockedByUndeliveredInput = false
 
     public static let pollInterval: Duration = .milliseconds(100)
     static let busyBackoff: Duration = .milliseconds(250)
@@ -48,6 +51,7 @@ public final class HumanStepModel: Identifiable {
     private var queue: [(frame: UInt64, input: HumanInput)] = []
     private var sending = false
     private var batch: UInt64 = 0
+    private var drainWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(step: HumanStepSummary, lease: UUID, transport: VaultAdminTransport,
                 now: @escaping @Sendable () -> Date = Date.init, pollInterval: Duration = HumanStepModel.pollInterval) {
@@ -98,10 +102,24 @@ public final class HumanStepModel: Identifiable {
 
     // MARK: Endings. Each is explicit; none retries.
 
+    /// Delivers every queued event in order, then asks the broker to reclassify. Polling and new
+    /// input stop first: the finish reply alone decides how the window ends.
     public func finish() async {
         guard phase == .live || phase == .connecting else { return }
         phase = .finishing
-        queue.removeAll()
+        poller?.cancel(); poller = nil
+        let declined = declinedBatches
+        flush()
+        await drained()
+        guard phase == .finishing else { return }
+        guard declinedBatches == declined, queue.isEmpty else {
+            queue.removeAll()
+            finishBlockedByUndeliveredInput = true
+            phase = frame == nil ? .connecting : .live
+            start()
+            return
+        }
+        finishBlockedByUndeliveredInput = false
         switch try? await transport.continueHuman(ContinuationRequest(lease: lease, operation: .finish)) {
         case .concluded?: end(.concluded)
         case .nextStep(let kind)?: end(.nextStep(kind))
@@ -143,8 +161,12 @@ public final class HumanStepModel: Identifiable {
             let after = frame?.sequence ?? 0
             let reply: ContinuationReply
             do { reply = try await transport.continueHuman(ContinuationRequest(lease: lease, operation: .frame(after: after))) }
-            catch { end(.connectionLost); return }
-            guard !isEnded else { return }
+            catch {
+                if !Task.isCancelled { end(.connectionLost) }
+                return
+            }
+            // A finish stops polling; a reply that arrives afterwards must not decide the ending.
+            guard !isEnded, !Task.isCancelled else { return }
             var pause = pollInterval
             switch reply {
             case .frame(let candidate):
@@ -199,9 +221,20 @@ public final class HumanStepModel: Identifiable {
         Task { [weak self] in await self?.send() }
     }
 
+    /// Returns once nothing is queued or in flight.
+    private func drained() async {
+        guard sending || !queue.isEmpty else { return }
+        await withCheckedContinuation { drainWaiters.append($0) }
+    }
+
     private func send() async {
-        defer { sending = false }
-        while phase == .live, let frame, !queue.isEmpty {
+        defer {
+            sending = false
+            let waiters = drainWaiters
+            drainWaiters = []
+            waiters.forEach { $0.resume() }
+        }
+        while phase == .live || phase == .finishing, let frame, !queue.isEmpty {
             // Events aimed at an earlier frame are never sent against this one.
             queue.removeAll { $0.frame != frame.sequence }
             let events = queue.prefix(HumanInputBatch.maximumEvents).map(\.input)
@@ -213,7 +246,10 @@ public final class HumanStepModel: Identifiable {
             guard !isEnded else { return }
             switch reply {
             case .delivered?: break
-            case .notDelivered?, .failure(.busy)?: declinedBatches += 1
+            case .notDelivered?, .failure(.busy)?:
+                declinedBatches += 1
+                // While finishing, a declined batch stops the drain; finish reports it.
+                if phase == .finishing { return }
             case nil: end(.connectionLost); return
             default: end(.unavailable); return
             }

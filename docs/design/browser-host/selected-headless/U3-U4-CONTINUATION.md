@@ -23,14 +23,15 @@ connectionClosed: { peer in await broker.continuationConnectionClosed(.init(mint
 | Piece | Owner | Rule |
 |---|---|---|
 | `AdminConnection {uid, id}` | IPC | Minted once per accepted admin connection in `shouldAcceptNewConnection`. Its initializer is internal to IPC. The invalidation handler reports it to `connectionClosed`. |
-| `ContinuationConnectionID(minted:)` | Core | Wraps that UUID. Only the daemon composition calls it, with `peer.id`. |
+| `ContinuationConnectionID(minted:isOpen:)` | Core | Wraps that UUID and the connection's liveness. Only the daemon composition calls it, with `peer.id` and `{ peer.isOpen }`. Equality and hashing use the UUID alone. |
+| `AdminConnection.isOpen` | IPC | Cleared synchronously by the invalidation handler before the closed callback is scheduled. Lives with the connection, so it needs no tombstone. |
 | `AdminRequest.openHumanStep` | Contracts | Exactly `requestID` (run), `accountID`, `stepEpoch` (1…2^53), `humanStepKind`. All four are signed in the `ApprovalIntent` digest. |
 | `Administration.begin` | Core | Refuses an open that lacks a connection or does not name a step that exists now, with that run, epoch, kind and account. The frozen challenge records the connection. |
 | `Administration.authorize` | Core | The challenge is consumed before anything else (unchanged single-use policy). An open must come from the connection that began it. The step is checked again and passed to `Broker.openHumanStep` as the exact signed `HumanStepID`. The reply `id` is the lease. |
-| `Broker.openHumanStep` | Core | After `.opened`, calls `showHuman(step)`. Then it rechecks lease, step, deadline and authority. A host that cannot show the step gets no lease (`upstream_unavailable`), and the pause continues. |
+| `Broker.openHumanStep` | Core | Refuses a connection that is no longer open, checked on the broker actor immediately before `.opened`. Either that check fails, or the closed callback (scheduled after liveness is cleared) runs later and ends the lease. After `.opened`, calls `showHuman(step)`. Then it rechecks lease, step, deadline and authority. A host that cannot show the step gets no lease (`upstream_unavailable`), and the pause continues. |
 | `VaultAdminRPC.continueHuman` | Contracts/IPC | One selector, a closed `ContinuationRequest`: `frame(after)`, `input(batch, frame, events)`, `finish`, `cancel`, `close`. Replies are `humanFrame` or `humanReply`. |
 | `ContinuationOperations.perform` | Core | Parses the lease UUID into `ContinuationLeaseID` and maps every `VaultError` to the four-value `ContinuationFailure`. |
-| `Broker.humanFrame` / `humanInput` / `closeHumanLease` | Core | Every call sweeps deadlines and checks lease, connection, current step and live authority. A lost authority ends the run. The check is repeated after the host replies, pinned to the same step. |
+| `Broker.humanFrame` / `humanInput` / `closeHumanLease` | Core | Every call sweeps deadlines and checks connection liveness, lease, connection, current step and live authority. A lost authority ends the run. The check is repeated after the host replies, pinned to the same step. |
 
 ### Bounds and pacing
 
@@ -54,6 +55,7 @@ The agent read interface is unchanged: no frame, input or lease operation exists
 | Piece | Rule |
 |---|---|
 | `AppModel.openHumanStep(step)` | Builds `openHumanStep` from the listed `HumanStepSummary` and runs the existing begin → digest check → user presence → authorize sequence. The prompt names kind, step epoch, run, account and service. One window at a time. An expired step is refused before anyone is asked to sign. |
+| `HumanStepModel` finish | Polling stops and new input is refused first. Queued input is then delivered in order and acknowledged before the finish is sent. If any batch is declined, the finish is not sent: the window returns to live with `finishBlockedByUndeliveredInput` and polling resumes. A poll reply that arrives after the finish started is ignored, so only the finish reply decides the ending. |
 | `HumanStepModel` | Bound to one lease. It polls `frame(after: latest)` every 100 ms (250 ms after `busy`) and ends at the step deadline by its own clock, sending `close`. A refusal ends it as `unavailable`, a transport failure as `connectionLost` (the lease was bound to that connection), and explicit `finish`, `cancel` and `close` end it as `concluded`/`nextStep`, `cancelled` and `closed`. After it ends it clears its queue and frame and sends nothing more. |
 | `HumanFrameImage` | Treats the JPEG as untrusted. Before decoding any pixel, ImageIO must report a complete, single-image JPEG, no orientation transform, an actual pixel size equal to the declared one, and at most 1280 × 900 pixels. A frame not newer than the one shown is ignored. |
 | `FrameGeometry` | Aspect-fit placement (`resizeAspect`) and its inverse. Points outside the drawn frame are dropped. A pointer release outside is clamped to the nearest edge, so no button stays pressed. |
@@ -66,6 +68,16 @@ The agent read interface is unchanged: no frame, input or lease operation exists
 - `ContinuationRelayTests` (real `Administration`, `ContinuationOperations`, `Broker`), `ContinuationXPCTests`/`ContinuationWireTests` (real XPC listener and client), `HumanStepTests` (real `AppModel`/`HumanStepModel`/ImageIO), and `HumanContinuationE2ETests`. The last drives the app model over real XPC into the real broker in one process, with a scripted host.
 - `scripts/verify-continuation-mutations.py` reverts 27 defenses one at a time (18 relay, 8 window, 1 composition), after a green baseline for each suite. The first U4 pass found one surviving mutant: the window filtered stale queued input both when a frame arrived and before sending. The duplicate was removed, and the remaining send-time filter is the one mutated. It edits files in place, restores them in `finally`, and sends no signal.
 - Not covered: a real web host, Chromium raster or input, the installed Mach services, protected-key user presence, and separate UIDs.
+
+## Independent judge corrections (after `4337660`)
+
+| Probe | Defect | Correction | Regression |
+|---|---|---|---|
+| A signed authorize held past the connection's closed callback | It created a lease and relay on a dead identity | Connection liveness travels with the minted identity; the broker refuses to bind a lease to a closed connection | `aSignedOpenThatCompletesAfterItsConnectionClosedGrantsNoLease` (real XPC), `aConnectionThatHasClosedCanNeitherOpenNorUseALease` (Core) |
+| `finish` with input in flight and more queued | Finish was sent before the batch was acknowledged, and queued text was discarded | Drain and acknowledge in order before finishing; a declined batch blocks finish explicitly | `finishDeliversQueuedInputInOrderBeforeAskingTheBroker`, `undeliveredInputBlocksFinishExplicitlyAndTheWindowStaysLive` |
+| Polling while the broker reclassifies | The poller used the invalidated lease and ended the window as unavailable before the real success | Finish stops the poller and ignores its in-flight reply | `pollingDuringAFinishCannotTurnItsSuccessIntoUnavailable` (real XPC and broker), `aPollReplyArrivingDuringFinishDoesNotDecideTheEnding` |
+
+The judge's three probes were rerun against the corrected sources (adapted only to `minted:isOpen:`). Each now fails at its REPRO expectation.
 
 ## Accepted deviations from ROLLOUT
 

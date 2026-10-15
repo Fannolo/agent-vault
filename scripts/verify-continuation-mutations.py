@@ -37,6 +37,8 @@ MUTATIONS = [
      "guard let web, var relay = relays[lease], !relay.framePending else", "guard let web, var relay = relays[lease] else", CORE),
     ("relay state outlives its lease", "Sources/AgentVaultCore/Broker.swift",
      "if let ended = run.lease?.id, next?.lease?.id != ended { relays.removeValue(forKey: ended) }", "", CORE),
+    ("signed open binds a lease to a connection that already closed", "Sources/AgentVaultCore/Broker.swift",
+     "        guard connection.isOpen else { throw VaultError.denied }\n", "", CORE),
     ("open succeeds when the host cannot show the step", "Sources/AgentVaultCore/Broker.swift",
      "        guard shown else {", "        guard shown || true else {", CORE),
     ("begin accepts an open for a step that does not exist", "Sources/AgentVaultCore/Administration.swift",
@@ -71,6 +73,10 @@ MUTATIONS = [
      "clamped || rect.contains(point)", "true", APP),
     ("queued input survives a new frame", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
      "            queue.removeAll { $0.frame != frame.sequence }\n", "", APP),
+    ("finish discards queued input", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
+     "        flush()\n        await drained()\n", "", APP),
+    ("polling continues during finish", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
+     "        phase = .finishing\n        poller?.cancel(); poller = nil\n", "        phase = .finishing\n", APP),
     ("closing the window leaves it live", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
      "        end(.closed)\n", "", APP),
     ("no client-side deadline", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
@@ -80,7 +86,7 @@ MUTATIONS = [
     ("frame request names no previous frame", "Sources/AgentVaultAppSupport/HumanStepModel.swift",
      "let after = frame?.sequence ?? 0", "let after: UInt64 = 0", APP),
     ("composition binds leases to a fresh identity per call", "Tests/AgentVaultContinuationE2ETests/HumanContinuationE2ETests.swift",
-     "continuation: { peer, request in await operations.perform(request, connection: ContinuationConnectionID(minted: peer.id)) },",
+     "continuation: { peer, request in await operations.perform(request, connection: ContinuationConnectionID(peer)) },",
      "continuation: { peer, request in await operations.perform(request, connection: ContinuationConnectionID()) },", E2E),
 ]
 

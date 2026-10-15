@@ -255,6 +255,28 @@ private func batch(_ events: HumanInput...) -> HumanInputBatch { HumanInputBatch
         }
     }
 
+    @Test func aConnectionThatHasClosedCanNeitherOpenNorUseALease() async throws {
+        let (r, run) = try await Relay.make()
+        let step = try await r.step()
+        let liveness = Liveness()
+        let closing = ContinuationConnectionID(minted: UUID(), isOpen: { liveness.isOpen })
+        let challenge = try await r.admin.begin(r.openRequest(step), connection: closing)
+        liveness.close()
+        await #expect(throws: VaultError.denied) {
+            _ = try await r.admin.authorize(challenge.id, signature: try r.sign(challenge), connection: closing)
+        }
+        #expect(await r.broker.relayCount == 0 && r.f.host.shownSteps.isEmpty)
+        #expect(!r.f.humanAudit.contains("continuation_opened"))
+
+        let other = Liveness()
+        let connection = ContinuationConnectionID(minted: UUID(), isOpen: { other.isOpen })
+        let lease = try await r.open(step, on: connection)
+        other.close()
+        #expect(await r.call(lease, .frame(after: 0), on: connection) == .failure(.accessDenied),
+                "refused as soon as the transport marks the connection closed")
+        #expect(try await r.f.resume(run) == .humanStepRequired(run))
+    }
+
     @Test func anOpenThatTheHostCannotShowGrantsNoLeaseAndKeepsThePause() async throws {
         let (r, run) = try await Relay.make()
         r.f.host.refuseToShow()
@@ -282,4 +304,11 @@ private func batch(_ events: HumanInput...) -> HumanInputBatch { HumanInputBatch
 
 private extension Relay {
     var broker: Broker { f.broker }
+}
+
+private final class Liveness: @unchecked Sendable {
+    private let lock = NSLock()
+    private var open = true
+    var isOpen: Bool { lock.withLock { open } }
+    func close() { lock.withLock { open = false } }
 }

@@ -105,6 +105,7 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
             connection.exportedObject = AdminEndpoint(peer: peer, continuation: lane, identity: identity, handlers: handlers)
             let closed = handlers.closed
             connection.invalidationHandler = {
+                identity.close()
                 slots.release()
                 peer.connectionInvalidated()
                 Task { await closed(identity) }
@@ -127,7 +128,20 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
 public struct AdminConnection: Sendable, Hashable {
     public let uid: UInt32
     public let id: UUID
+    private let liveness = Liveness()
     init(uid: UInt32) { self.uid = uid; id = UUID() }
+    /// Cleared by the invalidation handler before the closed callback is scheduled.
+    public var isOpen: Bool { liveness.isOpen }
+    func close() { liveness.close() }
+    public static func == (a: Self, b: Self) -> Bool { a.id == b.id && a.uid == b.uid }
+    public func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    private final class Liveness: @unchecked Sendable {
+        private let lock = NSLock()
+        private var open = true
+        var isOpen: Bool { lock.withLock { open } }
+        func close() { lock.withLock { open = false } }
+    }
 }
 
 final class Gate: @unchecked Sendable {

@@ -32,17 +32,17 @@ enum BrokerMain {
                         catch { return ReadReply(.failure((error as? VaultError)?.readFailure ?? .operationFailed)) }
                     }, snapshot: { _ in try await admin.snapshot() },
                     begin: { peer, request in
-                        do { return try await admin.begin(request, connection: ContinuationConnectionID(minted: peer.id)) }
+                        do { return try await admin.begin(request, connection: ContinuationConnectionID(peer)) }
                         catch { throw AdminRejection(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
                     }, authorize: { peer, id, signature in
                         do {
                             return try await admin.authorize(id, signature: signature,
-                                                             connection: ContinuationConnectionID(minted: peer.id))
+                                                             connection: ContinuationConnectionID(peer))
                         } catch { return AdminReply(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
                     }, continuation: { peer, request in
-                        await continuation.perform(request, connection: ContinuationConnectionID(minted: peer.id))
+                        await continuation.perform(request, connection: ContinuationConnectionID(peer))
                     }, connectionClosed: { peer in
-                        await broker.continuationConnectionClosed(ContinuationConnectionID(minted: peer.id))
+                        await broker.continuationConnectionClosed(ContinuationConnectionID(peer))
                     })
                 running = (lease, server)
                 server.activate()
@@ -55,4 +55,9 @@ enum BrokerMain {
         FileHandle.standardError.write(Data("Agent Vault broker: invalid_installation\n".utf8))
         exit(1)
     }
+}
+
+private extension ContinuationConnectionID {
+    /// The listener-minted identity and liveness of an admin connection.
+    init(_ peer: AdminConnection) { self.init(minted: peer.id, isOpen: { peer.isOpen }) }
 }

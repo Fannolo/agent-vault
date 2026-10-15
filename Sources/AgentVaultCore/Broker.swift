@@ -684,6 +684,10 @@ extension Broker {
             await apply(run.id, .authorityLost)
             throw VaultError.denied
         }
+        // A signed open that completes after its connection ended must not bind a lease to it. The
+        // transport clears liveness before it schedules the closed callback, so either this check
+        // fails or that callback runs after the lease exists and ends it.
+        guard connection.isOpen else { throw VaultError.denied }
         let lease = ContinuationLease(id: ContinuationLeaseID(), connection: connection, step: step)
         await apply(run.id, .opened(lease))
         guard runs[run.id]?.lease?.id == lease.id, let web else { throw VaultError.denied }
@@ -752,7 +756,7 @@ extension Broker {
             await apply(run.id, .authorityLost)
             throw VaultError.denied
         }
-        guard let held = run.lease, held.connection == connection, held.step == run.humanStep?.id,
+        guard connection.isOpen, let held = run.lease, held.connection == connection, held.step == run.humanStep?.id,
               expected == nil || held.step == expected else { throw VaultError.denied }
         return held.step
     }
