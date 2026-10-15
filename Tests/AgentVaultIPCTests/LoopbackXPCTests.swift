@@ -156,8 +156,8 @@ import Testing
         }, snapshot: { uid in
             snapshots.record(uid)
             return AdminSnapshot(accounts: [], clients: [], grants: [], pending: [])
-        }, begin: { uid, _ in
-            begins.record(uid)
+        }, begin: { peer, _ in
+            begins.record(peer.uid)
             return AdminChallenge(id: UUID(), payload: Data(repeating: 7, count: 32), expiresAt: Date() + 60)
         })
         let established = loop.adminClient()
@@ -224,8 +224,8 @@ import Testing
         let begins = Recorder()
         let loop = Loopback(snapshot: { _ in
             await held.perform(AdminSnapshot(accounts: [], clients: [], grants: [], pending: []))
-        }, begin: { uid, _ in
-            begins.record(uid)
+        }, begin: { peer, _ in
+            begins.record(peer.uid)
             return AdminChallenge(id: UUID(), payload: Data(repeating: 7, count: 32), expiresAt: Date() + 60)
         })
         let client = loop.adminClient(timeout: 10)

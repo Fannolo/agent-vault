@@ -9,15 +9,23 @@ import Foundation
 public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     public typealias ReadHandler = @Sendable (UInt32, ReadRequest) async throws -> ReadReply
     public typealias SnapshotHandler = @Sendable (UInt32) async throws -> AdminSnapshot
-    public typealias BeginHandler = @Sendable (UInt32, AdminRequest) async throws -> AdminChallenge
-    public typealias AuthorizeHandler = @Sendable (UInt32, UUID, Data) async throws -> AdminReply
+    public typealias BeginHandler = @Sendable (AdminConnection, AdminRequest) async throws -> AdminChallenge
+    public typealias AuthorizeHandler = @Sendable (AdminConnection, UUID, Data) async throws -> AdminReply
+    public typealias ContinuationHandler = @Sendable (AdminConnection, ContinuationRequest) async -> ContinuationReply
+    public typealias ClosedHandler = @Sendable (AdminConnection) async -> Void
 
     struct Handlers: Sendable {
         let read: ReadHandler
         let snapshot: SnapshotHandler
         let begin: BeginHandler
         let authorize: AuthorizeHandler
+        var continuation: ContinuationHandler = { _, _ in .failure(.upstreamUnavailable) }
+        var closed: ClosedHandler = { _ in }
     }
+
+    /// Continuation work runs on its own lanes, so frame polling cannot occupy admin capacity.
+    static let continuationPerConnection = 2
+    static let continuationTotal = 4
 
     private let configuration: IPCConfiguration
     private let limits: IPCLimits
@@ -28,15 +36,19 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
     private let adminInFlight: Gate
     private let readConnections: Gate
     private let adminConnections: Gate
+    private let continuationInFlight = Gate(limit: VaultXPCServer.continuationTotal)
 
     public convenience init(configuration: IPCConfiguration, limits: IPCLimits = .standard,
                             read: @escaping ReadHandler, snapshot: @escaping SnapshotHandler,
-                            begin: @escaping BeginHandler, authorize: @escaping AuthorizeHandler) throws(IPCError) {
+                            begin: @escaping BeginHandler, authorize: @escaping AuthorizeHandler,
+                            continuation: @escaping ContinuationHandler,
+                            connectionClosed: @escaping ClosedHandler) throws(IPCError) {
         try configuration.validate(for: .broker)
         self.init(validated: configuration, limits: limits,
                   readListener: NSXPCListener(machServiceName: configuration.readServiceName),
                   adminListener: NSXPCListener(machServiceName: configuration.adminServiceName),
-                  handlers: Handlers(read: read, snapshot: snapshot, begin: begin, authorize: authorize))
+                  handlers: Handlers(read: read, snapshot: snapshot, begin: begin, authorize: authorize,
+                                     continuation: continuation, closed: connectionClosed))
     }
 
     init(validated configuration: IPCConfiguration, limits: IPCLimits, readListener: NSXPCListener,
@@ -83,19 +95,39 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
         let peer = Peer(uid: uid, limits: limits, connectionInFlight: Gate(limit: limits.maxInFlightPerConnection),
                         serviceInFlight: admin ? adminInFlight : readInFlight, cancelsOnInvalidation: !admin)
         if admin {
+            // Minted here, once per accepted connection; no request field can name or change it.
+            let identity = AdminConnection(uid: uid)
+            // Like admin work, continuation calls are not cancelled: a finish must reach its own
+            // reply deadline. The closed handler ends the connection's leases instead.
+            let lane = Peer(uid: uid, limits: limits, connectionInFlight: Gate(limit: Self.continuationPerConnection),
+                            serviceInFlight: continuationInFlight)
             connection.exportedInterface = NSXPCInterface(with: VaultAdminRPC.self)
-            connection.exportedObject = AdminEndpoint(peer: peer, handlers: handlers)
+            connection.exportedObject = AdminEndpoint(peer: peer, continuation: lane, identity: identity, handlers: handlers)
+            let closed = handlers.closed
+            connection.invalidationHandler = {
+                slots.release()
+                peer.connectionInvalidated()
+                Task { await closed(identity) }
+            }
         } else {
             connection.exportedInterface = NSXPCInterface(with: VaultReadRPC.self)
             connection.exportedObject = ReadEndpoint(peer: peer, handlers: handlers)
-        }
-        connection.invalidationHandler = {
-            slots.release()
-            peer.connectionInvalidated()
+            connection.invalidationHandler = {
+                slots.release()
+                peer.connectionInvalidated()
+            }
         }
         connection.activate()
         return true
     }
+}
+
+/// One accepted admin connection. `id` is minted by the listener when it accepts the connection
+/// and is the only identity a continuation lease can be bound to.
+public struct AdminConnection: Sendable, Hashable {
+    public let uid: UInt32
+    public let id: UUID
+    init(uid: UInt32) { self.uid = uid; id = UUID() }
 }
 
 final class Gate: @unchecked Sendable {
@@ -258,9 +290,13 @@ final class ReadEndpoint: NSObject, VaultReadRPC {
 
 final class AdminEndpoint: NSObject, VaultAdminRPC {
     private let peer: Peer
+    private let continuation: Peer
+    private let identity: AdminConnection
     private let handlers: VaultXPCServer.Handlers
 
-    init(peer: Peer, handlers: VaultXPCServer.Handlers) { self.peer = peer; self.handlers = handlers }
+    init(peer: Peer, continuation: Peer, identity: AdminConnection, handlers: VaultXPCServer.Handlers) {
+        self.peer = peer; self.continuation = continuation; self.identity = identity; self.handlers = handlers
+    }
 
     func snapshot(reply: @escaping (Data) -> Void) {
         let limits = peer.limits, handler = handlers.snapshot
@@ -271,12 +307,12 @@ final class AdminEndpoint: NSObject, VaultAdminRPC {
     }
 
     func begin(_ data: Data, reply: @escaping (Data) -> Void) {
-        let limits = peer.limits, handler = handlers.begin
+        let limits = peer.limits, handler = handlers.begin, identity = identity
         peer.dispatch(size: data.count, reply: reply, parse: { () throws(IPCError) in
             try WireCodec.decodeAdmin(data, limits: limits)
-        }, work: { uid, request in
+        }, work: { _, request in
             do {
-                let challenge = try await handler(uid, request)
+                let challenge = try await handler(identity, request)
                 return WireCodec.reply(challenge, kind: .challenge, limits: limits) ?? WireCodec.errorReply(.unavailable)
             } catch let rejection as AdminRejection {
                 return WireCodec.reply(AdminReply(status: rejection.status), kind: .adminReply, limits: limits)
@@ -288,14 +324,23 @@ final class AdminEndpoint: NSObject, VaultAdminRPC {
     }
 
     func authorize(_ id: String, signature: Data, reply: @escaping (Data) -> Void) {
-        let limits = peer.limits, handler = handlers.authorize
+        let limits = peer.limits, handler = handlers.authorize, identity = identity
         peer.dispatch(size: id.utf8.count + signature.count, reply: reply, parse: { () throws(IPCError) in
             Authorization(id: try WireCodec.decodeAuthorize(id: id, signature: signature), signature: signature)
-        }, work: { uid, input in
-            guard let result = try? await handler(uid, input.id, input.signature) else {
+        }, work: { _, input in
+            guard let result = try? await handler(identity, input.id, input.signature) else {
                 return WireCodec.errorReply(.unavailable)
             }
             return WireCodec.reply(result, kind: .adminReply, limits: limits) ?? WireCodec.errorReply(.unavailable)
+        })
+    }
+
+    func continueHuman(_ data: Data, reply: @escaping (Data) -> Void) {
+        let limits = continuation.limits, handler = handlers.continuation, identity = identity
+        continuation.dispatch(size: data.count, reply: reply, parse: { () throws(IPCError) in
+            try WireCodec.decodeContinuation(data, limits: limits)
+        }, work: { _, request in
+            WireCodec.continuationReply(await handler(identity, request), limits: limits) ?? WireCodec.errorReply(.unavailable)
         })
     }
 

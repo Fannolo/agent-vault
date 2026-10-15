@@ -116,8 +116,10 @@ enum WireCodec {
         case .revokeClient: ["operation", "clientID"]
         case .approveInvocation, .rejectInvocation: ["operation", "requestID"]
         case .recover, .prune: ["operation"]
+        case .openHumanStep: ["operation", "requestID", "accountID", "stepEpoch", "humanStepKind"]
         }
         guard keys == expected else { throw .invalidRequest }
+        if let epoch = request.stepEpoch, !(1...HumanFrame.maximumSequence).contains(epoch) { throw .invalidRequest }
         if let credential = request.credential, !(1...maxCredentialBytes).contains(credential.count) {
             throw .invalidRequest
         }
@@ -150,7 +152,7 @@ enum WireCodec {
     // MARK: Replies
 
     enum ReplyKind: String, CaseIterable {
-        case readReply, snapshot, challenge, adminReply, error
+        case readReply, snapshot, challenge, adminReply, humanFrame, humanReply, error
     }
 
     /// Wraps a handler result, applying the same validation the client applies.
@@ -183,10 +185,11 @@ enum WireCodec {
 
     enum Envelope {
         case readReply(ReadReply), snapshot(AdminSnapshot), challenge(AdminChallenge), adminReply(AdminReply)
+        case continuation(ContinuationReply)
         case error(IPCError)
     }
 
-    private struct Single<T: Decodable>: Decodable {
+    struct Single<T: Decodable>: Decodable {
         let value: T
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: AnyKey.self)
@@ -216,6 +219,8 @@ enum WireCodec {
             let reply = try decoder.decode(Single<AdminReply>.self, from: data).value
             guard isStatusToken(reply.status) else { throw IPCError.malformedReply }
             return .adminReply(reply)
+        case .humanFrame, .humanReply:
+            return .continuation(try continuationEnvelope(kind, data))
         case .error:
             let code = try decoder.decode(Single<IPCError>.self, from: data).value
             guard IPCError.wireCodes.contains(code) else { throw IPCError.malformedReply }
@@ -236,6 +241,9 @@ enum WireCodec {
             && snapshot.clients.allSatisfy { $0.uid != 0 }
             && snapshot.pending.allSatisfy { pendingStatuses.contains($0.status) }
             && snapshot.audit.allSatisfy { isStatusToken($0.outcome) && $0.timestamp.timeIntervalSince1970.isFinite }
+            && snapshot.humanSteps.allSatisfy {
+                (1...HumanFrame.maximumSequence).contains($0.epoch) && $0.expiresAt.timeIntervalSince1970.isFinite
+            }
     }
 
     /// Domain status: lowercase ASCII token, 1...64 bytes.
@@ -255,7 +263,7 @@ enum WireCodec {
             return .object(required: ["status"], optional: ["accounts", "requestID", "login", "userID"],
                            nested: ["accounts": .array(account, max: 128)])
         case .snapshot:
-            return .object(required: ["accounts", "clients", "grants", "pending", "audit"], nested: [
+            return .object(required: ["accounts", "clients", "grants", "pending", "audit", "humanSteps"], nested: [
                 "accounts": .array(account, max: 128),
                 "clients": .array(.object(required: ["id", "uid", "revoked"]), max: 128),
                 "grants": .array(.object(required: ["id", "clientID", "accountID", "expiresAt", "callsRemaining",
@@ -263,10 +271,14 @@ enum WireCodec {
                 "pending": .array(.object(required: ["id", "clientID", "accountID", "action", "expiresAt", "status"]),
                                   max: 128),
                 "audit": .array(.object(required: ["timestamp", "clientID", "outcome"],
-                                        optional: ["accountID", "action"]), max: 1000)
+                                        optional: ["accountID", "action"]), max: 1000),
+                "humanSteps": .array(.object(required: ["runID", "epoch", "kind", "accountID", "service", "expiresAt"]),
+                                     max: 16)
             ])
         case .challenge: return .object(required: ["id", "payload", "expiresAt", "nonce"])
         case .adminReply: return .object(required: ["status"], optional: ["id"])
+        case .humanFrame: return .object(required: ["sequence", "width", "height", "jpeg"])
+        case .humanReply: return .object(required: ["status"], optional: ["kind"])
         case .error: return .scalar
         }
     }

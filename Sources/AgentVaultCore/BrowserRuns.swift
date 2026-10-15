@@ -14,6 +14,7 @@ public struct BrowserRunID: Hashable, Sendable {
 public struct ContinuationLeaseID: Hashable, Sendable {
     public let uuid: UUID
     init() { uuid = UUID() }
+    init(_ uuid: UUID) { self.uuid = uuid }
 }
 
 /// Identity of one authenticated human-app connection, minted by the transport per accepted
@@ -21,6 +22,9 @@ public struct ContinuationLeaseID: Hashable, Sendable {
 public struct ContinuationConnectionID: Hashable, Sendable {
     public let uuid: UUID
     public init() { uuid = UUID() }
+    /// Wraps the identity the XPC listener minted when it accepted the connection. Never pass a
+    /// value that arrived in a request.
+    public init(minted uuid: UUID) { self.uuid = uuid }
 }
 
 /// A challenge that already exists before the human app asks to open it.
@@ -34,6 +38,9 @@ public struct HumanStepID: Hashable, Sendable {
 public struct PendingHumanStep: Equatable, Sendable {
     public let id: HumanStepID
     public let kind: HumanStepKind
+    public let account: UUID
+    /// The pause deadline, already capped by the grant.
+    public let expiresAt: Date
 }
 
 public enum HumanStepDecision: Sendable { case finished, cancel }
@@ -263,8 +270,8 @@ struct BrowserRun: Sendable {
     }
 
     var humanStep: PendingHumanStep? {
-        guard case .awaitingHuman(let kind, _, _) = phase else { return nil }
-        return .init(id: .init(run: id, epoch: challengeEpoch), kind: kind)
+        guard case .awaitingHuman(let kind, let pause, _) = phase else { return nil }
+        return .init(id: .init(run: id, epoch: challengeEpoch), kind: kind, account: binding.account, expiresAt: pause.date)
     }
 
     /// Every lifecycle rule. Returning `nil` removes the run. No event reserves budget:

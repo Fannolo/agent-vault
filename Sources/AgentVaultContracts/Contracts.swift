@@ -71,9 +71,12 @@ public struct AdminSnapshot: Codable, Sendable {
     public let grants: [GrantSummary]
     public let pending: [PendingSummary]
     public let audit: [AuditSummary]
-    public init(accounts: [AccountSummary], clients: [ClientSummary], grants: [GrantSummary], pending: [PendingSummary], audit: [AuditSummary] = []) {
+    /// Challenges paused for a person. Metadata only: no page address, text or image.
+    public let humanSteps: [HumanStepSummary]
+    public init(accounts: [AccountSummary], clients: [ClientSummary], grants: [GrantSummary], pending: [PendingSummary],
+                audit: [AuditSummary] = [], humanSteps: [HumanStepSummary] = []) {
         self.accounts = accounts; self.clients = clients; self.grants = grants; self.pending = pending
-        self.audit = audit
+        self.audit = audit; self.humanSteps = humanSteps
     }
 }
 
@@ -105,7 +108,7 @@ public struct ReadReply: Codable, Sendable {
 public struct AdminRequest: Codable, Sendable {
     public enum Operation: String, Codable, Sendable {
         case enroll, rotate, deleteAccount, pairClient, grant, revokeGrant, revokeClient,
-             approveInvocation, rejectInvocation, recover, prune
+             approveInvocation, rejectInvocation, recover, prune, openHumanStep
     }
     public let operation: Operation
     public var service: WireService?
@@ -118,6 +121,9 @@ public struct AdminRequest: Codable, Sendable {
     public var duration: Double?
     public var callLimit: Int?
     public var requiresApproval: Bool?
+    /// `openHumanStep` names one exact paused challenge: run (`requestID`), account, step epoch and kind.
+    public var stepEpoch: UInt64?
+    public var humanStepKind: HumanStepKind?
     public init(operation: Operation) { self.operation = operation }
 }
 
@@ -145,4 +151,6 @@ public struct AdminReply: Codable, Sendable {
     func snapshot(reply: @escaping (Data) -> Void)
     func begin(_ data: Data, reply: @escaping (Data) -> Void)
     func authorize(_ id: String, signature: Data, reply: @escaping (Data) -> Void)
+    /// Frame, input and conclusion for a lease opened on this same connection.
+    func continueHuman(_ data: Data, reply: @escaping (Data) -> Void)
 }

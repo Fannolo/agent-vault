@@ -28,7 +28,9 @@ private func requestFixtures() -> [RequestFixture] {
         .init(admin: true, fields: [("operation", quoted("approveInvocation")), ("requestID", id)]),
         .init(admin: true, fields: [("operation", quoted("rejectInvocation")), ("requestID", id)]),
         .init(admin: true, fields: [("operation", quoted("recover"))]),
-        .init(admin: true, fields: [("operation", quoted("prune"))])
+        .init(admin: true, fields: [("operation", quoted("prune"))]),
+        .init(admin: true, fields: [("operation", quoted("openHumanStep")), ("requestID", id), ("accountID", id),
+                                  ("stepEpoch", "3"), ("humanStepKind", quoted("mfa"))])
     ]
 }
 
@@ -131,12 +133,16 @@ private func replyFixtures(login: String, count: Int) -> [ReplyFixture] {
     let grant = "{\"id\":\(id),\"clientID\":\(id),\"accountID\":\(id),\"expiresAt\":1234,\"callsRemaining\":20,\"requiresApproval\":true,\"revoked\":false}"
     let pending = "{\"id\":\(id),\"clientID\":\(id),\"accountID\":\(id),\"action\":\"demo.status\",\"expiresAt\":1234,\"status\":\"approved\"}"
     let audit = "{\"timestamp\":1234,\"clientID\":\(id),\"accountID\":\(id),\"action\":\"demo.status\",\"outcome\":\"denied\"}"
+    let step = "{\"runID\":\(id),\"epoch\":2,\"kind\":\"mfa\",\"accountID\":\(id),\"service\":\"githubWeb\",\"expiresAt\":1234}"
+    let jpeg = quoted(Data([0xFF, 0xD8, 0x00, 0xFF, 0xD9]).base64EncodedString())
     return [
         .init(kind: .readReply, value: "{\"status\":\"completed\",\"login\":\(quoted(login)),\"userID\":42}"),
         .init(kind: .readReply, value: "{\"status\":\"completed\",\"accounts\":\(array(account))}"),
-        .init(kind: .snapshot, value: "{\"accounts\":\(array(account)),\"clients\":\(array(client)),\"grants\":\(array(grant)),\"pending\":\(array(pending)),\"audit\":\(array(audit))}"),
+        .init(kind: .snapshot, value: "{\"accounts\":\(array(account)),\"clients\":\(array(client)),\"grants\":\(array(grant)),\"pending\":\(array(pending)),\"audit\":\(array(audit)),\"humanSteps\":[\(step)]}"),
         .init(kind: .challenge, value: "{\"id\":\(id),\"payload\":\(quoted(Data(repeating: 0x41, count: 16).base64EncodedString())),\"expiresAt\":1234,\"nonce\":\(quoted(Data(count: 32).base64EncodedString()))}"),
         .init(kind: .adminReply, value: "{\"status\":\"granted\",\"id\":\(id)}"),
+        .init(kind: .humanFrame, value: "{\"sequence\":7,\"width\":640,\"height\":480,\"jpeg\":\(jpeg)}"),
+        .init(kind: .humanReply, value: "{\"status\":\"next_step\",\"kind\":\"captcha\"}"),
         .init(kind: .error, value: quoted("busy"))
     ]
 }
@@ -165,6 +171,11 @@ private func inspectReply(_ data: Data, kind: WireCodec.ReplyKind, context: Fuzz
                   && challenge.expiresAt.timeIntervalSince1970.isFinite, context, "challenge bound")
     case .adminReply(let reply):
         try check(statusIsBounded(reply.status), context, "admin status bound")
+    case .continuation(let reply):
+        if case .frame(let frame) = reply {
+            try check(frame.sequence > 0 && (1...1280).contains(frame.width) && (1...900).contains(frame.height)
+                      && frame.jpeg.count <= 262_144, context, "frame bound")
+        }
     case .error(let code):
         try check(["invalid_request", "request_too_large", "busy", "unavailable"].contains(code.rawValue), context, "closed wire error")
     }
@@ -196,6 +207,8 @@ private func inspectReply(_ data: Data, kind: WireCodec.ReplyKind, context: Fuzz
                 case .readReply, .adminReply: "status"
                 case .snapshot: "accounts"
                 case .challenge: "nonce"
+                case .humanFrame: "jpeg"
+                case .humanReply: "status"
                 case .error: "error"
                 }
                 if fixture.kind == .error {
@@ -268,7 +281,8 @@ private func inspectReply(_ data: Data, kind: WireCodec.ReplyKind, context: Fuzz
         ("clients", 128, "{\"id\":\(id),\"uid\":501,\"revoked\":false}"),
         ("grants", 512, "{\"id\":\(id),\"clientID\":\(id),\"accountID\":\(id),\"expiresAt\":1234,\"callsRemaining\":0,\"requiresApproval\":true,\"revoked\":false}"),
         ("pending", 128, "{\"id\":\(id),\"clientID\":\(id),\"accountID\":\(id),\"action\":\"demo.status\",\"expiresAt\":1234,\"status\":\"waiting\"}"),
-        ("audit", 1000, "{\"timestamp\":1234,\"clientID\":\(id),\"outcome\":\"denied\"}")
+        ("audit", 1000, "{\"timestamp\":1234,\"clientID\":\(id),\"outcome\":\"denied\"}"),
+        ("humanSteps", 16, "{\"runID\":\(id),\"epoch\":1,\"kind\":\"captcha\",\"accountID\":\(id),\"service\":\"githubWeb\",\"expiresAt\":1234}")
     ]
     for (name, maximum, element) in collections {
         for count in [maximum, maximum + 1] {

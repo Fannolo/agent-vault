@@ -25,17 +25,24 @@ enum BrokerMain {
                 let admin = try Administration(broker: broker, publicKey: config.approvalPublicKey,
                     allowedServices: [.demo, .github], allowedClientUID: config.ipc.allowedUID)
                 let read = ReadOperations(broker: broker)
+                let continuation = ContinuationOperations(broker: broker)
                 let server = try VaultXPCServer(configuration: config.ipc,
                     read: { uid, request in
                         do { return try await read.perform(uid: uid, request: request) }
                         catch { return ReadReply(.failure((error as? VaultError)?.readFailure ?? .operationFailed)) }
                     }, snapshot: { _ in try await admin.snapshot() },
-                    begin: { _, request in
-                        do { return try await admin.begin(request) }
+                    begin: { peer, request in
+                        do { return try await admin.begin(request, connection: ContinuationConnectionID(minted: peer.id)) }
                         catch { throw AdminRejection(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
-                    }, authorize: { _, id, signature in
-                        do { return try await admin.authorize(id, signature: signature) }
-                        catch { return AdminReply(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
+                    }, authorize: { peer, id, signature in
+                        do {
+                            return try await admin.authorize(id, signature: signature,
+                                                             connection: ContinuationConnectionID(minted: peer.id))
+                        } catch { return AdminReply(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
+                    }, continuation: { peer, request in
+                        await continuation.perform(request, connection: ContinuationConnectionID(minted: peer.id))
+                    }, connectionClosed: { peer in
+                        await broker.continuationConnectionClosed(ContinuationConnectionID(minted: peer.id))
                     })
                 running = (lease, server)
                 server.activate()

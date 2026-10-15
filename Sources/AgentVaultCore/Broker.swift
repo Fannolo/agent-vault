@@ -15,6 +15,9 @@ public actor Broker {
     private var recoveryInProgress = false
     private var runs: [BrowserRunID: BrowserRun] = [:]
     private var sweepTasks: [BrowserRunID: (deadline: Date, task: Task<Void, Never>)] = [:]
+    /// Frame and input bookkeeping for each current lease. An entry dies with its lease.
+    private var relays: [ContinuationLeaseID: LeaseRelay] = [:]
+    var relayCount: Int { relays.count }
 
     var scheduledDeadlineCount: Int { sweepTasks.count }
 
@@ -683,8 +686,75 @@ extension Broker {
         }
         let lease = ContinuationLease(id: ContinuationLeaseID(), connection: connection, step: step)
         await apply(run.id, .opened(lease))
-        guard runs[run.id]?.lease?.id == lease.id else { throw VaultError.denied }
+        guard runs[run.id]?.lease?.id == lease.id, let web else { throw VaultError.denied }
+        relays[lease.id] = LeaseRelay()
+        let shown = await web.showHuman(step)
+        _ = try await current(lease.id, connection: connection, step: step)
+        guard shown else {
+            await apply(run.id, .connectionClosed(connection))
+            throw VaultError.upstreamUnavailable
+        }
         return lease.id
+    }
+
+    /// The latest frame of the leased step newer than `after`. Each poll checks lease, connection,
+    /// step, deadline and authority before asking the host and again before returning its answer.
+    public func humanFrame(_ lease: ContinuationLeaseID, connection: ContinuationConnectionID,
+                           after: UInt64) async throws -> HumanFrame? {
+        let step = try await current(lease, connection: connection)
+        guard let web, var relay = relays[lease], !relay.framePending else { throw VaultError.busy }
+        let started = ContinuousClock.now
+        if let last = relay.lastPoll, started - last < LeaseRelay.minimumPollInterval { throw VaultError.busy }
+        relay.framePending = true; relay.lastPoll = started
+        relays[lease] = relay
+        let frame = await web.frame(step, after: after)
+        relays[lease]?.framePending = false
+        _ = try await current(lease, connection: connection, step: step)
+        guard let frame else { return nil }
+        // A host may not move backwards or answer a question it was not asked.
+        guard frame.sequence > after, frame.sequence >= relays[lease]?.served?.sequence ?? 0 else { return nil }
+        relays[lease]?.served = .init(sequence: frame.sequence, width: frame.width, height: frame.height)
+        return frame
+    }
+
+    /// Delivers one batch aimed at the latest frame this lease received. A replayed or older batch
+    /// number, an older frame, or an event outside that frame is refused without reaching the host.
+    public func humanInput(_ lease: ContinuationLeaseID, connection: ContinuationConnectionID,
+                           batch: UInt64, frame: UInt64, _ events: HumanInputBatch) async throws -> Bool {
+        let step = try await current(lease, connection: connection)
+        guard let web, var relay = relays[lease], !relay.inputPending else { throw VaultError.busy }
+        guard batch > relay.lastBatch else { return false }
+        // Consumed on admission: a duplicate cannot race the original.
+        relay.lastBatch = batch
+        relays[lease] = relay
+        guard let served = relay.served, served.sequence == frame,
+              let bounded = HumanInputBatch(events.events, width: served.width, height: served.height) else { return false }
+        relays[lease]?.inputPending = true
+        let delivered = await web.input(step, frame: frame, bounded)
+        relays[lease]?.inputPending = false
+        _ = try await current(lease, connection: connection, step: step)
+        return delivered
+    }
+
+    /// The person closed the window. The lease ends; the run keeps its pause and deadline.
+    public func closeHumanLease(_ lease: ContinuationLeaseID, connection: ContinuationConnectionID) async throws {
+        let step = try await current(lease, connection: connection)
+        await apply(step.run, .connectionClosed(connection))
+    }
+
+    /// The step a lease may act on now, after the deadline sweep and an authority check. A run that
+    /// lost authority ends here. `step` pins the answer to the step the caller started with.
+    private func current(_ lease: ContinuationLeaseID, connection: ContinuationConnectionID,
+                         step expected: HumanStepID? = nil) async throws -> HumanStepID {
+        await sweep()
+        guard let run = runs.values.first(where: { $0.lease?.id == lease }) else { throw VaultError.denied }
+        guard isAuthorized(run) else {
+            await apply(run.id, .authorityLost)
+            throw VaultError.denied
+        }
+        guard let held = run.lease, held.connection == connection, held.step == run.humanStep?.id,
+              expected == nil || held.step == expected else { throw VaultError.denied }
+        return held.step
     }
 
     /// The person finished or abandoned the step. The broker, not the page, decides what follows.
@@ -799,6 +869,7 @@ extension Broker {
         guard let run = runs[id] else { return }
         let (next, effects) = run.applying(event, now: now(), windows: windows)
         runs[id] = next
+        if let ended = run.lease?.id, next?.lease?.id != ended { relays.removeValue(forKey: ended) }
         updateSweep(for: id, deadline: next?.phase.deadline)
         let binding = run.binding
         for effect in effects {
@@ -840,6 +911,18 @@ extension Broker {
         sweepTasks.removeValue(forKey: id)
         await apply(id, .clock(now()))
     }
+}
+
+/// Per-lease relay state: what the person last saw, and which calls are in flight.
+struct LeaseRelay: Sendable {
+    /// Bounds host frame work even if the app polls in a loop.
+    static let minimumPollInterval: Duration = .milliseconds(50)
+    struct Served: Sendable { let sequence: UInt64; let width: Int; let height: Int }
+    var served: Served?
+    var lastBatch: UInt64 = 0
+    var lastPoll: ContinuousClock.Instant?
+    var framePending = false
+    var inputPending = false
 }
 
 /// Fires once; every waiter, earlier or later, resumes.

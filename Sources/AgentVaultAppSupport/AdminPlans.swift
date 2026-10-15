@@ -15,6 +15,15 @@ extension WireService {
     public var usesPassword: Bool { self == .browserDemo || self == .githubWeb }
 }
 
+extension HumanStepKind {
+    public var displayName: String {
+        switch self {
+        case .mfa: "two-factor"
+        case .captcha: "CAPTCHA"
+        }
+    }
+}
+
 /// Builds the credential bytes for enrollment or rotation and rejects malformed input before it
 /// leaves the app. The broker remains the authority; this only avoids sending obvious mistakes.
 public enum CredentialInput {
@@ -95,6 +104,9 @@ public enum AdminSummary {
         case .rejectInvocation: operationContext + "Reject request \(full(request.requestID))"
         case .recover: "Recover broker state"
         case .prune: "Prune expired broker records"
+        case .openHumanStep:
+            "Open the \(request.humanStepKind?.displayName ?? "?") step \(request.stepEpoch.map(String.init) ?? "?") of sign-in "
+                + "\(full(request.requestID)) for account \(full(request.accountID)) (\(account?.service.displayName ?? "web account"))"
         }
     }
 }

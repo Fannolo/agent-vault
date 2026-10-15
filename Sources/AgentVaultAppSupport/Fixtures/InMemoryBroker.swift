@@ -78,6 +78,7 @@ package actor InMemoryBroker: VaultAdminTransport {
         case .revokeClient: try need(clients.contains { $0.id == r.clientID })
         case .approveInvocation, .rejectInvocation: try need(pending.contains { $0.id == r.requestID && $0.status == "waiting" })
         case .recover, .prune: break
+        case .openHumanStep: try need(false)
         }
     }
 
@@ -112,7 +113,7 @@ package actor InMemoryBroker: VaultAdminTransport {
                                                                          action: $0.action, expiresAt: $0.expiresAt, status: "approved") : $0 }
         case .rejectInvocation:
             pending.removeAll { $0.id == r.requestID }
-        case .recover, .prune: break
+        case .recover, .prune, .openHumanStep: break
         }
         return nil
     }

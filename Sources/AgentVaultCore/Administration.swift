@@ -9,6 +9,8 @@ public actor Administration {
         let request: AdminRequest
         let payload: Data
         let expiresAt: Date
+        /// The connection that asked; a human-step open is authorized only on that same connection.
+        let connection: ContinuationConnectionID?
     }
     private let broker: Broker
     private let publicKey: P256.Signing.PublicKey
@@ -45,18 +47,30 @@ public actor Administration {
             .init(timestamp: $0.timestamp, clientID: $0.clientID, accountID: $0.accountID,
                   action: $0.action.flatMap { WireAction(rawValue: $0.rawValue) }, outcome: $0.outcome)
         }
-        return .init(accounts: accounts, clients: clients, grants: grants, pending: pending, audit: audit)
+        let services = Dictionary(state.accounts.map { ($0.id, $0.service.wire) }, uniquingKeysWith: { first, _ in first })
+        let steps: [HumanStepSummary] = try await broker.pendingHumanSteps().compactMap { step in
+            guard let service = services[step.account] else { return nil }
+            return .init(runID: step.id.run.uuid, epoch: step.id.epoch, kind: step.kind, accountID: step.account,
+                         service: service, expiresAt: step.expiresAt)
+        }
+        return .init(accounts: accounts, clients: clients, grants: grants, pending: pending, audit: audit, humanSteps: steps)
     }
 
-    public func begin(_ request: AdminRequest) throws -> AdminChallenge {
+    /// `connection` is the transport-minted identity of the asking connection. An open must name a
+    /// step that exists now, exactly as the snapshot showed it.
+    public func begin(_ request: AdminRequest, connection: ContinuationConnectionID? = nil) async throws -> AdminChallenge {
         try validate(request)
+        if request.operation == .openHumanStep {
+            guard connection != nil, try await broker.pendingHumanSteps().contains(where: { request.names($0) })
+            else { throw VaultError.denied }
+        }
         let timestamp = now()
         frozen = frozen.filter { $0.value.expiresAt > timestamp }
         guard frozen.count < 32 else { throw VaultError.busy }
         let id = UUID(), nonce = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
         let expiresAt = timestamp.addingTimeInterval(60)
         let payload = try ApprovalIntent.payload(request: request, id: id, nonce: nonce, expiresAt: expiresAt)
-        frozen[id] = Frozen(request: request, payload: payload, expiresAt: expiresAt)
+        frozen[id] = Frozen(request: request, payload: payload, expiresAt: expiresAt, connection: connection)
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(60))
             await self?.expire(id)
@@ -68,7 +82,7 @@ public actor Administration {
         if let value = frozen[id], value.expiresAt <= now() { frozen.removeValue(forKey: id) }
     }
 
-    public func authorize(_ id: UUID, signature: Data) async throws -> AdminReply {
+    public func authorize(_ id: UUID, signature: Data, connection: ContinuationConnectionID? = nil) async throws -> AdminReply {
         guard let invocation = frozen[id], invocation.expiresAt > now(), signature.count <= 80 else { throw VaultError.denied }
         guard let signature = try? P256.Signing.ECDSASignature(derRepresentation: signature),
               publicKey.isValidSignature(signature, for: invocation.payload) else { throw VaultError.denied }
@@ -100,6 +114,12 @@ public actor Administration {
             try await broker.recoverInterruptedLifecycle(); resultID = nil
         case .prune:
             try await broker.prune(); resultID = nil
+        case .openHumanStep:
+            // The broker accepts only the exact step that was signed, on the connection that began it.
+            guard let connection, connection == invocation.connection else { throw VaultError.denied }
+            let step = HumanStepID(run: BrowserRunID(request.requestID!), epoch: request.stepEpoch!)
+            guard try await broker.pendingHumanSteps().contains(where: { request.names($0) }) else { throw VaultError.denied }
+            resultID = try await broker.openHumanStep(step, connection: connection).uuid
         }
         return .init(status: "completed", id: resultID)
     }
@@ -120,6 +140,7 @@ public actor Administration {
         case .revokeClient: required = ["clientID"]
         case .approveInvocation, .rejectInvocation: required = ["requestID"]
         case .recover, .prune: required = []
+        case .openHumanStep: required = ["requestID", "accountID", "stepEpoch", "humanStepKind"]
         }
         guard keys == required else { throw VaultError.invalidInput }
         if let service = request.service {
@@ -133,6 +154,51 @@ public actor Administration {
         if let uid = request.uid { guard uid != 0, allowedClientUID == nil || uid == allowedClientUID else { throw VaultError.invalidInput } }
         if let duration = request.duration { guard duration > 0, duration <= 86_400, duration.isFinite else { throw VaultError.invalidInput } }
         if let calls = request.callLimit { guard (1...10_000).contains(calls) else { throw VaultError.invalidInput } }
+        if let epoch = request.stepEpoch { guard (1...HumanFrame.maximumSequence).contains(epoch) else { throw VaultError.invalidInput } }
+    }
+}
+
+private extension AdminRequest {
+    func names(_ step: PendingHumanStep) -> Bool {
+        requestID == step.id.run.uuid && stepEpoch == step.id.epoch && humanStepKind == step.kind && accountID == step.account
+    }
+}
+
+/// Frame, input and conclusion calls from the authenticated human app. `connection` must be the
+/// identity the transport minted for the connection carrying the call.
+public struct ContinuationOperations: Sendable {
+    private let broker: Broker
+    public init(broker: Broker) { self.broker = broker }
+
+    public func perform(_ request: ContinuationRequest, connection: ContinuationConnectionID) async -> ContinuationReply {
+        let lease = ContinuationLeaseID(request.lease)
+        do {
+            switch request.operation {
+            case .frame(let after):
+                return try await broker.humanFrame(lease, connection: connection, after: after).map(ContinuationReply.frame) ?? .noFrame
+            case .input(let batch, let frame, let events):
+                return try await broker.humanInput(lease, connection: connection, batch: batch, frame: frame, events)
+                    ? .delivered : .notDelivered
+            case .finish, .cancel:
+                let decision: HumanStepDecision = request.operation == .finish ? .finished : .cancel
+                switch try await broker.concludeHumanStep(lease, connection: connection, decision: decision) {
+                case .concluded: return .concluded
+                case .humanStepRequired(let kind): return .nextStep(kind)
+                }
+            case .close:
+                try await broker.closeHumanLease(lease, connection: connection)
+                return .closed
+            }
+        } catch let error as VaultError {
+            switch error {
+            case .busy: return .failure(.busy)
+            case .invalidInput: return .failure(.invalidInput)
+            case .upstreamUnavailable: return .failure(.upstreamUnavailable)
+            default: return .failure(.accessDenied)
+            }
+        } catch {
+            return .failure(.accessDenied)
+        }
     }
 }
 

@@ -73,3 +73,60 @@ public struct HumanInputBatch: Sendable, Equatable {
         self.events = events
     }
 }
+
+/// One paused challenge as the human app sees it before opening it.
+public struct HumanStepSummary: Codable, Sendable, Equatable, Identifiable {
+    public let runID: UUID
+    public let epoch: UInt64
+    public let kind: HumanStepKind
+    public let accountID: UUID
+    public let service: WireService
+    public let expiresAt: Date
+    public var id: String { "\(runID.uuidString)#\(epoch)" }
+
+    public init(runID: UUID, epoch: UInt64, kind: HumanStepKind, accountID: UUID, service: WireService, expiresAt: Date) {
+        self.runID = runID; self.epoch = epoch; self.kind = kind
+        self.accountID = accountID; self.service = service; self.expiresAt = expiresAt
+    }
+}
+
+/// One call on an opened lease. The broker binds `lease` to the connection that opened it.
+public struct ContinuationRequest: Sendable, Equatable {
+    public enum Operation: Sendable, Equatable {
+        /// The latest frame newer than `after`.
+        case frame(after: UInt64)
+        /// `batch` strictly increases per lease; `frame` must be the latest frame this lease received.
+        case input(batch: UInt64, frame: UInt64, HumanInputBatch)
+        /// The person says the step is done; the broker asks the host to reclassify.
+        case finish
+        /// The person abandons the step; the run concludes as `human_cancelled`.
+        case cancel
+        /// The window closed: the lease ends, the pause keeps running until its deadline.
+        case close
+    }
+    public let lease: UUID
+    public let operation: Operation
+    public init(lease: UUID, operation: Operation) { self.lease = lease; self.operation = operation }
+}
+
+/// Closed results of a continuation call. None carries page content other than a frame.
+public enum ContinuationReply: Sendable, Equatable {
+    case frame(HumanFrame)
+    case noFrame
+    case delivered
+    /// Input was not delivered: stale frame, replayed batch or a page that moved on.
+    case notDelivered
+    case concluded
+    /// Another challenge follows on the same run. It needs a new signed open.
+    case nextStep(HumanStepKind)
+    case closed
+    case failure(ContinuationFailure)
+}
+
+public enum ContinuationFailure: String, Sendable, CaseIterable {
+    /// No current lease on this connection: expired, revoked, lost, concluded or never opened.
+    case accessDenied = "access_denied"
+    case busy
+    case invalidInput = "invalid_input"
+    case upstreamUnavailable = "upstream_unavailable"
+}

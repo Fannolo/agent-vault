@@ -87,9 +87,36 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
         lock.withLock { open.remove(run); ended.append(run) }
     }
 
-    func showHuman(_ step: HumanStepID) async -> Bool { lock.withLock { open.contains(step.run) } }
-    func frame(_ step: HumanStepID, after: UInt64) async -> HumanFrame? { nil }
-    func input(_ step: HumanStepID, frame: UInt64, _ batch: HumanInputBatch) async -> Bool { false }
+    func showHuman(_ step: HumanStepID) async -> Bool {
+        lock.withLock { shown.append(step); return open.contains(step.run) && showResult }
+    }
+    func frame(_ step: HumanStepID, after: UInt64) async -> HumanFrame? {
+        lock.withLock { frameCalls += 1 }
+        await frameHold.pass()
+        return lock.withLock { frames.first { $0.sequence > after && open.contains(step.run) } }
+    }
+    func input(_ step: HumanStepID, frame: UInt64, _ batch: HumanInputBatch) async -> Bool {
+        await inputHold.pass()
+        return lock.withLock {
+            delivered.append((step, frame, batch))
+            return open.contains(step.run)
+        }
+    }
+
+    // Raster side of the scripted host.
+    private var frames: [HumanFrame] = []
+    private var frameCalls = 0
+    private var shown: [HumanStepID] = []
+    private var delivered: [(HumanStepID, UInt64, HumanInputBatch)] = []
+    private var showResult = true
+    let frameHold = Hold(), inputHold = Hold()
+    func serve(_ frame: HumanFrame) { lock.withLock { frames.insert(frame, at: 0) } }
+    func refuseToShow() { lock.withLock { showResult = false } }
+    var frameRequests: Int { lock.withLock { frameCalls } }
+    var shownSteps: [HumanStepID] { lock.withLock { shown } }
+    var deliveredInput: [(step: HumanStepID, frame: UInt64, batch: HumanInputBatch)] {
+        lock.withLock { delivered.map { (step: $0.0, frame: $0.1, batch: $0.2) } }
+    }
 
     /// The host process died: every context is gone.
     func lose() {

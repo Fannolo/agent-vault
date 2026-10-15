@@ -65,17 +65,20 @@ public enum FixtureCommand {
                                                               status: "approved")],
                                      audit: [AuditSummary(timestamp: Date(), clientID: accountID, accountID: nil,
                                                           action: nil, outcome: "client_revoked")])
-            }, begin: { uid, request in
-                record.append("begin \(request.operation.rawValue) uid=\(uid)")
+            }, begin: { peer, request in
+                record.append("begin \(request.operation.rawValue) uid=\(peer.uid)")
                 guard request.operation != .enroll else { throw AdminRejection(status: "fixture_holds_no_credentials") }
                 let challenge = AdminChallenge(id: UUID(), payload: Data((0..<32).map { _ in UInt8.random(in: 0...255) }),
                                                expiresAt: Date().addingTimeInterval(60))
                 issued.insert(challenge.id)
                 return challenge
-            }, authorize: { uid, id, _ in
-                record.append("authorize uid=\(uid)")
+            }, authorize: { peer, id, _ in
+                record.append("authorize uid=\(peer.uid)")
                 return issued.consume(id) ? AdminReply(status: "applied", id: id) : AdminReply(status: "unknown_challenge")
-            })
+            }, continuation: { peer, _ in
+                record.append("continuation uid=\(peer.uid)")
+                return .failure(.accessDenied)
+            }, connectionClosed: { _ in })
         } catch {
             finish(["outcome": error.rawValue], status: 1)
         }

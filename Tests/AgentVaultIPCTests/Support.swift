@@ -68,7 +68,8 @@ final class Loopback: @unchecked Sendable {
     init(server serverConfiguration: IPCConfiguration = developmentConfiguration(),
          client: IPCConfiguration = developmentConfiguration(), limits: IPCLimits = .standard,
          read: VaultXPCServer.ReadHandler? = nil, snapshot: VaultXPCServer.SnapshotHandler? = nil,
-         begin: VaultXPCServer.BeginHandler? = nil) {
+         begin: VaultXPCServer.BeginHandler? = nil, authorize: VaultXPCServer.AuthorizeHandler? = nil,
+         continuation: VaultXPCServer.ContinuationHandler? = nil, closed: VaultXPCServer.ClosedHandler? = nil) {
         let readListener = NSXPCListener.anonymous(), adminListener = NSXPCListener.anonymous()
         let recorder = recorder
         let handlers = VaultXPCServer.Handlers(
@@ -84,7 +85,8 @@ final class Loopback: @unchecked Sendable {
             begin: begin ?? { _, _ in
                 AdminChallenge(id: UUID(), payload: Data(repeating: 7, count: 32), expiresAt: Date() + 60)
             },
-            authorize: { _, id, _ in AdminReply(status: "applied", id: id) })
+            authorize: authorize ?? { _, id, _ in AdminReply(status: "applied", id: id) },
+            continuation: continuation ?? { _, _ in .noFrame }, closed: closed ?? { _ in })
         server = VaultXPCServer(validated: serverConfiguration, limits: limits, readListener: readListener,
                                 adminListener: adminListener, handlers: handlers)
         server.activate()

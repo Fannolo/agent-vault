@@ -92,6 +92,20 @@ public final class VaultAdminClient: Sendable {
         return reply
     }
 
+    /// One call on a lease opened through this same client: its connection is the lease's binding,
+    /// so a reconnect needs a new signed open.
+    public func continueHuman(_ request: ContinuationRequest) async throws(IPCError) -> ContinuationReply {
+        let data = try WireCodec.encode(request)
+        let envelope = await channel.exchange(allowed: [.humanFrame, .humanReply]) { proxy, reply in
+            (proxy as? VaultAdminRPC)?.continueHuman(data, reply: reply)
+        }
+        guard case .continuation(let reply) = try envelope.get() else { throw .malformedReply }
+        if case .frame(let frame) = reply, case .frame(let after) = request.operation, frame.sequence <= after {
+            throw .malformedReply
+        }
+        return reply
+    }
+
     public func invalidate() { channel.invalidate() }
 }
 

@@ -100,7 +100,7 @@ private final class Clock: @unchecked Sendable {
         await #expect(throws: VaultError.denied) { _ = try await c.resume(run) }
         #expect(host.commands.all == [
             .start(run: run.uuid, workflow: .githubWebProfile, credential: credential, lifetime: 900),
-            .classify(run: run.uuid), .end(run: run.uuid)
+            .showHuman(run: run.uuid, step: 1), .classify(run: run.uuid), .end(run: run.uuid)
         ])
     }
 
