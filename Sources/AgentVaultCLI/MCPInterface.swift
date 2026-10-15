@@ -27,12 +27,9 @@ enum MCPInterface {
                 case "accounts_list":
                     guard arguments.isEmpty else { throw VaultError.invalidInput }
                     let accounts = try await broker.availableAccounts(clientID: clientID)
-                    let payload = Value.object(["accounts": .array(accounts.map {
-                        .object(["id": .string($0.id.uuidString.lowercased()),
-                                 "service": .string($0.service.rawValue),
-                                 "action": .string($0.service.action.rawValue)])
-                    })])
-                    return try response(payload)
+                    return try response(ReadReply(.outcome(.completed), accounts: accounts.map {
+                        AccountSummary(id: $0.id, service: $0.service.wire, status: $0.lifecycle.rawValue)
+                    }))
                 case "action_run":
                     guard Set(arguments.keys) == ["accountId", "action"],
                           let id = arguments["accountId"]?.stringValue.flatMap(UUID.init(uuidString:)),

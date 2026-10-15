@@ -140,7 +140,13 @@ def main():
             tools = rpc.call("tools/list")["tools"]
             assert {tool["name"] for tool in tools} == {"accounts_list", "action_run"}
             listed = tool_payload(rpc.call("tools/call", {"name": "accounts_list", "arguments": {}}))
+            assert set(listed) == {"status", "accounts"} and listed["status"] == "completed"
             assert len(listed["accounts"]) == (1 if args.keychain_demo else 0)
+            if args.keychain_demo:
+                account = listed["accounts"][0]
+                assert set(account) == {"id", "service", "status"}
+                assert uuid.UUID(account["id"]) == uuid.UUID(fixture["accountId"])
+                assert account["service"] == "demo" and account["status"] == "active"
             result = rpc.call("tools/call", {"name": "action_run", "arguments": {
                 "accountId": fixture["accountId"], "action": "demo.status"}})
             if args.keychain_demo:

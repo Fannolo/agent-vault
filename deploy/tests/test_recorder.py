@@ -23,6 +23,9 @@ def check(code):
 
 CHECKS = {
     "pass": check("print('Ran 1 test'); print('OK')"),
+    "swift-skips": check("print('➜ Test nativeFixture() skipped: opt-in required'); "
+                         "print('➜ Test networkFixture() skipped: opt-in required'); "
+                         "print('✔ Test run with 3 tests passed')"),
     "fail": check("import sys; print('FAILED'); sys.exit(3)"),
     "aux": check("import sys; open(sys.argv[2], 'w').write('{\"results\": [1]}'); print('PASS aux')"),
     "aux-malformed": check("import sys; open(sys.argv[2], 'w').write('{\"results\": ['); print('PASS aux')"),
@@ -82,6 +85,18 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(evidence.stat().st_mode), 0o600)
         self.assertNotIn(str(self.repo), json.dumps(record["checks"]))
         self.assertEqual(record["checks"][0]["observedSummary"], ["Ran 1 test", "OK"])
+
+    def test_swift_skips_remain_visible_beside_the_runner_summary(self):
+        code, record, _ = self.record("skips", "swift-skips", "pass")
+        self.assertEqual(code, 0)
+        swift = record["checks"][0]
+        self.assertEqual(swift["swiftTesting"], {
+            "reportedSkipCount": 2,
+            "skipReports": ["➜ Test nativeFixture() skipped: opt-in required",
+                            "➜ Test networkFixture() skipped: opt-in required"]})
+        self.assertEqual(swift["observedSummary"], swift["swiftTesting"]["skipReports"]
+                         + ["✔ Test run with 3 tests passed"])
+        self.assertNotIn("swiftTesting", record["checks"][1])
 
     def test_malformed_or_missing_evidence_is_a_recorded_failure(self):
         for name in ("aux-malformed", "aux-missing"):

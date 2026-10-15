@@ -20,6 +20,7 @@ LOGS = "verification-logs"
 CHECKS = {
     "swift": ["swift", "test", "--force-resolved-versions", "-j", "4"],
     "mcp": [sys.executable, "scripts/verify-mcp.py"],
+    "mcp-keychain": [sys.executable, "scripts/verify-mcp.py", "--keychain-demo"],
     "boundaries": [sys.executable, "scripts/verify-boundaries.py"],
     "installer": [sys.executable, "scripts/verify-installer.py"],
     "release-entitlements": [sys.executable, "-I", "deploy/tests/test_release.py"],
@@ -100,9 +101,13 @@ def run_check(name, run_dir):
     check["elapsedSeconds"] = round(time.monotonic() - started, 3)
     content = log.read_bytes()
     check["logSha256"] = sha256(content)
-    check["observedSummary"] = [line for line in content.decode(errors="replace").splitlines()
+    lines = content.decode(errors="replace").splitlines()
+    skipped = [line for line in lines if line.startswith("➜ Test ") and " skipped:" in line]
+    if skipped or any(line.startswith("✔ Test run") for line in lines):
+        check["swiftTesting"] = {"reportedSkipCount": len(skipped), "skipReports": skipped}
+    check["observedSummary"] = [line for line in lines
                                 if line.startswith(("✔ Test run", "Ran ", "OK", "FAILED", "PASS", "FAIL",
-                                                    "tests ", "mutation ", "verify-installer:"))][-64:]
+                                                    "tests ", "mutation ", "verify-installer:", "➜ Test "))][-64:]
     if evidence:
         if not evidence.exists():
             check.setdefault("error", "the check wrote no evidence file")
