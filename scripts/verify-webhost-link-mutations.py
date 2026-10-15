@@ -2,13 +2,29 @@
 """Reverts one U1 web host link defense at a time and requires its targeted test to fail.
 
 Edits the working tree in place and restores each file in `finally`; run it on a clean tree.
-A test that hangs past 90 s counts as detecting the defect. Raw output goes to
-verification-logs/webhost-link-mutations.log (gitignored)."""
-import subprocess, sys, pathlib
+A test that hangs past the timeout counts as detecting the defect. Raw output goes to
+verification-logs/webhost-link-mutations.log (gitignored).
+
+Process ownership: every build and test runs in a new session whose process group this
+script records at spawn. On timeout, or if anything is left in that group after the leader
+exits, only that recorded group is signalled (TERM, bounded wait, then KILL). Nothing is
+ever found or signalled by name, path or search, so other test runs, worktrees and
+applications are untouched.
+"""
+import os
+import pathlib
+import select
+import signal
+import subprocess
+import sys
+import threading
+import time
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LOG = ROOT / "verification-logs" / "webhost-link-mutations.log"
-LOG.parent.mkdir(exist_ok=True)
-LOG.write_text("")
+TEST_TIMEOUT = 90
+TERM_GRACE = 5
+
 M = [
  ("no broker reply deadline", "Sources/AgentVaultCore/Broker.swift",
   "        await settled.wait()\n        timer.cancel()", "        timer.cancel(); _ = await request()\n        await settled.wait()",
@@ -38,27 +54,104 @@ M = [
  ("wire accepts extra keys", "Sources/AgentVaultWebHostProtocol/HostWire.swift",
   "            guard remaining.isEmpty else { throw error }", "            _ = remaining", "startHasExactlyItsKeys"),
 ]
-results = []
-for name, path, old, new, test in M:
-    f = ROOT / path; original = f.read_text()
-    assert original.count(old) == 1, name
-    f.write_text(original.replace(old, new))
+
+
+def group_has_live_members(pgid):
+    """True while any process in the owned group can still run.
+
+    Measured on macOS: signal 0 to a group succeeds while a live member exists, fails with
+    EPERM when only the unreaped (zombie) leader remains, and with ESRCH once it is reaped.
+    """
     try:
-        b = subprocess.run(["swift", "build", "--build-tests", "-j", "8"], cwd=ROOT, capture_output=True, text=True)
-        if b.returncode != 0:
-            out, status = b.stdout[-3000:] + b.stderr[-2000:], "BUILD_FAILED"
-        else:
-            try:
-                r = subprocess.run(["swift", "test", "--skip-build", "--filter", test], cwd=ROOT, capture_output=True, text=True, timeout=90)
-                out = r.stdout + r.stderr
-                status = "KILLED" if r.returncode != 0 else "SURVIVED"
-            except subprocess.TimeoutExpired as e:
-                subprocess.run(["pkill", "-f", "AgentVaultPackageTests"])
-                out, status = "test hung past 90 s: " + str(e.stdout or "")[-2000:], "KILLED(hang)"
+        os.killpg(pgid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
+def terminate_group(pgid, grace=TERM_GRACE):
+    """Ends exactly the process group created for one owned child: TERM, bounded wait, KILL.
+
+    Call it only while that child is unreaped, so its group ID cannot have been reused.
+    """
+    if pgid <= 1 or pgid == os.getpgrp():
+        raise ValueError("refusing to signal a process group this harness does not own")
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        if not group_has_live_members(pgid):
+            return
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError):
+            return
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline and group_has_live_members(pgid):
+            time.sleep(0.05)
+
+
+def wait_for_exit_without_reaping(pid, timeout):
+    """Waits for `pid` to exit but leaves it unreaped, keeping its PID and group ID reserved."""
+    queue = select.kqueue()
+    try:
+        event = select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                              flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT, fflags=select.KQ_NOTE_EXIT)
+        try:
+            return len(queue.control([event], 1, timeout)) > 0
+        except ProcessLookupError:
+            return True  # already exited (zombie) before registration
     finally:
-        f.write_text(original)
-    results.append((name, status))
-    with open(LOG, "a") as log: log.write(f"=== {name} [{test}] -> {status}\n{out[-4000:]}\n")
-    print(name, status, flush=True)
-subprocess.run(["swift", "build", "--build-tests", "-j", "8"], cwd=ROOT, capture_output=True)
-sys.exit(0 if all(s.startswith("KILLED") for _, s in results) else 1)
+        queue.close()
+
+
+def run_owned(command, timeout, cwd=ROOT):
+    """Runs `command` as the leader of a new session and process group.
+
+    Returns (returncode, or None on timeout; combined output). The group ID is the child's PID,
+    taken from the spawn handle before anything else, and is the only group ever signalled.
+    """
+    child = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             start_new_session=True)
+    pgid = child.pid
+    chunks = []
+    reader = threading.Thread(target=lambda: chunks.append(child.stdout.read()), daemon=True)
+    reader.start()
+    exited = wait_for_exit_without_reaping(pgid, timeout)
+    # The leader is alive or a zombie here; either way the group ID is still ours.
+    terminate_group(pgid)
+    code = child.wait()
+    reader.join(TERM_GRACE)
+    child.stdout.close()
+    output = b"".join(chunks).decode("utf-8", "replace")
+    return (code if exited else None), output
+
+
+def main():
+    LOG.parent.mkdir(exist_ok=True)
+    LOG.write_text("")
+    results = []
+    for name, path, old, new, test in M:
+        source = ROOT / path
+        original = source.read_text()
+        assert original.count(old) == 1, name
+        source.write_text(original.replace(old, new))
+        try:
+            code, out = run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=600)
+            if code != 0:
+                status = "BUILD_FAILED"
+            else:
+                code, out = run_owned(["swift", "test", "--skip-build", "--filter", test], timeout=TEST_TIMEOUT)
+                if code is None:
+                    status, out = "KILLED(hang)", f"test hung past {TEST_TIMEOUT} s; owned group ended\n" + out
+                else:
+                    status = "KILLED" if code != 0 else "SURVIVED"
+        finally:
+            source.write_text(original)
+        results.append((name, status))
+        with open(LOG, "a") as log:
+            log.write(f"=== {name} [{test}] -> {status}\n{out[-4000:]}\n")
+        print(name, status, flush=True)
+    run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=600)
+    return 0 if all(status.startswith("KILLED") for _, status in results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
