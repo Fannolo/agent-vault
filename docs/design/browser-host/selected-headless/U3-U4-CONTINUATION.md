@@ -1,6 +1,6 @@
 # U3–U4: human continuation relay and window
 
-Status: U3 (relay) and U4 (window) are implemented against synthetic fixtures, as two commits on top of the corrected U1 (`0139ab5`). No host, browser, installed service, protected key or real credential is involved. The production broker still composes no web host, so it lists no human step and every relay call is refused. **No production or isolation claim is made.**
+Status: U3 (relay) and U4 (window), originally built on corrected U1 (`0139ab5`), are integrated in the parent branch with the three race corrections and an additional Finish/Cancel liveness guard. Their evidence uses synthetic fixtures, software signing and local XPC. It does not exercise the real host-to-app flow, installed service, protected key or real credential. The production broker still composes no web host, so it lists no human step and every relay call is refused. **No production or isolation claim is made.**
 
 ## Usage (caller's view)
 

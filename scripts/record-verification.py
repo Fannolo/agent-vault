@@ -30,13 +30,14 @@ CHECKS = {
     "webhost-mutations": [sys.executable, "scripts/verify-webhost-link-mutations.py"],
     "webhost-real": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter", "AgentVaultWebHostTests"],
     "webhost-browser-mutations": [sys.executable, "scripts/verify-webhost-mutations.py"],
+    "continuation-mutations": [sys.executable, "scripts/verify-continuation-mutations.py"],
     "xpc": [sys.executable, "scripts/verify-xpc.py"],
     "xpc-mutations": [sys.executable, "scripts/verify-xpc-mutations.py"],
     "native-keychain": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter",
                         "privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled|nativeKeychainRoundTripWhenExplicitlyEnabled"],
 }
 EVIDENCE = {"xpc", "xpc-mutations"}
-DETAIL_LOGS = {"webhost-mutations", "webhost-browser-mutations"}
+DETAIL_LOGS = {"webhost-mutations", "webhost-browser-mutations", "continuation-mutations"}
 CHROMIUM_CHECKS = {"webhost-real", "webhost-browser-mutations"}
 
 

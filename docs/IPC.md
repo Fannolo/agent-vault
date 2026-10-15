@@ -100,13 +100,14 @@ validates the keys before it builds the typed value.
 | `revokeGrant` | `grantID` |
 | `revokeClient` | `clientID` |
 | `approveInvocation`, `rejectInvocation` | `requestID` |
+| `openHumanStep` | `requestID`, `accountID`, `stepEpoch`, `humanStepKind` |
 | `recover`, `prune` | none |
 
 `authorize` takes a 36-character UUID string and a signature of 8–72 bytes. That range
 covers both DER and raw P-256 signatures.
 
 Each reply is a JSON object with exactly one key: `readReply`, `snapshot`, `challenge`,
-`adminReply` or `error`. Each method accepts only its own kinds plus `error`. The server
+`adminReply`, `humanFrame`, `humanReply` or `error`. Each method accepts only its own kinds plus `error`. The server
 checks every reply with the same validator as the client. If a handler's output fails
 that check, the server sends `unavailable` instead. The validator enforces these rules:
 
@@ -147,20 +148,24 @@ read handlers cannot prevent a new authenticated admin connection from probing t
 
 ## Integration
 
-`VaultXPCServer(configuration:limits:read:snapshot:begin:authorize:)` takes four async
-handlers. Each receives the bound kernel UID:
+`VaultXPCServer(configuration:limits:read:snapshot:begin:authorize:continuation:connectionClosed:)`
+takes async handlers. Read and snapshot receive the bound kernel UID; human administration
+receives the server-minted `AdminConnection`:
 
 - `(UInt32, ReadRequest) -> ReadReply`
 - `(UInt32) -> AdminSnapshot`
-- `(UInt32, AdminRequest) -> AdminChallenge`. Throw `AdminRejection(status:)` to send an
+- `(AdminConnection, AdminRequest) -> AdminChallenge`. Throw `AdminRejection(status:)` to send an
   `AdminReply` instead. Any other error becomes `unavailable`.
-- `(UInt32, UUID, Data) -> AdminReply`
+- `(AdminConnection, UUID, Data) -> AdminReply`
+- `(AdminConnection, ContinuationRequest) -> ContinuationReply`
+- `(AdminConnection) -> Void` when that connection closes
 
-`VaultReadClient.perform(_:)` returns a `ReadReply`. `VaultAdminClient` has three methods:
+`VaultReadClient.perform(_:)` returns a `ReadReply`. `VaultAdminClient` has these operations:
 
 - `snapshot()`
 - `begin(_:)`, which returns `.challenge(AdminChallenge)` or `.rejected(AdminReply)`
 - `authorize(id:signature:)`
+- `continueHuman(_:)`
 
 All of them throw `IPCError`. The root wires the app's `VaultAdminClient` adapter. For
 example, the adapter maps `snapshot.audit` to the UI's audit entries, and the UI uses
@@ -196,10 +201,22 @@ creation, so finish-before-register and invalidate-before-register leave no reta
 handles. Admin handlers always finish, preserving lifecycle journals and uncertain
 outcome semantics.
 
-`HumanFrame` and bounded typed `HumanInputBatch` are App-safe data contracts. The host
-port exposes show/frame/input for a preexisting `HumanStepID`; this does not yet provide
-an authenticated human-app relay or native rendering. Those remain U3/U4 work. No MCP
-human-input or generic browser operation was added.
+`HumanFrame` and bounded typed `HumanInputBatch` are App-safe contracts. U3/U4 relay
+them over the existing admin connection's `continueHuman` selector. Its separate lane
+allows two calls per connection and four globally, preserving the admin handler reserve.
+Each accepted connection has one server-minted UUID; invalidation marks it closed before
+the asynchronous cleanup callback. Signed opens bind a preexisting run, account, step epoch
+and kind; the returned lease belongs to that connection. Snapshot replies include the
+available `humanSteps`. No MCP human-input or generic browser operation was added.
+
+Continuation requests have exact keys: `frame` uses `operation`, `lease`, `after`;
+`input` uses `operation`, `lease`, `batch`, `frame`, `events`; `finish`, `cancel` and `close`
+use only `operation`, `lease`. Requests are capped at 8192 bytes, input at 32 events and
+text at 64 bytes per event. Frame/input authority is checked before and after host calls;
+sequences, served-frame dimensions and pacing are enforced per lease. Finish/Cancel checks
+synchronous liveness at admission. Admitted work completes under its own deadline.
+The app validates the JPEG's actual raster dimensions before rendering and drains input
+acknowledgments before Finish. Full integration with the real host remains unverified.
 
 `AgentVaultWebHost` now implements that wire as a separate executable, with a four-run
 table, once-only run IDs and a shared launch barrier before target creation. Its bounded

@@ -48,8 +48,8 @@ and UID checks and Core rechecks live authority immediately before dispatch. Run
 are scoped to the connection generation; start/classify waits have Core-owned deadlines.
 Initial read cancellation ends its browser run, including late contexts; admin handlers
 continue to completion. Terminal host-peer loss prevents replacement peers and drops late
-results. Actual host teardown must also prevent late context creation. App-safe frame/input
-types do not establish a deployed human relay, safe raster decoding or OS isolation.
+results. Host teardown prevents late context creation. App-safe frame/input types and native
+JPEG validation do not establish an installed human relay or OS isolation.
 
 The separate U2 executable now implements fixed Chromium workflows over private pipes,
 with no TCP debugging endpoint. A serial nonblocking writer enforces each call's deadline
@@ -59,6 +59,20 @@ document constrain the fixture's page traffic. They are not OS-enforced egress: 
 browser and network utility processes are unsandboxed. Same-UID loopback and renderer
 sandbox observations do not establish the installed daemon, whole-process network policy,
 signed distribution or live GitHub workflow. The production broker still composes no host.
+
+Human continuation uses a server-minted connection UUID and synchronous liveness flag.
+A signed open names the exact run, account, step epoch and kind. Relay calls check the
+grant and lease; Finish/Cancel refuses an already closed connection before its delayed
+cleanup callback. Admitted admin work retains its completion semantics. Separate bounded
+continuation capacity preserves admin capacity. ImageIO checks JPEG type, count, dimensions
+and orientation; this trusts the OS decoder. Finish drains input acknowledgments and late
+polling cannot overwrite its result. Real host-to-app integration remains unverified.
+
+Browser signals use a handle that pins its spawned leader until reaping. The reaper kills
+remaining group members before releasing the ID. Watcher failure triggers kill-and-wait;
+EINTR retries. Unconfirmed waits disable signals without reporting successful cleanup,
+potentially retaining a zombie until host exit. This controls only the owned process group;
+a compromised child escaping that group is not confined by the handle.
 
 ## Trusted parties and exclusions
 

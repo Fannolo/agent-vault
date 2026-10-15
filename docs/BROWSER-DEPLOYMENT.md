@@ -57,19 +57,23 @@ names the current step and latest frame. The service has four run slots and term
 Nonblocking writes use per-call deadlines without holding the state lock; cold starts await
 confirmed paused auto-attach before creating targets. Concluded IDs cannot be reused.
 
-Independent source review accepted the three original U2 corrections in `bf5097a`; the
-parent's combined normal and real-browser verification is pending. The earlier full-suite
-owner result predates the final barrier-test change. Browser mutation reruns also need an
-independent cleanup path for the deliberately stopped-browser fixture.
+The [normal U2 record](verification/browser-u2-normal.json) includes the parent's separate
+27-test real-host run and 27 link mutations at `39fea8e`. It predates the owned-group reaper
+and does not run U2 browser mutations. Fixtures now await independent cleanup even when
+teardown is mutated. Failed exit observation kills and waits; interrupted waits retry.
+Only a confirmed reap reports success. An unconfirmed wait disables further signals.
+Bounded source review accepted these corrections at `a7a2a4c`; combined proof is pending.
 
 The measured renderer/GPU sandbox is not whole-process egress confinement: the browser and
 network utility are unsandboxed. Fetch and CSP are in-browser policy. Interactive same-UID
 fixtures do not establish `_agentvaultweb` LaunchDaemon startup, hardened distribution,
 system-domain identity or GitHub policy/selector compatibility. All P0–P4 gates remain open.
 
-App-safe contracts bound JPEG size/markers, declared dimensions, frame sequences and typed
-input batches. They do not yet decode images or relay human input from the app. U3/U4 supply
-signed, connection-bound continuation and native
-raster/input controls. Host peer loss is terminal, and U2 must refuse context creation once
-teardown starts. The production broker still configures no browser host, the app refuses
-browser enrollment, and every installed isolation and egress proof gate (P0–P4) remains open.
+U3/U4 now relay a signed, connection-bound step over the authenticated admin connection.
+ImageIO validates a single JPEG's type, actual dimensions and orientation before display;
+typed input names the latest frame. Finish drains input acknowledgments and stops polling.
+Disconnect liveness is checked before lease creation, relay delivery and Finish/Cancel
+admission. Synthetic app/XPC tests cover these paths; the full flow through a real host
+remains U5 work. Host peer loss is terminal and teardown prevents new context creation.
+The production broker still configures no host, the app refuses browser enrollment,
+and every installed isolation and egress proof gate (P0–P4) remains open.

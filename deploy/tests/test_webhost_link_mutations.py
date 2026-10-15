@@ -260,6 +260,23 @@ class OwnedProcessTests(unittest.TestCase):
                 harness.terminate_group(pgid)
         self.assertEqual(self.signalled, [])
 
+    def test_continuation_compile_failure_is_not_a_detected_mutation(self):
+        spec = importlib.util.spec_from_file_location("continuation_mutations", ROOT / "scripts/verify-continuation-mutations.py")
+        continuation = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(continuation)
+        source, detail = self.work / "source", self.work / "details.log"
+        source.write_bytes(b"guard safe\n")
+        with mock.patch.object(continuation, "MUTATIONS", [("guard", str(source), "safe", "true", "focused")]), \
+                mock.patch.object(continuation, "LOG", detail), \
+                mock.patch.object(continuation.sys, "argv", ["continuation"]), \
+                mock.patch.object(continuation.harness, "run_owned", side_effect=[
+                    (0, "build"), (0, "baseline"), (1, "compile failed"), (0, "restored")]):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(continuation.main(), 1)
+        self.assertIn("BUILD_FAILED", output.getvalue())
+        self.assertNotIn("KILLED", output.getvalue())
+        self.assertEqual(source.read_bytes(), b"guard safe\n")
+
     def test_harness_never_finds_processes_by_name(self):
         source = (ROOT / "scripts/verify-webhost-link-mutations.py").read_text()
         for forbidden in ("pkill", "killall", "pgrep", "psutil", '"ps"'):
