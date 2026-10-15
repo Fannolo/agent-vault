@@ -452,7 +452,11 @@ public actor Broker {
         guard !recoveryInProgress else { throw VaultError.busy }
         recoveryInProgress = true
         defer { recoveryInProgress = false }
-        try state.transaction { $0.recordAdministration(outcome: "recovery_started", at: now()) }
+        let accountsBeforeDrain = try state.snapshot().accounts
+        let auditRecovery = !lifecycleMutations.isEmpty || !secretIO.isIdle || accountsBeforeDrain.contains {
+            $0.lifecycle != .active || $0.retiredCredentialID != nil
+        }
+        if auditRecovery { try state.transaction { $0.recordAdministration(outcome: "recovery_started", at: now()) } }
         let deadline = ContinuousClock.now + recoveryDrainTimeout
         while true {
             try Task.checkCancellation()
@@ -488,7 +492,7 @@ public actor Broker {
                 }
             }
         }
-        try state.transaction { $0.recordAdministration(outcome: "recovery_completed", at: now()) }
+        if auditRecovery { try state.transaction { $0.recordAdministration(outcome: "recovery_completed", at: now()) } }
     }
 
     public func prune() throws {

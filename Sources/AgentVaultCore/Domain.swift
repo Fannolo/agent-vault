@@ -228,6 +228,20 @@ public struct VaultState: Codable, Sendable {
     public mutating func recordAdministration(client: UUID = VaultState.administrationPrincipal,
                                              account: UUID? = nil, action: Action? = nil,
                                              outcome: String, at timestamp: Date) {
+        // Startup recovery can be retried by untrusted connections. Its retry
+        // markers are durable representatives, not a count or latest timestamp.
+        // Neither a new start nor a different failure kind resets a failure.
+        let recoveryRepresentatives: Set<String> = ["recovery_started", "recovery_failed", "recovery_uncertain"]
+        if recoveryRepresentatives.contains(outcome) {
+            let progress: Set<String> = ["recovery_completed", "enrollment_started", "enrollment_completed",
+                "enrollment_aborted", "enrollment_recovered", "rotation_started", "rotation_committed",
+                "rotation_completed", "rotation_aborted", "rotation_recovered", "retirement_recovered",
+                "deletion_started", "deletion_completed", "deletion_recovered"]
+            for event in adminAudit.reversed() where event.clientID == client && event.accountID == account && event.action == action {
+                if progress.contains(event.outcome) { break }
+                if event.outcome == outcome { return }
+            }
+        }
         adminAudit.append(.init(timestamp: timestamp, clientID: client, accountID: account,
                                action: action, outcome: outcome))
         if adminAudit.count > Self.maxAdministrationAudit {

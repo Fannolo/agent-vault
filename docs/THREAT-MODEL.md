@@ -64,8 +64,13 @@ migration reads a user's existing Keychain or version-1 developer state. Product
 requires an HMAC with an independent broker-only key and refuses unsigned downgrade. The latest
 audit history is bounded metadata: 256 reserved administration entries and 744 invocation
 entries in schema 3. Agent traffic cannot evict the administration partition; administration
-traffic can still evict older administration entries. Repeated denials and unapproved-request
-events for the same client/account/action are coalesced until a real reservation or terminal
+traffic can still evict older administration entries. No-op recovery emits no administration
+entries. Startup recovery retries keep a representative start until completion; repeated failure
+and uncertain outcomes for the same account are coalesced until a real lifecycle transition.
+Alternating those failure kinds does not reset their representatives. This applies across broker
+restarts because the representatives live in the persisted administration history. They retain
+the first observation, not an exact retry count or most recent failure timestamp. Repeated denials
+and unapproved-request events for the same client/account/action are coalesced until a real reservation or terminal
 event resets that tuple. They are representative events, not exact attempt counts. Invocation
 overflow evicts the oldest entry from the registered client with the largest retained history,
 using the oldest entry across tied clients. With at most 128 registered clients, a client that
@@ -113,4 +118,6 @@ gate is released whenever recovery exits, including cancellation or failure.
 
 Swift/Foundation may copy immutable credential buffers and strings. The design does not claim
 complete RAM zeroization. Native tests use unique synthetic namespaces and delete only their
-own entries; real credentials and business evidence are never fixtures.
+own entries; real credentials and business evidence are never fixtures. Without the explicit
+`AGENT_VAULT_KEYCHAIN_TEST=1` opt-in, the two native storage tests are reported as skipped rather
+than passed.

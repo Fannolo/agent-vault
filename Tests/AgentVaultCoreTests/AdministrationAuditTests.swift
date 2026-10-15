@@ -74,7 +74,7 @@ private func auditBytes(_ events: [AuditEvent]) throws -> Data {
     let expected: Set<String> = ["enrollment_started", "enrollment_completed", "client_paired", "client_pair_reused",
         "grant_created", "invocation_approved", "invocation_rejected", "grant_revoked", "rotation_started",
         "rotation_committed", "rotation_completed", "deletion_started", "deletion_completed", "client_revoked",
-        "recovery_started", "recovery_completed", "pruned"]
+        "pruned"]
     #expect(expected.isSubset(of: outcomes))
     for event in audit where event.accountID != nil {
         #expect(event.accountID == account.id)

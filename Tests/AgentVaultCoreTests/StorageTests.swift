@@ -66,8 +66,9 @@ func privateDirectory() throws -> URL {
     #expect(try first.transaction { $0.clients.count } == 30)
 }
 
-@Test func nativeKeychainRoundTripWhenExplicitlyEnabled() throws {
-    guard ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1" else { return }
+@Test(.enabled(if: ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1",
+               "Set AGENT_VAULT_KEYCHAIN_TEST=1 to run the isolated native Keychain fixture"))
+func nativeKeychainRoundTripWhenExplicitlyEnabled() throws {
     let store = KeychainStore(namespace: "io.agent-vault.test.\(UUID())")
     let id = UUID(), value = Data("SYNTHETIC-only-keychain-fixture".utf8)
     defer { try? store.delete(for: id) }
@@ -139,8 +140,9 @@ func privateDirectory() throws -> URL {
     #expect(throws: VaultError.stateUnavailable) { _ = try store.snapshot() }
 }
 
-@Test func privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled() throws {
-    guard ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1" else { return }
+@Test(.enabled(if: ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1",
+               "Set AGENT_VAULT_KEYCHAIN_TEST=1 to run the isolated private Keychain fixture"))
+func privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled() throws {
     let root = try privateDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
     let password = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
