@@ -52,6 +52,12 @@ let package = Package(
         .target(name: "AgentVaultWebHostProtocol", dependencies: ["AgentVaultContracts", "AgentVaultJSON", "AgentVaultIPC"]),
         // The broker's client for the web host; implements Core's domain port over that wire.
         .target(name: "AgentVaultWebHostLink", dependencies: ["AgentVaultCore", "AgentVaultWebHostProtocol", "AgentVaultIPC"]),
+        // The `_agentvaultweb` host: Chromium over private pipes, fixed recipes and a pure request
+        // gate. An executable, so nothing can import its CDP surface; never links Core or WebKit.
+        .executableTarget(name: "AgentVaultWebHost", dependencies: ["AgentVaultWebHostProtocol", "AgentVaultContracts", "AgentVaultIPC"]),
+        .testTarget(name: "AgentVaultWebHostTests", dependencies: [
+            "AgentVaultWebHost", "AgentVaultWebHostProtocol", "AgentVaultContracts", "AgentVaultBrowserFixture"
+        ]),
         .testTarget(name: "AgentVaultWebHostLinkTests", dependencies: [
             "AgentVaultWebHostLink", "AgentVaultWebHostProtocol", "AgentVaultCore", "AgentVaultContracts", "AgentVaultIPC"
         ]),

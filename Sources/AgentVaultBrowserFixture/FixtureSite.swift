@@ -20,6 +20,9 @@ public final class FixtureSite: @unchecked Sendable {
         case frameFromElsewhere
         case duplicateLoginFields
         case stall                             // login page response is delayed
+        case webSockets                        // opens WebSockets to this and another origin
+        case serviceWorker                     // registers a service worker
+        case workerAndBeacon                   // dedicated worker, beacon, fetch and EventSource elsewhere
     }
 
     public enum Profile: Sendable {
@@ -86,6 +89,9 @@ public final class FixtureSite: @unchecked Sendable {
         case ("POST", "/step"): return completeStep(request)
         case ("GET", "/pixel"): return FixtureResponse(status: 200, headers: ["Content-Type": "image/gif"],
                                                        body: Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")!)
+        case ("GET", "/sw.js"), ("GET", "/worker.js"):
+            return FixtureResponse(status: 200, headers: ["Content-Type": "text/javascript"],
+                                   body: Data("fetch('\(elsewhereOrigin)/from-worker').catch(() => {})".utf8))
         case ("GET", "/script.js"): return FixtureResponse(status: 200, headers: ["Content-Type": "text/javascript"], body: Data("window.__fixtureScript=1".utf8))
         default: return FixtureResponse(status: 404)
         }
@@ -130,6 +136,18 @@ public final class FixtureSite: @unchecked Sendable {
             return page(body: loginForm())
         case .duplicateLoginFields:
             return page(body: loginForm(extra: "<input type=\"text\" id=\"login_field\" name=\"shadow\">"))
+        case .webSockets:
+            let same = trustedOrigin.replacingOccurrences(of: "http://", with: "ws://")
+            let other = out.replacingOccurrences(of: "http://", with: "ws://")
+            return page(body: loginForm() + "<script>for (const u of ['\(other)/sock', '\(same)/sock']) { try { new WebSocket(u) } catch (e) {} }</script>")
+        case .serviceWorker:
+            return page(body: loginForm() + "<script>navigator.serviceWorker && navigator.serviceWorker.register('/sw.js').catch(() => {})</script>")
+        case .workerAndBeacon:
+            return page(body: loginForm() + """
+                <script>try { new Worker('/worker.js') } catch (e) {}
+                navigator.sendBeacon('\(out)/beacon', 'x'); fetch('\(out)/fetch', { mode: 'no-cors' }).catch(() => {});
+                try { new EventSource('\(out)/events') } catch (e) {}</script>
+                """)
         }
     }
 

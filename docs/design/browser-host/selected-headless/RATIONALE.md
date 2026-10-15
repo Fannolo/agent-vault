@@ -157,6 +157,50 @@ not covered.
 - *Harness:* the mutation script used a name-based `pkill`, which could interrupt independent test runs; matching log times do not prove signal delivery.
   It now signals only process groups it created. It first requires every targeted test to pass unmutated, and `deploy/tests/test_webhost_link_mutations.py` proves an independent sentinel survives. The `0986606` branch run reported all twenty-two mutations detected; the final integration adds two registration guards.
 
+### U2: the host executable (branch `feature/vault-browser-link`)
+
+`AgentVaultWebHost` is an executable target, so nothing can import its CDP surface. It does not link Core, the broker link, Runtime or WebKit (`verify-boundaries.py`). Production composition is unchanged: the broker still configures no web host, and no plist, installer step or signed bundle exists for the host.
+
+- **Chromium over pipes.** `ChromiumPipe` uses `posix_spawn` of a Chrome for Testing `chrome-headless-shell`. CDP runs over inherited fds 3 and 4 only: there is no debugging port, and `POSIX_SPAWN_CLOEXEC_DEFAULT` leaks no other descriptor. The child runs in its own process group. Each run gets a fresh 0700 user data directory, and HOME and TMPDIR point inside it. Switches are constant: `--use-mock-keychain`, no extensions, sync, background networking or component update, `--block-new-web-contents`, and never `--no-sandbox`. Messages are NUL-delimited and capped at 8 MiB. Every call has a timeout. `terminate` kills the whole group, independent of CDP.
+- **Closed vocabulary.** `CDPMethod` has 25 cases. There is no expression evaluation, cookie or storage access, or attach-by-caller, and only the pipe serializes a method name. Source tests enforce these.
+- **Gate.** `RequestGate` is pure and phase-aware: `login`, `submitted`, `human(kind)` and `locked`.
+  - Main-frame documents must use the exact primary origin and the paths each phase allows. During a human step that means only step paths, the step form, landing and login. An off-origin or disallowed document fails the run (`origin_mismatch` or `unexpected_page`).
+  - Subframes may use only the primary origin, or a reviewed challenge origin while a CAPTCHA is shown.
+  - Subresources may come from the primary origin, from asset origins (GET/HEAD) or, during a shown CAPTCHA, from challenge origins. Anything else is blocked quietly, as in the reviewed WebKit behaviour, so an unlisted asset does not break the workflow.
+  - Every document response is fulfilled with an added Content-Security-Policy (`connect-src` primary, `worker-src 'none'`, `frame-src` primary plus a shown challenge, `object-src 'none'`, `base-uri 'none'`, `form-action` primary).
+- **Measured on CfT 149.0.7827.55:**
+  - CSP set only through `continueResponse` headers did not stop WebSockets or service workers. Delivered through `fulfillRequest`, it did: no WebSocket handshake reached either loopback server, even same-origin.
+  - `Network.setBlockedURLs` did not block WebSockets, with either `urls` or `urlPatterns`.
+  - `window.open` popups loaded off-origin until browser-level paused auto-attach was added. A paused popup then stalled the opener's form submission. `--block-new-web-contents` removes popups entirely, and paused auto-attach plus close remains the second layer for any other target.
+- **Targets.** Browser-level auto-attach with `waitForDebuggerOnStart` is on before any run. A run claims the paused session of the page it created, installs its gate, then resumes it. Any other page, worker or service worker is closed before it runs. Same-origin child frames inherit the run's gate.
+- **Recipes.** Five constant function declarations run in a fresh isolated world through `Runtime.callFunctionOn`, with typed arguments. They are ported from the reviewed WebKit recipes and tightened so that the form action path must equal the reviewed action, and the profile needs exactly one login and one ID field.
+- **Human channel.** `showHuman(step)` requires the run to be paused and the broker's step epoch to increase. Each `frame` re-derives the challenge region with the workflow's challenge selector on the exact origin and step path. It captures only that clip as a JPEG of at most 256 KiB and revalidates after capture. If no unique in-viewport region exists, nothing is shown (`capture_unavailable`). `input` requires the same step and the latest frame sequence, re-derives the region, and requires it to be unchanged. Pointer coordinates must lie inside the frame, and keys come from a fixed table.
+- **Run table.** At most four runs. A run is registered before its first suspension. A host lifetime timer runs for each run. Tombstones refuse a start after `end`. Any outcome other than a human step disposes the context at once. If a disposal is not confirmed within 2 s, or the browser exits, the service becomes terminal: it kills the browser group and calls `onFatal`. In production the process exits, so the broker's link reports every bound run lost. Peer loss runs `teardown`, which is terminal: nothing is created afterwards, and the main executable then exits.
+
+**Evidence and its limits.** The real-browser suite (`AGENT_VAULT_TEST_CHROMIUM`, otherwise an explicit skip) ran in this interactive session against loopback fixtures.
+
+The suite covers:
+- the typed profile with no page, cookie or URL text in replies;
+- a rejected login;
+- an unsupported workflow that loads nothing;
+- four off-origin navigations with no POST and no request elsewhere;
+- off-origin subresources, frames, popups, WebSockets, a service worker, a dedicated worker, a beacon, fetch and EventSource, none of which reach any other origin;
+- form-action and ambiguous fields, with no credential sent;
+- reflected profile fields;
+- MFA and CAPTCHA steps completed only through bound crop and input;
+- host lifetime expiry;
+- `end` during a stalled login;
+- terminal peer loss that ends the browser group;
+- a SIGSTOPped browser that is killed and reported fatal within the 2 s bound.
+
+Confound found by mutation testing: Chrome's Local Network Access also denies cross-port loopback subresources (`LocalNetworkAccessPermissionDenied`), so an empty "elsewhere" log does not by itself prove the gate. The suite therefore also asserts the gate's own refusal count. Top-level navigations and WebSockets are not subject to that check, so their results do test the gate and the CSP: before the CSP, WebSockets did reach the second server. The fixture cannot observe the fill recipe's form-action origin and path check. The fixed selector and CSP `base-uri 'none'` already cover it, so it remains a third layer.
+
+Each frame's JPEG must decode to exactly the challenge region's pixel size, checked by the host's own marker parser and independently with ImageIO in the test.
+
+Positive sandbox evidence: `sandbox_check` returned 1 for the renderer and GPU processes, and their command lines contain no `--no-sandbox`. The browser process and the utility (network service) process are not sandboxed, as in Chromium's normal macOS layout.
+
+This does **not** close P0. It is the same UID in an interactive session, not a LaunchDaemon under `_agentvaultweb`, and the browser is an ad-hoc-signed cached CfT binary. Nor does it establish egress confinement: CDP Fetch plus CSP is an in-browser policy, and the network service process is outside the renderer sandbox. Process-tree egress stays a separate gate. The GitHub policy, paths, selectors and landing page are unverified live (P4), and the GitHub challenge origins are empty. The production launch path of the main executable (protected identity file, root-owned browser beside the executable, `/private/var/db/agent-vault-web`) is written but has not run. The continuation relay is U3.
+
 ## Open questions and risks
 
 - Does `chrome-headless-shell` start, render and screencast as a LaunchDaemon under `_agentvaultweb`, with its own sandbox enabled and before any GUI login? The probe answered this only under `sandbox-exec` with `--no-sandbox`. This is P0.
