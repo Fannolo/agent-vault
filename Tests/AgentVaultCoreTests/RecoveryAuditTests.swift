@@ -127,3 +127,70 @@ private final class RetryingRecoverySecrets: SecretStore, @unchecked Sendable {
     #expect(try recoveryAuditBytes(Array(final.adminAudit.prefix(original.count))) == originalBytes)
     #expect(final.adminAudit.count < VaultState.maxAdministrationAudit)
 }
+
+@Test func ordinaryLifecycleCompletionStartsAFreshRecoveryEpisodeWithoutNoOpAuditChurn() async throws {
+    let root = try privateDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let state = try FileStateStore(directory: root), secrets = RetryingRecoverySecrets(), clock = Clock()
+    let broker = Broker(state: state, secrets: secrets, now: { clock.now() })
+    // Both accounts predate incident A, so a later enrollment cannot accidentally
+    // provide the episode boundary that this regression is meant to verify.
+    let first = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-episode-A".utf8))
+    let second = try await broker.enroll(service: .demo, credential: Data("SYNTHETIC-episode-B".utf8))
+    let client = try await broker.registerClient()
+    _ = try await broker.grant(clientID: client.id, accountID: second.id, duration: 60, callLimit: 1)
+    let original = try state.snapshot().adminAudit
+    let originalBytes = try recoveryAuditBytes(original)
+    await #expect(throws: VaultError.secretUnavailable) {
+        try await broker.rotate(accountID: first.id, credential: Data("SYNTHETIC-episode-A-staged".utf8))
+    }
+    let firstIncident = clock.now()
+    await #expect(throws: VaultError.secretUnavailable) { try await broker.recoverInterruptedLifecycle() }
+    // An unsuccessful deletion adds intent and failure, but no completion. It
+    // must not start a new global recovery episode for the same pending work.
+    await #expect(throws: VaultError.secretUnavailable) { try await broker.deleteAccount(first.id) }
+    #expect(try await broker.run(clientID: client.id, accountID: second.id, action: .demoStatus) == .demoReady)
+    await #expect(throws: VaultError.secretUnavailable) {
+        try await Broker(state: try FileStateStore(directory: root), secrets: secrets,
+                         now: { clock.now() }).recoverInterruptedLifecycle()
+    }
+    #expect(try state.snapshot().adminAudit.filter { $0.outcome == "recovery_started" }.map(\.timestamp) == [firstIncident])
+
+    secrets.allowDeletes(true)
+    try await broker.deleteAccount(first.id)
+    let resolved = try state.snapshot()
+    #expect(resolved.adminAudit.contains { $0.accountID == first.id && $0.outcome == "deletion_completed" })
+    #expect(!resolved.adminAudit.contains { $0.outcome == "recovery_completed" })
+    let resolvedBytes = try recoveryAuditBytes(resolved.adminAudit)
+    clock.advance(60)
+    try await Broker(state: try FileStateStore(directory: root), secrets: secrets,
+                     now: { clock.now() }).recoverInterruptedLifecycle()
+    #expect(try recoveryAuditBytes(state.snapshot().adminAudit) == resolvedBytes)
+
+    clock.advance(90 * 86_400)
+    secrets.allowDeletes(false)
+    await #expect(throws: VaultError.secretUnavailable) {
+        try await broker.rotate(accountID: second.id, credential: Data("SYNTHETIC-episode-B-staged".utf8))
+    }
+    let secondIncident = clock.now()
+    await #expect(throws: VaultError.secretUnavailable) {
+        try await Broker(state: try FileStateStore(directory: root), secrets: secrets,
+                         now: { clock.now() }).recoverInterruptedLifecycle()
+    }
+    let secondFailure = try state.snapshot()
+    #expect(secondFailure.adminAudit.filter { $0.outcome == "recovery_started" }.map(\.timestamp) == [firstIncident, secondIncident])
+    let secondFailureBytes = try recoveryAuditBytes(secondFailure.adminAudit)
+    for _ in 0..<130 {
+        clock.advance(1)
+        await #expect(throws: VaultError.secretUnavailable) {
+            try await Broker(state: try FileStateStore(directory: root), secrets: secrets,
+                             now: { clock.now() }).recoverInterruptedLifecycle()
+        }
+    }
+    let final = try FileStateStore(directory: root).snapshot()
+    #expect(try recoveryAuditBytes(final.adminAudit) == secondFailureBytes)
+    #expect(try recoveryAuditBytes(Array(final.adminAudit.prefix(original.count))) == originalBytes)
+    #expect(final.accounts.count == 1)
+    #expect(final.accounts[0].id == second.id)
+    #expect(final.accounts[0].retiredCredentialID != nil)
+}
