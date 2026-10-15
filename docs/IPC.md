@@ -3,7 +3,7 @@
 `AgentVaultIPC` connects three programs over XPC: the broker, the MCP bridge and the
 human app. The bridge may use only the read service. The app may use only the admin
 service. Both services belong to the broker. The module depends only on
-`AgentVaultContracts`. It contains no secret store, so linking it into the bridge does
+`AgentVaultContracts` and the shared strict JSON guard. It contains no secret store, so linking it into the bridge does
 not give the bridge credential access.
 
 This is development code. Tests and a same-UID cross-process harness verify the identity
@@ -168,6 +168,38 @@ example, the adapter maps `snapshot.audit` to the UI's audit entries, and the UI
 
 This layer needs no change to the contract DTOs. The reply envelope and the empty-payload
 probe belong to the transport.
+
+## Browser-host boundary
+
+`AgentVaultWebHostProtocol` is a separate, credential-bearing wire module. The app,
+bridge, Core, Runtime and ordinary IPC module cannot link it; module-boundary checks
+enforce this. `AgentVaultWebHostLink` implements Core's `WebSessionExecutor` port. The
+production broker still composes no web host.
+
+Each host generation completes an empty probe checked against the configured code
+requirement and kernel UID before receiving credentials. Core alone mints a
+`WebStartAuthority`; after the probe, its callback rechecks the run, epoch, phase,
+deadline and live grant. Binding and writing then happen without another suspension.
+A run stays bound to that generation, and connection loss reports only its affected runs.
+
+Absolute link budgets include probing: start 15 s, classify 10 s, end 2 s, show-human
+5 s, frame and input 2 s each. Configuration checks these paths, including credential
+access and cleanup, against the read client's 30 s budget. Core independently owns
+start/classify deadline tasks; dispatch is also capped by grant expiry. A late host
+reply ends any context it created. Unconfirmed teardown invalidates the generation.
+The host listener's peer loss is terminal: running handlers are cancelled, later results
+are dropped and no replacement peer is accepted. The future host must also suppress
+late context creation after teardown starts.
+
+Read-peer invalidation cancels tracked handler tasks. Keys are reserved before task
+creation, so finish-before-register and invalidate-before-register leave no retained
+handles. Admin handlers always finish, preserving lifecycle journals and uncertain
+outcome semantics.
+
+`HumanFrame` and bounded typed `HumanInputBatch` are App-safe data contracts. The host
+port exposes show/frame/input for a preexisting `HumanStepID`; this does not yet provide
+an authenticated human-app relay or native rendering. Those remain U3/U4 work. No MCP
+human-input or generic browser operation was added.
 
 ## Production layout
 

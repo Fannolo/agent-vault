@@ -1,5 +1,27 @@
 # Implementation security reviews
 
+## U1 integration: 15 October 2026
+
+The independent GPT-6.1-Sol judge accepted frozen `0139ab5`, after six checks of the
+original `0986606` corrections and four focused checks of its task-registration fix.
+A scratch-only 1 ms scheduling pause that retained twenty completed tasks before the fix
+now retains zero tasks and zero reservations. The natural 4,000-call run observed zero
+leaks before the fix; neither experiment measures a natural failure frequency.
+
+The four U1 commits were integrated as `d6fa363`, `267549d`, `171ccd5` and `bc67b46`.
+[Verification at clean `73cb4d5`](verification/browser-u1-integration.json) passed all nine
+checks: 281 registered Swift tests including two explicit skips; default and synthetic
+native MCP; module boundaries; five owned-process and ten recorder checks; twenty
+same-UID cross-process scenarios; eight XPC guard mutations; and a passing web-link
+baseline followed by all twenty-four mutations being detected. Full detail logs are
+retained locally at unique private paths with hashes. Source remained unchanged.
+
+This closes the reviewed U1 defects, including the Core deadline gap R5-2 and admission
+lifetime gap R5-3. It does not prove an actual headless host, its system-domain service,
+private-UID isolation, egress or a deployed human channel. U2 must refuse context creation
+after teardown begins, beyond the listener's terminal peer-loss behavior. Production
+browser services remain disabled; combined cross-model review is still pending.
+
 ## Round six: 15 October 2026
 
 Claude Sonnet 5.5 reviewed frozen `0d944eb`, reporting no High/Medium issue or new
@@ -103,7 +125,8 @@ the [fresh record](verification/recovery-audit-ci-r5-retry.json) on unchanged `6
 passed all eight checks. The runner reports 224 tests in eleven suites, including two
 explicit skips; a separate opt-in shows both named native test bodies passed. This does
 not retroactively prove a signal-delivery cause for the interrupted runs. The separate
-U1 verifier correction and its owned-child regression are still under review.
+U1 verifier correction and its owned-child regression were subsequently accepted and
+verified in the U1 integration record above.
 
 Parent corrections for R5-5/R5-6 reject duplicate keys at every XML dictionary depth,
 including entity-equivalent keys, and derive CLI run replies and bridge-local failures
@@ -124,15 +147,15 @@ Clean `5955f50` was rebuilt and verified with Bite Developer ID. The
 signatures, exact review entitlements, file hashes and a signed installer sandbox pass.
 It has no provisioning profile, notarization or new protected-key probe.
 
-U1 must qualify host-loss events by connection/affected
-runs and fit host deadlines within the read transport budget. Actual host, human frame/input
+U1 now qualifies host-loss events by connection/affected runs and fits host deadlines
+within the read transport budget. Actual host, human frame/input
 relay, independent OS egress, private-UID/daemon proof, protected-key signing, notarization
 and target-host compatibility remain open. Production browser services stay disabled.
 These are bounded model reviews, not security certification.
 
-### Unmerged U1 review
+### U1 review and acceptance history
 
-U1 `f6e7455` is not part of this integration. An independent GPT-6.1-Sol judge
+The original U1 `f6e7455` was held out of the root until corrections passed. An independent GPT-6.1-Sol judge
 reproduced three Medium defects with synthetic data: expiry during authentication can
 precede credential dispatch; cancellation of an initial caller can retain an unowned
 human pause; and the connection generation retains ended run IDs without a bound.
@@ -145,21 +168,25 @@ tests and thirteen mutation reruns. It reported three earlier broad process-name
 around 16:32–16:35 and 16:39–16:40 CEST; reconstructed times match the interrupted root
 runs, but exact signal deliveries were not logged. The replacement uses a child handle,
 a fresh session and a process group held until cleanup, without name-based searches.
-That correction remains separate from the accepted root branch.
+That correction is now integrated as `267549d`; its five process-ownership checks pass.
 
-The proposed post-probe admission token is `WebStartAuthority`, minted only by Core.
+The accepted post-probe admission token is `WebStartAuthority`, minted only by Core.
 Its callback rechecks the run, step, live grant and deadline immediately before the link
-binds and sends without another suspension. It is a design response being implemented,
-not a verified fix. U2 and U3/U4 remain in isolated worktrees; production stays disabled.
+binds and sends without another suspension. Those contracts were subsequently
+verified in the focused judge checks and combined integration record. U2 and
+U3/U4 remain in isolated worktrees; production stays disabled.
 
 The subsequent frozen `0986606` review independently verified those original fixes in
 six focused checks, including actual read-connection cancellation, expiry during the
 authentication probe and physical grant expiry without polling. Cleanup-helper mock checks
-also passed. A new Medium issue still holds U1: `Peer.dispatch` can retain a completed
+also passed. A new Medium issue initially held U1: `Peer.dispatch` could retain a completed
 read Task if it finishes before insertion into the tracking map. A normal 4,000-call run
 did not trigger it; a scratch-only 1 ms pause exposing that legal interleaving produced
 20 completed replies and 20 retained handles. This is not a natural-frequency measurement.
-The task-registration handshake needs a deterministic regression before acceptance.
+Commit `0139ab5` reserves the handler key before Task creation and retains registration
+only while the reservation is live. Deterministic regressions and the independent checks
+above pass; invalidation also cancels late registration, while admin work remains outside
+this cancellation registry.
 
 ## Round three: 15 October 2026
 

@@ -7,11 +7,20 @@
 | Broker/IPC | Separate daemon/bridge, protected config, code+UID pins, private Keychain, owner lease | Privileged dedicated-UID install, file/process isolation and system-domain lookup |
 | Human app | Secure forms, pairing/grants, audit, exact pending approvals, protected-key backend | Provisioned Bite-signed protected key and real fresh user-presence signing |
 | Lifecycle | Durable intent/recovery, bounded off-actor I/O, read capacity before approval/budget spend, administration reserve | Installed daemon interruption check |
-| Browser | Ephemeral fixed-flow fixtures; broker-owned run lifecycle, closed read statuses and one credential grammar against a scripted host | U1–U6 host link, separate `_agentvaultweb` host, human continuation, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
+| Browser | Ephemeral fixed-flow fixtures, broker-owned lifecycle and authenticated host link with dispatch deadlines and post-probe authority | U2–U6 separate `_agentvaultweb` host, signed human continuation, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
-Current source `3c61fbb` passed the five selected checks in the
+Current source `73cb4d5` passed all nine selected checks in the
+[U1 integration record](verification/browser-u1-integration.json): 281 registered Swift
+tests in sixteen suites, including two explicit native-storage skips; default and synthetic
+native MCP; boundaries; five owned-process checks; ten recorder checks; twenty same-UID
+cross-process XPC scenarios; eight XPC guard mutations; and a passing baseline followed by
+all twenty-four web-link mutations being detected. Source remained unchanged. Full mutation
+detail logs are retained privately at unique paths with hashes. This proves local synthetic
+behavior; the actual headless host, human relay and installed isolation remain open.
+
+The prior source `3c61fbb` passed the five selected checks in the
 [R6 response record](verification/recovery-episode-r6.json): 225 registered Swift tests
 with two explicit skips, MCP, synthetic native MCP, boundaries and nine recorder tests.
 The machine-readable record now includes skip counts and reasons. Both Low findings in
@@ -35,11 +44,14 @@ cache-reuse limits and durable local raw-log paths/hashes. Logs are ignored and 
 
 U0 and the round-four recovery/release fixes are integrated. Three independently
 reproduced browser Medium defects were corrected and independently retested. Human opens
-now bind a preexisting step token. U1/U2 and U3/U4 implementation runs separately. Claude Sonnet
-round five found no High/Medium issue at `198786e`. Recovery audit retry churn is fixed
-at `a494bc7`; the missing Core dispatch deadline is in the separate, unaccepted U1 unit.
-Production browser services remain disabled. U1 is not integrated: its submitted fixes
-at `0986606` are undergoing independent re-verification before acceptance.
+now bind a preexisting step token. U1 is integrated through `bc67b46` after independent
+verification of the original findings and the final task-registration handshake. Host
+losses name only affected runs. Core owns start/classify deadlines; a start's deadline is
+capped by grant expiry, and credential dispatch rechecks authority after the host probe.
+Initial read cancellation tears down its run; admin handlers retain completion semantics.
+Claude Sonnet round five found no High/Medium issue at `198786e`; later R6 fixes and U1
+need a fresh combined review. U2 and U3/U4 continue in isolated worktrees. Production browser
+services remain disabled.
 
 The two CI runs at `5b1fb9a` failed synthetic I/O setup and a yield-based browser-start
 ordering assertion. The blocked-worker cases are now serialized, unrelated account setup

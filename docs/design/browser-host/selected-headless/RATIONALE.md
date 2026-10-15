@@ -138,7 +138,14 @@ Implemented against real XPC inside one process, with the host listener's actual
 - Review R5-3: a host lifetime below one second, or one that is not finite (for example after a clock jump), counts as loss of authority before any secret is sent.
 - Bounded concurrency: link lanes (control 8, frame 4, teardown 16) and host lanes (8/4/16). Teardown is never queued behind frame or control work. Tombstones refuse a start after `end` and a duplicate start, without sending either.
 
-Verification on this branch: `swift test` 264/264, `verify-mcp.py` and `verify-boundaries.py` pass. `scripts/verify-webhost-link-mutations.py` reverts 13 defenses one at a time, and each is detected. A boundary mutation that links the host wire into Core is refused. The link-side "loss = every bound run" mutant is equivalent in reachable states: a new generation exists only after the old one's close handler ran. Not covered: the cross-process Mach-service path (`.privileged` lookup) and installed UIDs.
+Historical branch verification reported 264 registered Swift tests and passing MCP and
+boundary checks. The native storage fixtures did not execute by default at that checkpoint.
+The original thirteen mutation results used the unsafe cleanup described below; the later
+scoped integration record is the accepted evidence. A boundary mutation linking the host
+wire into Core was refused. The link-side "loss = every bound run" mutant is equivalent in
+reachable states: a new generation exists only after the old one's close handler ran. The
+web host's cross-process Mach-service path (`.privileged` lookup) and installed UIDs were
+not covered.
 
 **U1 corrections after independent judge review.** The judge confirmed three Medium defects and one Low, each with an isolated probe. All are fixed, and each has a regression test:
 
@@ -147,7 +154,8 @@ Verification on this branch: `swift test` 264/264, `verify-mcp.py` and `verify-b
 - *Unbounded generation state.* `end` now removes the run from its generation. After 200 start/end cycles on one connection, 0 runs are retained.
 - *Low:* `HumanInput.fits` uses range checks and refuses non-positive frame sizes, so `Int.min` and degenerate sizes return `false` instead of trapping.
 - *U2 obligation, carried into the listener:* peer loss is terminal. The listener cancels the old peer's running handlers, drops their results, refuses every later peer and runs `peerLost`. The host must also refuse context creation once teardown starts.
-- *Harness:* the mutation script used a name-based `pkill`, which interrupted independent test runs. It now signals only process groups it created. It first requires every targeted test to pass unmutated, and `deploy/tests/test_webhost_link_mutations.py` proves an independent sentinel survives. It now reverts 22 defenses, and every one is detected.
+- *Harness:* the mutation script used a name-based `pkill`, which could interrupt independent test runs; matching log times do not prove signal delivery.
+  It now signals only process groups it created. It first requires every targeted test to pass unmutated, and `deploy/tests/test_webhost_link_mutations.py` proves an independent sentinel survives. The `0986606` branch run reported all twenty-two mutations detected; the final integration adds two registration guards.
 
 ## Open questions and risks
 
@@ -158,4 +166,10 @@ Verification on this branch: `swift test` 264/264, `verify-mcp.py` and `verify-b
 
 ## Next implementation step
 
-U0 is implemented; see the reconciliation above. Next: U1, the `AgentVaultWebHostProtocol` wire and the `WebHostLink` adapter that implements Core's `WebSessionExecutor`. Then U2, the host executable.
+U0 and U1 are integrated. The final U1 registration fix reserves task keys before task
+creation, preventing completed-task retention and cancelling registration after invalidation.
+The root [integration record](../../../verification/browser-u1-integration.json) supersedes
+the historical branch counts above: 281 registered Swift tests including two native skips,
+five owned-process checks and all twenty-four baseline-checked web-link mutations detected.
+U2 implements the host executable; U3/U4 implement the protected human relay and native controls.
+Production remains disabled pending these units and installed proof gates.

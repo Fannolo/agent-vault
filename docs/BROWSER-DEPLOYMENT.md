@@ -33,18 +33,25 @@ synthetic loopback website (`AgentVaultBrowserFixture`) and prove, for that fixt
 
 ## Production position
 
-Keep browser enrollment and browser actions disabled (`AppFeatures.production`) until a reviewed
-isolated GUI host exists. A suitable design runs the web view in a separate per-user GUI
-process with its own signing requirement, receives fixed workflow requests and credential bytes
-over an authenticated channel, shows the human step itself, and returns only the typed outcomes
-above. That host, its IPC and its review are future work.
+Keep browser enrollment and browser actions disabled (`AppFeatures.production`) until the
+selected separate headless host, protected human continuation and installed isolation/egress
+gates pass. The legacy WebKit component remains a fixture library; it is not the selected
+production deployment.
 
 ## Selected production path (in progress)
 
 The selected design is a separate `_agentvaultweb` headless host
-([rationale](design/browser-host/selected-headless/RATIONALE.md)). Unit U0 is implemented:
-the broker owns every browser run through the `WebSessionExecutor` port, the closed read
-statuses and the credential and profile formats. This is verified only against a scripted
-in-process host. The production broker still configures no browser host, and the app still
-refuses browser enrollment. The host link, the host executable, the human continuation channel
-and every installed isolation and egress proof gate (P0–P4) remain open.
+([rationale](design/browser-host/selected-headless/RATIONALE.md)). U0 and U1 are integrated:
+Core owns the lifecycle, closed statuses and credential/profile formats; the host link
+uses authenticated XPC, fixed commands, scoped connection losses and bounded waits. A Core-only
+admission token rechecks authority after probing and before credential dispatch. The
+[U1 record](verification/browser-u1-integration.json) names its exact source and synthetic
+checks. These host-link tests use a listener endpoint in one process; the separate ordinary
+IPC checks use same-UID processes. Neither proves a deployed web-host service or private UID.
+
+App-safe contracts bound JPEG size/markers, declared dimensions, frame sequences and typed
+input batches. They do not yet decode images or relay human input from the app. U2 supplies
+the actual headless executable; U3/U4 supply signed, connection-bound continuation and native
+raster/input controls. Host peer loss is terminal, and U2 must refuse context creation once
+teardown starts. The production broker still configures no browser host, the app refuses
+browser enrollment, and every installed isolation and egress proof gate (P0–P4) remains open.

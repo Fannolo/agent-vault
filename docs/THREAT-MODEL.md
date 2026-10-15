@@ -42,6 +42,15 @@ or human app: a system LaunchDaemon cannot present its human continuation view. 
 accounts and actions remain disabled in production. Live GitHub web selectors and CAPTCHA
 continuation are unverified.
 
+The selected headless path now has an authenticated host wire and Core port, tested
+with synthetic XPC peers. Credentials are withheld until an empty host probe passes code
+and UID checks and Core rechecks live authority immediately before dispatch. Run losses
+are scoped to the connection generation; start/classify waits have Core-owned deadlines.
+Initial read cancellation ends its browser run, including late contexts; admin handlers
+continue to completion. Terminal host-peer loss prevents replacement peers and drops late
+results. Actual host teardown must also prevent late context creation. App-safe frame/input
+types do not establish a deployed human relay, safe raster decoding or OS isolation.
+
 ## Trusted parties and exclusions
 
 The OS, protected installer, selected publisher, authenticated human app, broker and fixed
@@ -51,8 +60,9 @@ the guarantee. A service receiving credentials can misuse them or encode them in
 output fields; typed schemas are not a proof of information-flow noninterference.
 
 Revocation cancels pending approvals and tears down local session state. It cannot recall an
-external request already dispatched. Cancellation after dispatch is refused rather than
-claiming the work stopped. An unreadable final policy state suppresses output and invalidates
+external request already dispatched. A fixed HTTP operation refuses cancellation after
+dispatch. A browser cancellation ends its owned context, without claiming to undo an
+external request. An unreadable final policy state suppresses output and invalidates
 any adapter session. Operations are read-only; future writes require provider idempotency and
 an explicit uncertain-outcome/reconciliation design.
 
