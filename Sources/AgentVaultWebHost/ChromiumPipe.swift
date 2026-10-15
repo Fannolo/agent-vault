@@ -108,6 +108,9 @@ final class ChromiumPipe: @unchecked Sendable {
     private let commands: Int32
     private let replies: Int32
     private let lock = NSLock()
+    /// Writes happen only here, one message at a time, never under `lock`; it alone closes `commands`.
+    private let writer = DispatchQueue(label: "agentvault.cdp.writer")
+    private var commandsOpen = true
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<Result<JSONValue, CDPError>, Never>] = [:]
     private var closed = false
@@ -156,13 +159,19 @@ final class ChromiumPipe: @unchecked Sendable {
         close(toChild[0]); close(fromChild[1])
         guard status == 0 else { close(toChild[1]); close(fromChild[0]); throw CDPError.closed }
         processGroup = pid; commands = toChild[1]; replies = fromChild[0]
+        // A browser that stops reading must never block a writer past its deadline.
+        _ = fcntl(commands, F_SETFL, fcntl(commands, F_GETFL) | O_NONBLOCK)
         signal(SIGPIPE, SIG_IGN)
         let thread = Thread { [weak self] in self?.readLoop() }
         thread.stackSize = 1 << 20
         thread.start()
     }
 
-    deinit { terminate() }
+    deinit {
+        terminate()
+        // No write can be running: an in-flight write holds a strong reference to this pipe.
+        if commandsOpen { close(commands) }
+    }
 
     /// Sends one command and waits at most `timeout` for its reply.
     func call(_ method: CDPMethod, _ params: CDPParameters = [:], session: String? = nil,
@@ -181,8 +190,9 @@ final class ChromiumPipe: @unchecked Sendable {
                 return finish(id, .failure(.protocolError))
             }
             data.append(0)
+            let deadline = Date().addingTimeInterval(timeout)
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in self?.finish(id, .failure(.timeout)) }
-            if !write(data) { finish(id, .failure(.closed)) }
+            writer.async { [weak self] in self?.send(data, id: id, until: deadline) }
         }
         return try result.get()
     }
@@ -196,8 +206,9 @@ final class ChromiumPipe: @unchecked Sendable {
         }
         for continuation in waiting { continuation.resume(returning: .failure(.closed)) }
         guard !alreadyClosed else { return }
-        close(commands)
+        // Never waits for a writer: kill first; the writer notices within one poll slice.
         kill(-processGroup, SIGKILL)
+        writer.async { [weak self] in self?.closeCommandsIfShut() }
         let group = processGroup
         DispatchQueue.global().async {
             var status: Int32 = 0
@@ -212,19 +223,38 @@ final class ChromiumPipe: @unchecked Sendable {
         continuation?.resume(returning: result)
     }
 
-    private func write(_ data: Data) -> Bool {
-        lock.withLock {
-            guard !closed else { return false }
-            return data.withUnsafeBytes { buffer -> Bool in
-                var offset = 0
-                while offset < buffer.count {
-                    let written = Darwin.write(commands, buffer.baseAddress! + offset, buffer.count - offset)
-                    if written < 0 { if errno == EINTR { continue }; return false }
-                    offset += written
-                }
-                return true
+    /// Writer queue only. A message whose call already ended is skipped whole, so framing stays
+    /// intact; a message cut short by its deadline or a dead pipe breaks the framing, so the
+    /// browser is ended.
+    private func send(_ data: Data, id: Int, until deadline: Date) {
+        defer { closeCommandsIfShut() }
+        guard lock.withLock({ !closed && pending[id] != nil }) else { return }
+        if !writeAll(data, until: deadline) { terminate() }
+    }
+
+    private func writeAll(_ data: Data, until deadline: Date) -> Bool {
+        data.withUnsafeBytes { buffer -> Bool in
+            var offset = 0
+            while offset < buffer.count {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0, !isClosed else { return false }
+                var descriptor = pollfd(fd: commands, events: Int16(POLLOUT), revents: 0)
+                let ready = poll(&descriptor, 1, Int32(max(1, min(50, remaining * 1000))))
+                if ready < 0 { if errno == EINTR { continue }; return false }
+                if ready == 0 { continue }
+                if descriptor.revents & Int16(POLLERR | POLLHUP | POLLNVAL) != 0 { return false }
+                let written = Darwin.write(commands, buffer.baseAddress! + offset, buffer.count - offset)
+                if written < 0 { if errno == EINTR || errno == EAGAIN { continue }; return false }
+                offset += written
             }
+            return true
         }
+    }
+
+    private func closeCommandsIfShut() {
+        guard isClosed, commandsOpen else { return }
+        commandsOpen = false
+        close(commands)
     }
 
     private func readLoop() {

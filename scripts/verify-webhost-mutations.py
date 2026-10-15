@@ -26,6 +26,21 @@ H = "Sources/AgentVaultWebHost/"
 # Likewise removing the frame's pixel-size check survives against a browser that honours the clip;
 # the parser it relies on is mutated instead.
 M = [
+ ("pipe writes ignore their deadline", H + "ChromiumPipe.swift",
+  "                guard remaining > 0, !isClosed else { return false }\n", "                guard !isClosed else { return false }\n",
+  "stalledWriteEndsAtItsOwnDeadlineAndBreaksThePipe"),
+ ("teardown waits for a writer that ignores shutdown", H + "ChromiumPipe.swift",
+  "        // Never waits for a writer: kill first; the writer notices within one poll slice.\n        kill(-processGroup, SIGKILL)\n",
+  "        writer.sync {}\n        kill(-processGroup, SIGKILL)\n", "teardownIsBoundedWhileALargeWriteIsStalled",
+  ("                guard remaining > 0, !isClosed else { return false }\n", "                guard remaining > 0 else { return false }\n")),
+ ("runs use the browser before auto-attach", H + "HostService.swift",
+  "        if launch == nil { launch = Task { await self.launchBrowser() } }\n",
+  "        if let pipe { return pipe }\n        if launch == nil { launch = Task { await self.launchBrowser() } }\n",
+  "concurrentColdStartsCreateNoTargetBeforeAutoAttachIsConfirmed"),
+ ("concluded run IDs are reusable", H + "HostService.swift",
+  "        if case .humanStep = reply { return reply }\n        await end(id)\n",
+  "        if case .humanStep = reply { return reply }\n        await end(id)\n        tombstones.remove(id)\n",
+  "fixedWorkflowReturnsOnlyTheTypedProfileAndDisposesTheContext"),
  ("gate allows every document", H + "RequestGate.swift",
   "            guard origin == policy.primary else { return .deny(.originMismatch) }\n",
   "", "offOriginNavigationFailsBeforeTheCredentialIsUsed"),
@@ -75,7 +90,7 @@ def main():
     LOG.parent.mkdir(exist_ok=True)
     LOG.write_text("")
     code, out = harness.run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=900)
-    filters = "|".join(sorted({test for *_, test in M}))
+    filters = "|".join(sorted({m[4] for m in M}))
     if code == 0:
         code, out = harness.run_owned(["swift", "test", "--skip-build", "--filter", filters], timeout=TEST_TIMEOUT * 2)
     with open(LOG, "a") as log:
@@ -85,11 +100,16 @@ def main():
         return 2
     print("baseline passed", flush=True)
     results = []
-    for name, path, old, new, test in M:
+    for name, path, old, new, test, *also in M:
         source = ROOT / path
         original = source.read_text()
         assert original.count(old) == 1, name
-        source.write_text(original.replace(old, new))
+        mutated = original.replace(old, new)
+        # A compound mutant also reverts a second, independent layer in the same file.
+        for extra_old, extra_new in also:
+            assert mutated.count(extra_old) == 1, name
+            mutated = mutated.replace(extra_old, extra_new)
+        source.write_text(mutated)
         try:
             code, out = harness.run_owned(["swift", "build", "--build-tests", "-j", "8"], timeout=900)
             if code != 0:

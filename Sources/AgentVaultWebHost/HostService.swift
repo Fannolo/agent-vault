@@ -20,6 +20,9 @@ actor HostService {
     private let onFatal: @Sendable () -> Void
     private let router = EventRouter()
     private var pipe: ChromiumPipe?
+    /// The one launch every run waits for: no run creates a target before every new target is
+    /// guaranteed to start paused under auto-attach.
+    private var launch: Task<ChromiumPipe?, Never>?
     private var runs: [UUID: WebRun] = [:]
     private var lifetimes: [UUID: Task<Void, Never>] = [:]
     private var tombstones: Set<UUID> = []
@@ -75,17 +78,18 @@ actor HostService {
         return await settle(id, reply)
     }
 
-    /// Keeps a run only while a person must act on it; anything else disposes it now.
+    /// Keeps a run only while a person must act on it; anything else disposes it now. Either way
+    /// a run ID is used once: a concluded run can never be started again.
     private func settle(_ id: UUID, _ reply: HostReply) async -> HostReply {
         guard !terminal, runs[id] != nil else { return .rejected(.unknownRun) }
         if case .humanStep = reply { return reply }
-        await end(id, tombstone: false)
+        await end(id)
         return reply
     }
 
     /// Idempotent. A later `start` for this run is refused.
-    func end(_ id: UUID, tombstone: Bool = true) async {
-        if tombstone { bury(id) }
+    func end(_ id: UUID) async {
+        bury(id)
         lifetimes.removeValue(forKey: id)?.cancel()
         guard let web = runs.removeValue(forKey: id) else { return }
         guard await web.dispose() else {
@@ -120,7 +124,12 @@ actor HostService {
     }
 
     private func browser() async -> ChromiumPipe? {
-        if let pipe { return pipe.isClosed ? nil : pipe }   // a dead browser is fatal, never replaced
+        if launch == nil { launch = Task { await self.launchBrowser() } }
+        guard let ready = await launch?.value, !ready.isClosed, !terminal else { return nil }
+        return ready   // a dead browser is fatal, never replaced
+    }
+
+    private func launchBrowser() async -> ChromiumPipe? {
         let router = router
         guard let created = try? ChromiumPipe(binary: binary, runDirectory: runDirectory,
                                               onEvent: { router.handle($0) },

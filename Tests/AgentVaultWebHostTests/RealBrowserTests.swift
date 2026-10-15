@@ -83,6 +83,11 @@ struct RealBrowserTests {
             #expect(!wire.lowercased().contains(forbidden.lowercased()), "\(forbidden)")
         }
         #expect(await h.service.perform(.classify(run: run)) == .rejected(.unknownRun), "the context is gone")
+        let credential = WebLoginCredential(FixtureSite.credential())!
+        #expect(await h.service.perform(.start(run: run, workflow: .browserDemo, credential: credential, lifetime: 60))
+                == .rejected(.unknownRun), "a concluded run ID is never started again")
+        #expect(await h.service.perform(.start(run: UUID(), workflow: .browserDemo, credential: credential, lifetime: 60))
+                == fixtureProfile, "a fresh run on the same browser still works")
     }
 
     @Test func rejectedPasswordAndUnsupportedWorkflow() async throws {
