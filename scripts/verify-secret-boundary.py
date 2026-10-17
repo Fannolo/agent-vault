@@ -58,16 +58,14 @@ def main():
         print('rotation-control: FAIL (closed mutation precondition)')
         return 1
     detected = False
-    try:
-        source.write_bytes(original.replace(needle, b'let rotated = true // deliberate no-op rotation control'))
+    mutated = original.replace(needle, b'let rotated = true // deliberate no-op rotation control')
+    with helper.changed_source(source, original, mutated):
         code, _ = execute('noop-build', commands[0][1], 600)
         if code == 0:
             code, output = execute('noop-boundary', [
                 '/usr/bin/swift', 'test', '--skip-build', '--filter',
                 'realWorkflowKeepsFreshCanariesOutOfObservedOutputs'], 240)
             detected = code not in (0, None) and 'decoded login POST must use rotated B rather than enrolled A' in output
-    finally:
-        source.write_bytes(original)
     print(f'rotation-control: {"PASS" if detected else "FAIL"}; private logs retained', flush=True)
     # The final binary must correspond to restored source and pass the baseline again.
     restored = True
