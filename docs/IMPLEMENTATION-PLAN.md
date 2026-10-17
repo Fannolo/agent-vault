@@ -7,7 +7,7 @@
 | Broker/IPC | Separate daemon/bridge, protected config, code+UID pins, private Keychain, owner lease | Privileged dedicated-UID install, file/process isolation and system-domain lookup |
 | Human app | Secure forms, pairing/grants, audit, exact pending approvals, protected-key backend | Provisioned Bite-signed protected key and real fresh user-presence signing |
 | Lifecycle | Durable intent/recovery, bounded off-actor I/O, read capacity before approval/budget spend, administration reserve | Installed daemon interruption check |
-| Browser | Broker lifecycle, authenticated headless host, fixed recipes, signed connection-bound relay and native raster window | Parent verification of U5 integration/review corrections, U6 distribution, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
+| Browser | Broker lifecycle, authenticated headless host, fixed recipes, signed connection-bound relay and native raster window | Installed U6 distribution, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
 
@@ -24,8 +24,10 @@ the [parent combined verification](verification/credential-boundary-integration.
 passes all ten checks at `35f33d4`: 347 default registered tests with opt-out skips,
 12 real U5/canary tests and 35 real-host tests without skips, both MCP modes, package
 boundaries, 11 recorder and 13 cleanup tests, and 33 offline preparation tests in each
-Python mode. Source and the selected browser executable stayed unchanged. A subsequent
-rotation-driver interruption-safety correction is tracked separately. The U5 browser mutation
+Python mode. Source and the selected browser executable stayed unchanged. The subsequent
+rotation-driver interruption-safety correction uses the canonical source guard; the
+[final Python record](verification/credential-driver-final.json) passes all five selected
+checks at `b984e50` with unchanged source. This adds no Swift product behavior. The U5 browser mutation
 record below passes all 20 deliberate defense removals on `6f4e506` after a passing
 baseline and restored build, with unchanged source and selected browser executable. The old U2–U4 record below remains historical evidence.
 Offline U6 preparation is integrated as `ac7b71b`/`c3e0f6f`: bounded archive snapshots,
