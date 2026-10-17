@@ -28,8 +28,10 @@ Root, a compromised OS or compromised trusted broker is outside that boundary.
 The human app's approval signing key is separate from service credentials. Release
 code requires user presence and a protected, nonextractable key. A matching Apple
 provisioning profile and an actual signed protected-key test are still required.
-Agent Vault does not learn or store the Mac unlock password. The Secure Enclave
-protects the approval key; arbitrary stored service passwords are not held inside it.
+Agent Vault does not learn or store the Mac unlock password. The signer first tries
+a Secure Enclave approval key, then a nonextractable, user-presence-protected Keychain
+key. It fails closed if neither backend works. Actual selected-backend verification
+is still required; arbitrary stored service passwords are not held inside the enclave.
 
 Human continuation can transiently relay an MFA code to its bound browser challenge.
 That is not a persistent OTP vault. General TOTP generation, passkey-provider
