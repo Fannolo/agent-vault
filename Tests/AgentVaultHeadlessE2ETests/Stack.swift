@@ -128,9 +128,9 @@ final class HeadlessStack {
         }
     }
 
-    static func make(user: String = "mfa-user", windows: LifecycleWindows = .standard) async throws -> HeadlessStack {
+    static func make(user: String = "mfa-user", password: String = FixtureSite.password, windows: LifecycleWindows = .standard) async throws -> HeadlessStack {
         let binary = try #require(fixtureChromium)
-        let site = FixtureSite()
+        let site = FixtureSite(syntheticPassword: password)
         try await site.start()
         var template = Array(FileManager.default.temporaryDirectory.appendingPathComponent("av-u5-XXXXXX").path.utf8CString)
         guard let created = mkdtemp(&template) else { site.stop(); throw VaultError.stateUnavailable }
@@ -160,7 +160,7 @@ final class HeadlessStack {
         let link = WebHostLink(validated: hostConfig, target: .endpoint({ endpoint }), budgets: .standard, limits: .standard)
         let state = TestState(), signer = SoftwareFixtureSigner()
         let broker = Broker(state: state, secrets: TestSecrets(), webSessions: link, windows: windows)
-        let account = try await broker.enroll(service: .browserDemo, credential: FixtureSite.credential(user: user))
+        let account = try await broker.enroll(service: .browserDemo, credential: FixtureSite.credential(user: user, password: password))
         let client = try await broker.registerClient(uid: identity.uid)
         let grant = try await broker.grant(clientID: client.id, accountID: account.id, duration: 300, callLimit: 1)
         let admin = try Administration(broker: broker, publicKey: signer.publicKey.x963Representation)
@@ -191,9 +191,9 @@ final class HeadlessStack {
         return stack
     }
 
-    static func using(user: String = "mfa-user", windows: LifecycleWindows = .standard,
+    static func using(user: String = "mfa-user", password: String = FixtureSite.password, windows: LifecycleWindows = .standard,
                       _ body: @MainActor (HeadlessStack) async throws -> Void) async throws {
-        let stack = try await make(user: user, windows: windows)
+        let stack = try await make(user: user, password: password, windows: windows)
         do { try await body(stack) } catch { await stack.finish(); throw error }
         await stack.finish()
     }

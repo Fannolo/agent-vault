@@ -33,6 +33,16 @@ public final class FixtureSite: @unchecked Sendable {
         case invalidLogin
     }
 
+    private var acceptedPassword = FixtureSite.password
+
+    #if DEBUG
+    /// Synthetic fixture customization; never used by any product target.
+    public convenience init(syntheticPassword: String) {
+        self.init()
+        acceptedPassword = syntheticPassword
+    }
+    #endif
+
     private let lock = NSLock()
     private var _loginPage = LoginPage.normal
     private var _profile = Profile.normal
@@ -153,7 +163,7 @@ public final class FixtureSite: @unchecked Sendable {
 
     private func session(_ request: FixtureRequest) -> FixtureResponse {
         let form = Self.formFields(request.body)
-        guard form["password"] == Self.password, let login = form["login"], !login.isEmpty else {
+        guard form["password"] == acceptedPassword, let login = form["login"], !login.isEmpty else {
             return page(body: "<p id=\"error\">Incorrect username or password.</p>" + loginForm())
         }
         let token = UUID().uuidString

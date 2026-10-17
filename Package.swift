@@ -67,7 +67,8 @@ let package = Package(
         // Synthetic composition only: no product role may link these implementation surfaces.
         .testTarget(name: "AgentVaultHeadlessE2ETests", dependencies: [
             "AgentVaultWebHost", "AgentVaultWebHostLink", "AgentVaultWebHostProtocol", "AgentVaultCore",
-            "AgentVaultAppSupport", "AgentVaultIPC", "AgentVaultContracts", "AgentVaultBrowserFixture"
+            "AgentVaultAppSupport", "AgentVaultIPC", "AgentVaultContracts", "AgentVaultBrowserFixture",
+            "AgentVaultMCPBridge", .product(name: "MCP", package: "swift-sdk")
         ])
     ]
 )
