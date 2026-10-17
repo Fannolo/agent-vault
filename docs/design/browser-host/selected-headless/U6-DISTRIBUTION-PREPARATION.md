@@ -37,7 +37,7 @@ refresh, signing identity lookup or implicit use of the user's Chrome installati
 |---|---|
 | `--host`, `--host-sha256` | Copy through an opened, non-following descriptor. Inspect the staged bytes, requiring exact `dev.agentvault.webhost`, Bite team `3JWAQ92CB4`, hardened runtime, a valid pinned Developer ID requirement, no debugger access and the supplied exact entitlement dictionary. Require an executable file and the separately supplied full SHA-256. |
 | `--browser` | Copy a complete signed tree through descriptors. Refuse links, FIFOs, special files, hardlinks and excessive bytes/entries/depth. Normalize regular modes to 0644/0755. Compare every file's digest and executable bit to the reviewed pin. Detect every Mach-O file, including nonexecutable dylibs, and require the exact code inventory. Refuse executable non-Mach-O files. Inspect every native code file with the existing CodeInspector; main ID is `dev.agentvault.chromium`, helper IDs belong to that separate prefix. An ad hoc signature cannot satisfy the Bite requirement. |
-| `--archive` | Hash the opened original ZIP against the pin. Bound expanded sizes and entries; reject duplicate, unsafe, outside-root, encrypted and special entries. Require the same resource/code paths apart from generated `_CodeSignature` records, and unchanged non-code resource bytes. No archive is extracted or executed. Signing can change native code bytes, so those changes remain a separately reviewed transformation pinned by the signed-tree hashes. |
+| `--archive` | Copy the bounded original ZIP into an anonymous private snapshot, then hash and parse that exact snapshot against the pin. Bound expanded sizes and entries; reject duplicate, unsafe, outside-root, encrypted and special entries. Require the same resource/code paths apart from generated `_CodeSignature` records, and unchanged non-code resource bytes. No archive is extracted or executed. Signing can change native code bytes, so those changes remain a separately reviewed transformation pinned by the signed-tree hashes. |
 | `--pin` | Default `deploy/webhost/chromium.pin.json` refuses packaging until configured. Configured pins have an exact schema: version/platform, fixed official CfT URL, source archive SHA-256, signed-tree files/code inventories and exact P0 report/policy hashes. Platform is limited to `mac-arm64`, matching the current host path. No version or fake digest is invented in this commit. |
 | `--stable-metadata`, `--metadata-receipt` | Receipt must name the fixed official metadata URL and hash the exact supplied JSON. Its declared retrieval must be within 24 hours, not in the future. The upstream document's timestamp must be no more than seven days before that declared retrieval. The pin must equal the one supplied Stable `mac-arm64` headless-shell version and URL. Duplicate JSON keys are rejected at every depth. This is an **offline supplied-freshness check**, not independent proof of current upstream state. |
 | `--p0-policy`, `--p0-report` | Both must match the pin's SHA-256 values; policy also binds the report digest and names exact host and every browser code entitlement dictionary. Missing inputs fail with a prerequisite error. A JSON `approved` flag is not part of the schema. Matching a report hash is not proof that its claimed VM run occurred or that its conclusions are correct. |
@@ -133,18 +133,33 @@ python3 scripts/prepare-webhost-release.py verify \
   --manifest-sha256 <separately-retained-review-hash>
 ```
 
+Staging and verification require canonical directory ancestry owned by root or the
+operator, without group/other write permission except protected sticky directories.
+macOS extended ACL entries are conservatively refused, including harmless deny entries;
+an unavailable ACL inspection also refuses. Parent and staging descriptors remain open
+through exclusive publication. Path identity checks refuse observed ancestry changes.
+These rules exclude other-user pathname substitution; they do not isolate this tool from
+malicious processes running as the operator or root. If ancestry changes at publication,
+the command refuses and may leave the inspected payload under the relocated original
+parent; it does not publish an uninspected substitute or replace an existing output.
+
 Keep generated payloads and local signing/P0 evidence in ignored `dist/` or another private
 location. The public commit contains only code, synthetic fixtures and the unconfigured pin.
 
 ## Evidence and remaining limits
 
-Verified here: 27 synthetic tests in normal isolated Python and with `-O`; bytecode syntax,
-CLI help and diff whitespace checks. Tests use explicit fake Mach-O bytes and a byte-keyed
+Verified here: 33 tests using synthetic artifacts in isolated Python and with `-O`;
+bytecode syntax, CLI help and diff whitespace checks. Tests use explicit fake Mach-O bytes and a byte-keyed
 fake inspector; they do not sign or run native code. They exercise staged-copy identity
 checks, failures across archive/pin/policy/metadata/role inputs, hardlinks/symlinks/FIFOs,
 tampering, permission changes, exact entitlement types, output preservation, duplicate keys,
-read-only revalidation and unchanged three-role base installer policy. Existing CodeInspector
-native parsing evidence belongs to the earlier installer/release record; it was not rerun.
+read-only revalidation and unchanged three-role base installer policy. Five additional
+race/ancestry controls cover source mutation after archive hashing, resource substitution,
+writable ancestry, and ancestor swaps before/at publication. A native ACL test grants
+write access only on its synthetic temporary directory and verifies refusal. Five of the
+new controls reject the original unfixed implementation; the additional observed swap
+control also passes its existing fail-closed behavior. Existing CodeInspector native
+parsing evidence belongs to the earlier installer/release record; it was not rerun.
 
 Official sources checked on 15 October 2026:
 

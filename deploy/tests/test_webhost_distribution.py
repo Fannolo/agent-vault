@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -350,6 +351,95 @@ class PreparationTests(unittest.TestCase):
         self.write("pin.json", self.pin)
         self.inspector.register(self.helper, web.BROWSER_ID + ".libfixture", entitlements={"claim": True})
         self.refused("exact P0 policy")
+
+    def test_archive_parse_uses_snapshot_when_source_changes_after_hash(self):
+        original_zip = web.zipfile.ZipFile
+        original_bytes = (self.root / "archive.zip").read_bytes()
+
+        def mutate_source(*args, **kwargs):
+            (self.root / "archive.zip").write_bytes(b"not a ZIP any more")
+            return original_zip(*args, **kwargs)
+
+        with mock.patch.object(web.zipfile, "ZipFile", side_effect=mutate_source):
+            self.prepare()
+        self.assertNotEqual((self.root / "archive.zip").read_bytes(), original_bytes)
+        self.assertEqual((self.args.output / web.BROWSER_ROOT / "LICENSE").read_bytes(), b"synthetic notice")
+
+    def test_archive_hash_cannot_authenticate_later_replacement_resources(self):
+        path = self.root / "archive.zip"
+        signed_tree_zip = path.read_bytes()
+        self.rewrite_archive([(web.BROWSER_ROOT + "/LICENSE", b"different reviewed archive resource")])
+        original_zip = web.zipfile.ZipFile
+
+        def substitute_matching_tree(*args, **kwargs):
+            path.write_bytes(signed_tree_zip)
+            return original_zip(*args, **kwargs)
+
+        with mock.patch.object(web.zipfile, "ZipFile", side_effect=substitute_matching_tree):
+            self.refused("changed an upstream resource")
+        self.assertEqual(path.read_bytes(), signed_tree_zip)
+
+    def test_other_user_writable_ancestry_is_refused(self):
+        parent = self.root / "untrusted"
+        parent.mkdir(mode=0o777)
+        parent.chmod(0o777)
+        self.args.output = parent / "prepared"
+        self.refused("ancestry must be owned and protected")
+
+    def test_acl_write_grant_cannot_bypass_safe_mode_bits(self):
+        parent = self.root / "acl-parent"
+        parent.mkdir(mode=0o700)
+        subprocess.run(["/bin/chmod", "+a", "everyone allow add_file,delete_child", str(parent)],
+                       check=True, capture_output=True)
+        self.args.output = parent / "prepared"
+        self.refused("no extended ACL entries")
+
+    def test_observed_ancestor_swap_before_publication_is_refused(self):
+        parent = self.root / "parent"
+        parent.mkdir()
+        self.args.output = parent / "prepared"
+        original_inventory = web.inventory
+        swapped = False
+
+        def swap_after_final_inventory(root, include_modes=False):
+            nonlocal swapped
+            result = original_inventory(root, include_modes)
+            if include_modes and not swapped:
+                parent.rename(self.root / "relocated")
+                parent.mkdir()
+                swapped = True
+            return result
+
+        with mock.patch.object(web, "inventory", side_effect=swap_after_final_inventory):
+            with self.assertRaises((web.Refusal, OSError)):
+                self.prepare()
+        self.assertTrue(swapped)
+        self.assertFalse(self.args.output.exists())
+        self.assertFalse((self.root / "relocated/prepared").exists())
+
+    def test_publication_retains_parent_and_staging_descriptors(self):
+        parent = self.root / "parent"
+        parent.mkdir()
+        self.args.output = parent / "prepared"
+        original_rename = web.installer.FileSystem.rename
+        relocated = self.root / "relocated"
+
+        def swap_at_rename(fs, source_fd, source, parent_fd, name, flags):
+            parent.rename(relocated)
+            parent.mkdir()
+            # An uninspected lookalike tree must not become the source either.
+            temporary_name = next(relocated.iterdir()).name
+            fake = parent / temporary_name / "payload"
+            fake.mkdir(parents=True)
+            (fake / "manifest.json").write_text("uninspected")
+            return original_rename(fs, source_fd, source, parent_fd, name, flags)
+
+        with mock.patch.object(web.installer.FileSystem, "rename", new=swap_at_rename):
+            with self.assertRaisesRegex(web.Refusal, "ancestry changed"):
+                self.prepare()
+        self.assertFalse(self.args.output.exists())
+        self.assertEqual((relocated / "prepared" / web.HOST_BINARY).read_bytes(), self.host)
+        self.assertNotEqual((relocated / "prepared/manifest.json").read_text(), "uninspected")
 
     def test_root_is_refused_before_any_artifact_reads(self):
         with mock.patch.object(web.os, "geteuid", return_value=0):

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import ctypes
+import errno
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
@@ -289,24 +292,93 @@ def load_policy(pin, policy_path, report_path):
     return policy, policy_raw, report
 
 
+def require_no_directory_acl(fd):
+    # Mode bits alone do not exclude macOS ACL grants that permit renames.
+    require(sys.platform == "darwin", "trusted ancestry ACL inspection requires macOS")
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.acl_get_fd_np.argtypes = [ctypes.c_int, ctypes.c_int]
+    libc.acl_get_fd_np.restype = ctypes.c_void_p
+    libc.acl_get_entry.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+    libc.acl_get_entry.restype = ctypes.c_int
+    libc.acl_free.argtypes = [ctypes.c_void_p]
+    libc.acl_free.restype = ctypes.c_int
+    acl = libc.acl_get_fd_np(fd, 0x100)  # SDK sys/acl.h: ACL_TYPE_EXTENDED
+    if not acl:
+        require(ctypes.get_errno() == errno.ENOENT, "unable to inspect staging ancestry ACL")
+        return  # macOS returns ENOENT when no extended ACL is attached.
+    try:
+        entry = ctypes.c_void_p()
+        ctypes.set_errno(0)
+        result = libc.acl_get_entry(acl, 0, ctypes.byref(entry))  # ACL_FIRST_ENTRY
+        require(result == -1 and ctypes.get_errno() == errno.EINVAL,
+                "staging ancestry must have no extended ACL entries")
+    finally:
+        libc.acl_free(acl)
+
+
+@contextmanager
+def trusted_directory(path):
+    """Pin a canonical ancestry owned by root/operator, excluding other-user renames.
+
+    Root/operator-owned sticky directories (notably /private/tmp) protect the
+    next owned component. Same-UID hostile processes remain outside this tool's
+    isolation boundary; identity checks still refuse observed ancestry changes.
+    """
+    path = Path(path).resolve(strict=True)
+    descriptors = []
+    try:
+        fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        descriptors.append((Path("/"), fd))
+        for part in path.parts[1:]:
+            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            descriptors.append((descriptors[-1][0] / part, fd))
+        for _, descriptor in descriptors:
+            require_no_directory_acl(descriptor)
+            info = os.fstat(descriptor)
+            require(info.st_uid in (0, os.getuid()) and
+                    (info.st_mode & 0o022 == 0 or info.st_mode & stat.S_ISVTX),
+                    "staging ancestry must be owned and protected from other-user writes")
+
+        def unchanged():
+            for name, descriptor in descriptors:
+                current = name.lstat()
+                held = os.fstat(descriptor)
+                require(stat.S_ISDIR(current.st_mode) and
+                        (current.st_dev, current.st_ino) == (held.st_dev, held.st_ino),
+                        "staging ancestry changed")
+        unchanged()
+        yield path, fd, unchanged
+    finally:
+        for _, descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 def verify_archive(path, pin):
     """Hash one opened archive; compare resource bytes without extracting or executing code."""
-    archive_hash = hashlib.sha256()
-    archive_fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    source_fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    # Only this process receives the anonymous snapshot descriptor. Hashing and
+    # ZIP parsing never revisit the caller-writable source inode.
+    snapshot_file = None
     try:
-        info = os.fstat(archive_fd)
+        snapshot_file = tempfile.TemporaryFile()
+        info = os.fstat(source_fd)
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and 0 < info.st_size <= MAX_BYTES, "invalid source archive")
         count = 0
         while True:
-            block = os.read(archive_fd, 65536)
+            block = os.read(source_fd, 65536)
             if not block:
                 break
             count += len(block)
             require(count <= MAX_BYTES, "source archive exceeds bound")
+            snapshot_file.write(block)
+        snapshot_file.flush()
+        snapshot_file.seek(0)
+        archive_hash = hashlib.sha256()
+        for block in iter(lambda: snapshot_file.read(65536), b""):
             archive_hash.update(block)
         require(archive_hash.hexdigest() == pin["archiveSHA256"], "source archive SHA-256 differs from the reviewed pin")
-        os.lseek(archive_fd, 0, os.SEEK_SET)
-        with os.fdopen(os.dup(archive_fd), "rb") as handle, zipfile.ZipFile(handle) as archive:
+        snapshot_file.seek(0)
+        with zipfile.ZipFile(snapshot_file) as archive:
             entries = archive.infolist()
             require(len(entries) <= MAX_ENTRIES and sum(entry.file_size for entry in entries) <= MAX_BYTES,
                     "source archive exceeds expanded bounds")
@@ -346,7 +418,9 @@ def verify_archive(path, pin):
     except (zipfile.BadZipFile, NotImplementedError):
         raise Refusal("source archive is not a supported ZIP") from None
     finally:
-        os.close(archive_fd)
+        if snapshot_file is not None:
+            snapshot_file.close()
+        os.close(source_fd)
 
 
 def prepare(args, inspector=None, now=None):
@@ -362,8 +436,9 @@ def prepare(args, inspector=None, now=None):
     require(hex_value(args.host_sha256), "host SHA-256 is required")
     output = Path(args.output).absolute()
     require(not os.path.lexists(output), "output already exists; preparation never replaces artifacts")
-    parent = output.parent.resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix=".agentvault-webhost-", dir=parent) as directory:
+    with trusted_directory(output.parent) as (parent, parent_fd, parent_unchanged), \
+            tempfile.TemporaryDirectory(prefix=".agentvault-webhost-", dir=parent) as directory, \
+            trusted_directory(directory) as (_, source_parent, staging_unchanged):
         staged = Path(directory) / "payload"
         staged.mkdir(mode=0o700)
         budget = [MAX_BYTES, MAX_ENTRIES]
@@ -374,6 +449,8 @@ def prepare(args, inspector=None, now=None):
                 "host bytes do not match the reviewed SHA-256")
         files, code = inventory(staged / BROWSER_ROOT)
         require(files == pin["files"] and code == set(pin["code"]), "staged browser differs from the reviewed signed-tree inventory")
+        parent_unchanged()
+        staging_unchanged()
         inspector = inspector or installer.CodeInspector()
         host_hash = inspect_code(inspector, staged / HOST_BINARY, HOST_ID, policy["host"])
         for name, entry in pin["code"].items():
@@ -409,14 +486,13 @@ def prepare(args, inspector=None, now=None):
                     "runtimeProofVerified": False, "notarized": False, "offlineEvidenceAuthenticated": False,
                     "hostCDHash": host_hash, "sourceArchiveSHA256": pin["archiveSHA256"], "files": final_files}
         (staged / "manifest.json").write_bytes(json_bytes(manifest))
-        # The same exclusive descriptor-relative rename used by the installer; no replacement.
-        fs = installer.FileSystem(str(parent))
-        source_parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            fs.rename(source_parent, "payload", fs.base, output.name, installer.RENAME_EXCL)
-        finally:
-            os.close(source_parent)
-            os.close(fs.base)
+        parent_unchanged()
+        staging_unchanged()
+        # Retained descriptors name the inspected staging directory and actual
+        # output parent; publication never reopens either pathname.
+        installer.FileSystem.rename(None, source_parent, "payload", parent_fd, output.name, installer.RENAME_EXCL)
+        parent_unchanged()
+        staging_unchanged()
     return manifest
 
 
@@ -427,45 +503,47 @@ def verify_payload(payload, manifest_sha256, inspector=None, now=None):
     info = payload.lstat()
     require(stat.S_ISDIR(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o700,
             "payload must be a private directory, not a link")
-    raw = regular_bytes(payload / "manifest.json")
-    require(hex_value(manifest_sha256) and digest(raw) == manifest_sha256, "manifest differs from the externally retained SHA-256")
-    manifest = parse_document(raw)
-    exact(manifest, ["format", "publisherTeam", "installable", "distributionReady", "browserEnabled", "runtimeProofVerified",
-                     "notarized", "offlineEvidenceAuthenticated", "hostCDHash", "sourceArchiveSHA256", "files"], "preparation manifest")
-    require(manifest["format"] == "agent-vault-webhost-preparation-v1" and manifest["publisherTeam"] == installer.TEAM,
-            "unknown preparation manifest")
-    require(all(manifest[key] is False for key in ("installable", "distributionReady", "browserEnabled", "runtimeProofVerified",
-                                                  "notarized", "offlineEvidenceAuthenticated")), "preparation may never claim activation or runtime proof")
-    files, _ = inventory(payload, include_modes=True)
-    files.pop("manifest.json")
-    require(json_bytes(files) == json_bytes(manifest["files"]), "payload bytes or modes differ from the retained manifest")
-    evidence = payload / "evidence"
-    pin, _ = load_pin(evidence / "chromium.pin.json")
-    require(manifest["sourceArchiveSHA256"] == pin["archiveSHA256"], "source archive pin mismatch")
-    validate_metadata(pin, evidence / "stable-metadata.json", evidence / "metadata-receipt.json", now or datetime.now(timezone.utc))
-    policy, _, _ = load_policy(pin, evidence / "p0-entitlements.json", evidence / "p0-report.txt")
-    browser_files, browser_code = inventory(payload / BROWSER_ROOT)
-    require(browser_files == pin["files"] and browser_code == set(pin["code"]), "browser inventory differs from pin")
-    inspector = inspector or installer.CodeInspector()
-    host_hash = inspect_code(inspector, payload / HOST_BINARY, HOST_ID, policy["host"], manifest["hostCDHash"])
-    for name, entry in pin["code"].items():
-        inspect_code(inspector, payload / BROWSER_ROOT / name, entry["identifier"], policy["browser"][name], entry["cdhash"])
-    supplied_plan, _ = document(payload / "deployment/install-plan.json")
-    broker_document = regular_bytes(evidence / "broker-config.json", 16384)
-    parse_document(broker_document)
-    try:
-        host_uid = supplied_plan["account"]["uid"]
-    except (KeyError, TypeError):
-        raise Refusal("invalid deployment plan") from None
-    config, plist, plan = deployment_plan(pin, host_hash, broker_document, host_uid)
-    require(json_bytes(supplied_plan) == json_bytes(plan), "deployment plan differs from exact derived roles")
-    require(regular_bytes(payload / "deployment/webhost.json.disabled") == json_bytes(config)
-            and regular_bytes(payload / "deployment/dev.agentvault.webhost.plist.disabled") == plistlib.dumps(plist),
-            "disabled configuration or plist differs from the exact plan")
-    final_files, _ = inventory(payload, include_modes=True)
-    final_files.pop("manifest.json")
-    require(json_bytes(final_files) == json_bytes(files), "payload changed during verification")
-    return manifest
+    with trusted_directory(payload) as (payload, _, ancestry_unchanged):
+        raw = regular_bytes(payload / "manifest.json")
+        require(hex_value(manifest_sha256) and digest(raw) == manifest_sha256, "manifest differs from the externally retained SHA-256")
+        manifest = parse_document(raw)
+        exact(manifest, ["format", "publisherTeam", "installable", "distributionReady", "browserEnabled", "runtimeProofVerified",
+                         "notarized", "offlineEvidenceAuthenticated", "hostCDHash", "sourceArchiveSHA256", "files"], "preparation manifest")
+        require(manifest["format"] == "agent-vault-webhost-preparation-v1" and manifest["publisherTeam"] == installer.TEAM,
+                "unknown preparation manifest")
+        require(all(manifest[key] is False for key in ("installable", "distributionReady", "browserEnabled", "runtimeProofVerified",
+                                                      "notarized", "offlineEvidenceAuthenticated")), "preparation may never claim activation or runtime proof")
+        files, _ = inventory(payload, include_modes=True)
+        files.pop("manifest.json")
+        require(json_bytes(files) == json_bytes(manifest["files"]), "payload bytes or modes differ from the retained manifest")
+        evidence = payload / "evidence"
+        pin, _ = load_pin(evidence / "chromium.pin.json")
+        require(manifest["sourceArchiveSHA256"] == pin["archiveSHA256"], "source archive pin mismatch")
+        validate_metadata(pin, evidence / "stable-metadata.json", evidence / "metadata-receipt.json", now or datetime.now(timezone.utc))
+        policy, _, _ = load_policy(pin, evidence / "p0-entitlements.json", evidence / "p0-report.txt")
+        browser_files, browser_code = inventory(payload / BROWSER_ROOT)
+        require(browser_files == pin["files"] and browser_code == set(pin["code"]), "browser inventory differs from pin")
+        inspector = inspector or installer.CodeInspector()
+        host_hash = inspect_code(inspector, payload / HOST_BINARY, HOST_ID, policy["host"], manifest["hostCDHash"])
+        for name, entry in pin["code"].items():
+            inspect_code(inspector, payload / BROWSER_ROOT / name, entry["identifier"], policy["browser"][name], entry["cdhash"])
+        supplied_plan, _ = document(payload / "deployment/install-plan.json")
+        broker_document = regular_bytes(evidence / "broker-config.json", 16384)
+        parse_document(broker_document)
+        try:
+            host_uid = supplied_plan["account"]["uid"]
+        except (KeyError, TypeError):
+            raise Refusal("invalid deployment plan") from None
+        config, plist, plan = deployment_plan(pin, host_hash, broker_document, host_uid)
+        require(json_bytes(supplied_plan) == json_bytes(plan), "deployment plan differs from exact derived roles")
+        require(regular_bytes(payload / "deployment/webhost.json.disabled") == json_bytes(config)
+                and regular_bytes(payload / "deployment/dev.agentvault.webhost.plist.disabled") == plistlib.dumps(plist),
+                "disabled configuration or plist differs from the exact plan")
+        final_files, _ = inventory(payload, include_modes=True)
+        final_files.pop("manifest.json")
+        require(json_bytes(final_files) == json_bytes(files), "payload changed during verification")
+        ancestry_unchanged()
+        return manifest
 
 
 def main():
