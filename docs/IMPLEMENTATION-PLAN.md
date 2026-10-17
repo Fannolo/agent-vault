@@ -18,8 +18,9 @@ modes and the 358-registered-test pre-U5 default suite passed with opt-out skips
 boundaries without claiming production readiness or 1Password equivalence.
 
 U5's real-host-to-app-model composition and legacy WebKit removal are integrated from
-`4a0cf25`/`265debd`. Grok 4.7 conditionally accepted the development units and identified
-bounded test/evidence gaps. The canary unit and review corrections are integrated as `6966fae`/`f458398`;
+`4a0cf25`/`265debd`. Grok 4.7 accepted development integration at `82d181f` after the bounded
+test/evidence corrections. Its follow-up Info about guarding the mutant test is now
+covered by an escaped-test regression and a fresh parent rotation experiment. The canary unit and review corrections are integrated as `6966fae`/`f458398`;
 the [parent combined verification](verification/credential-boundary-integration.json)
 passes all ten checks at `35f33d4`: 347 default registered tests with opt-out skips,
 12 real U5/canary tests and 35 real-host tests without skips, both MCP modes, package
@@ -27,7 +28,9 @@ boundaries, 11 recorder and 13 cleanup tests, and 33 offline preparation tests i
 Python mode. Source and the selected browser executable stayed unchanged. The subsequent
 rotation-driver interruption-safety correction uses the canonical source guard; the
 [final Python record](verification/credential-driver-final.json) passes all five selected
-checks at `b984e50` with unchanged source. This adds no Swift product behavior. The U5 browser mutation
+checks at `b984e50` with unchanged source. The later [fresh parent rotation proof](verification/secret-rotation-final.json)
+at `e967fbe` confirms compiled mutant detection, exact restoration and restored baseline
+after tightening the structural guard. This adds no Swift product behavior. The U5 browser mutation
 record below passes all 20 deliberate defense removals on `6f4e506` after a passing
 baseline and restored build, with unchanged source and selected browser executable. The old U2–U4 record below remains historical evidence.
 Offline U6 preparation is integrated as `ac7b71b`/`c3e0f6f`: bounded archive snapshots,
