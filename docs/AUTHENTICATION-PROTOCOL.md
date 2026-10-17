@@ -27,7 +27,8 @@ Root, a compromised OS or compromised trusted broker is outside that boundary.
 
 The human app's approval signing key is separate from service credentials. Release
 code requires user presence and a protected, nonextractable key. A matching Apple
-provisioning profile and an actual signed protected-key test are still required.
+provisioning profile and an actual signed protected-key test are required; the
+[implementation plan](IMPLEMENTATION-PLAN.md) records their current verification status.
 Agent Vault does not learn or store the Mac unlock password. The signer first tries
 a Secure Enclave approval key, then a nonextractable, user-presence-protected Keychain
 key. It fails closed if neither backend works. Actual selected-backend verification

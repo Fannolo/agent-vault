@@ -1,0 +1,61 @@
+{
+  "observedAt": "2026-10-17T19:06:21.624533+00:00",
+  "sourceCommit": "97142c6e7b8eaebfc26c7b62fcf96c56e31833cc",
+  "sourceDirty": false,
+  "scope": "Profiled Developer ID signed review artifact; not a notarized or isolated production release",
+  "profileEmbedded": true,
+  "profileTeam": [
+    "3JWAQ92CB4"
+  ],
+  "profileApplicationIdentifier": "3JWAQ92CB4.dev.agentvault.app",
+  "profileSHA256": "47d69a952314385f4dfedc48156ea5712084d26c8ab9f058c37d4833c84e3cd9",
+  "matchesExistingBiteCertificate": true,
+  "artifactManifestHash": "0a6e4f674f22500b716315e519f62e1e39ffb6edbf9b5ad393d49a09618d7864",
+  "archiveSHA256": "a2ea07c7bd6de59737df79f69c78b76aab53076f30fad55d24e46e89fb006618",
+  "manifestFileHashesVerified": true,
+  "roles": [
+    {
+      "artifact": "AgentVault.app",
+      "strictSignatureValid": true,
+      "details": {
+        "Identifier": "dev.agentvault.app",
+        "CodeDirectory v": "20500 size=20894 flags=0x10000(runtime) hashes=642+7 location=embedded",
+        "CDHash": "312e65f8a58298afe876ba03b2aa2800c92f0b1a",
+        "Timestamp": "17 Oct 2026 at 21:03:58",
+        "TeamIdentifier": "3JWAQ92CB4"
+      }
+    },
+    {
+      "artifact": "agent-vault-bridge",
+      "strictSignatureValid": true,
+      "details": {
+        "Identifier": "dev.agentvault.bridge",
+        "CodeDirectory v": "20500 size=48545 flags=0x10000(runtime) hashes=1511+2 location=embedded",
+        "CDHash": "677285aa0085b374482f4c6a525f979f169739c5",
+        "Timestamp": "17 Oct 2026 at 21:03:58",
+        "TeamIdentifier": "3JWAQ92CB4"
+      }
+    },
+    {
+      "artifact": "agent-vault-broker",
+      "strictSignatureValid": true,
+      "details": {
+        "Identifier": "dev.agentvault.broker",
+        "CodeDirectory v": "20500 size=17633 flags=0x10000(runtime) hashes=545+2 location=embedded",
+        "CDHash": "72f8115c69583f07cf31f0a393658689ab41eeca",
+        "Timestamp": "17 Oct 2026 at 21:03:58",
+        "TeamIdentifier": "3JWAQ92CB4"
+      }
+    }
+  ],
+  "protectedApprovalKeyProbe": {
+    "directExitCode": 73,
+    "macOSStatus": -25308,
+    "launchServicesAlsoFailed": true,
+    "meaning": "User interaction is not allowed; protected-key creation and signing are not verified",
+    "nativeWindowResult": "Awaiting user observation; native automation timed out"
+  },
+  "notarized": false,
+  "productionIsolationVerified": false,
+  "distributionReady": false
+}

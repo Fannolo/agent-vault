@@ -9,7 +9,7 @@
 | Lifecycle | Durable intent/recovery, bounded off-actor I/O, read capacity before approval/budget spend, administration reserve | Installed daemon interruption check |
 | Browser | Broker lifecycle, authenticated headless host, fixed recipes, signed connection-bound relay and native raster window | Installed U6 distribution, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
-| Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
+| Distribution | Dependency inventory, profiled Bite-signed review bundle and guarded Python installer | Privileged installer/runtime proof, notarization and CI for each published head |
 
 Terminal credential enrollment is removed; the development CLI/MCP accepts only synthetic
 `demo.status` operations. Real enrollment belongs to native secure forms. Both MCP smoke
@@ -37,8 +37,14 @@ Offline U6 preparation is integrated as `ac7b71b`/`c3e0f6f`: bounded archive sna
 pinned publication descriptors and conservative ancestry/ACL validation address two
 Medium review findings. It emits only disabled, noninstallable payloads; it is not runtime
 U6 completion. Operator-supplied metadata/report receipts remain unauthenticated evidence.
-Release preflight retains the missing matching Bite provisioning and AgentVault notarization
-profiles as open prerequisites; no deployment or real credential enrollment has occurred.
+The matching Bite provisioning profile is now created and validated against the existing
+Developer ID certificate, exact app ID and private Keychain access group. The
+[profiled review build](verification/profiled-review-bundle-20261017.json) at `97142c6`
+has valid strict signatures for all three roles and verified artifact hashes. Protected-key
+creation still fails closed with macOS `-25308` (interaction not allowed), both directly and
+through Launch Services. The native app is open; its Approval Key result awaits private
+user interaction because desktop inspection timed out. AgentVault notarization credentials
+and installed runtime proofs remain open. No deployment or real credential enrollment has occurred.
 
 Round seven found no High/Medium issue at `f7ca91c`. The parent reproduced and corrected
 its interrupted-wait/output-pipe cleanup findings and cancellation during initial result
