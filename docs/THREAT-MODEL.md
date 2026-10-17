@@ -36,11 +36,11 @@ remaining gates in IMPLEMENTATION-PLAN.md pass.** The legacy `agent-vault` devel
 Core in its own user process and retains no same-user confinement guarantee; it is excluded
 from distribution review bundles.
 
-The controlled WebKit library passed real loopback hostile-page tests. It uses ephemeral,
-separate data stores and fixed origins/recipes. It is not linked into the production daemon
-or human app: a system LaunchDaemon cannot present its human continuation view. Browser
-accounts and actions remain disabled in production. Live GitHub web selectors and CAPTCHA
-continuation are unverified.
+The old WebKit engine and its same-process continuation view have been removed. Selected
+headless-host tests use isolated contexts, fixed origins/recipes and a native image/input
+relay. Synthetic U5 tests join the real host, authenticated XPC and app model. Browser accounts
+and actions remain disabled in production. Installed continuation, live GitHub selectors
+and CAPTCHA compatibility are unverified.
 
 The selected headless path now has an authenticated host wire and Core port, tested
 with synthetic XPC peers. Credentials are withheld until an empty host probe passes code
@@ -66,7 +66,8 @@ grant and lease; Finish/Cancel refuses an already closed connection before its d
 cleanup callback. Admitted admin work retains its completion semantics. Separate bounded
 continuation capacity preserves admin capacity. ImageIO checks JPEG type, count, dimensions
 and orientation; this trusts the OS decoder. Finish drains input acknowledgments and late
-polling cannot overwrite its result. Real host-to-app integration remains unverified.
+polling cannot overwrite its result. U5 exercises host-to-app-model integration on a synthetic
+origin under the same UID; visible GUI, protected-key and installed multi-UID proof remain open.
 
 Browser signals use a handle that pins its spawned leader until reaping. The reaper kills
 remaining group members before releasing the ID. Watcher failure triggers kill-and-wait;

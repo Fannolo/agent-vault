@@ -16,9 +16,10 @@ Implemented, with component checks:
 - Four production bridge tools: `accounts_list`, `action_run`, `request_resume`, `request_cancel`.
 - Fixed `demo.status` and `github.profile` operations, returning only typed results.
 - Bounded stdio before SDK parsing, authenticated metadata and safe public error codes.
-- Controlled WebKit fixtures and an authenticated headless-host link with scoped losses,
-  dispatch deadlines and post-probe authorization. Production browser actions remain
-  disabled while the separate host, human controls and installed isolation are verified.
+- A separate Chromium host and authenticated link with scoped losses, dispatch deadlines,
+  post-probe authorization and a native challenge-image/input relay. Synthetic U5 tests
+  join the real host to the app model; the old WebKit engine has been removed. Production
+  browser actions remain disabled pending installed isolation and service verification.
 
 The bridge and app do not link Core or the service credential store. Permissions belong to
 an authenticated bridge and paired OS user; a model-supplied identity does not authorize calls.

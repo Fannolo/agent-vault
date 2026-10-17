@@ -1,5 +1,10 @@
 # Agent Vault browser production grounding
 
+Historical design investigation. The WebKit architecture below was superseded by the
+separate headless host; U5 removes that engine. For current behavior and open production
+gates, read [BROWSER-DEPLOYMENT](../../BROWSER-DEPLOYMENT.md) and
+[U5-E2E](selected-headless/U5-E2E.md). Preserve the original analysis as history.
+
 Read-only investigation on 13 October 2026. Source tree: `<repo>`; code checkpoint `425c6afd48b192551e19a9289f86db8c8e298da7`; current documentation checkpoint `7e255123ea675016ccc0bc4e27c51d4ecda0f7f7`. No builds, credentials, installed services, key creation, repository edits, installation or external contacts were used. This file is the investigation artifact, not a production completion claim.
 
 ## Overview

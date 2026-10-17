@@ -1,15 +1,28 @@
 # Implementation plan
 
-## Current checkpoint: 15 October 2026
+## Current checkpoint: 17 October 2026
 
 | Workstream | Implemented | Remaining verification |
 |---|---|---|
 | Broker/IPC | Separate daemon/bridge, protected config, code+UID pins, private Keychain, owner lease | Privileged dedicated-UID install, file/process isolation and system-domain lookup |
 | Human app | Secure forms, pairing/grants, audit, exact pending approvals, protected-key backend | Provisioned Bite-signed protected key and real fresh user-presence signing |
 | Lifecycle | Durable intent/recovery, bounded off-actor I/O, read capacity before approval/budget spend, administration reserve | Installed daemon interruption check |
-| Browser | Broker lifecycle, authenticated headless host, fixed recipes, signed connection-bound relay and native raster window | Combined U2–U4 proof, U5 real-host continuation/legacy removal, U6 distribution, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
+| Browser | Broker lifecycle, authenticated headless host, fixed recipes, signed connection-bound relay and native raster window | Parent verification of U5 integration/review corrections, U6 distribution, installed P0–P3 sandbox/egress and P4 live service proof; production disabled |
 | Protocol | Shared strict JSON guard, bounded framing, depth/duplicate checks, active-ID and notification limits; XPC limits | Follow-up review and host compatibility |
 | Distribution | Dependency inventory, signed review-bundle builder and guarded Python installer | Privileged installer/runtime proof, provisioning, notarization and CI |
+
+Terminal credential enrollment is removed; the development CLI/MCP accepts only synthetic
+`demo.status` operations. Real enrollment belongs to native secure forms. Both MCP smoke
+modes and the 358-registered-test pre-U5 default suite passed with opt-out skips. The
+[authentication protocol](AUTHENTICATION-PROTOCOL.md) states the credential and authority
+boundaries without claiming production readiness or 1Password equivalence.
+
+U5's real-host-to-app-model composition and legacy WebKit removal are integrated from
+`4a0cf25`/`265debd`. Grok 4.7 conditionally accepted the development units and identified
+bounded test/evidence gaps. The separate canary unit and its corrections await integration;
+parent verification is pending. The old U2–U4 record below remains historical evidence.
+Release preflight retains the missing matching Bite provisioning and AgentVault notarization
+profiles as open prerequisites; no deployment or real credential enrollment has occurred.
 
 Round seven found no High/Medium issue at `f7ca91c`. The parent reproduced and corrected
 its interrupted-wait/output-pipe cleanup findings and cancellation during initial result

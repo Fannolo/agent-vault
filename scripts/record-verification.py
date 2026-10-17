@@ -29,6 +29,8 @@ CHECKS = {
     "webhost-cleanup": [sys.executable, "-I", "deploy/tests/test_webhost_link_mutations.py"],
     "webhost-mutations": [sys.executable, "scripts/verify-webhost-link-mutations.py"],
     "webhost-real": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter", "AgentVaultWebHostTests"],
+    "headless-e2e": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter",
+                     "HeadlessContinuationE2ETests|SecretBoundaryTests|SecretExposureDetectorTests"],
     "webhost-browser-mutations": [sys.executable, "scripts/verify-webhost-mutations.py"],
     "continuation-mutations": [sys.executable, "scripts/verify-continuation-mutations.py"],
     "xpc": [sys.executable, "scripts/verify-xpc.py"],
@@ -38,7 +40,7 @@ CHECKS = {
 }
 EVIDENCE = {"xpc", "xpc-mutations"}
 DETAIL_LOGS = {"webhost-mutations", "webhost-browser-mutations", "continuation-mutations"}
-CHROMIUM_CHECKS = {"webhost-real", "webhost-browser-mutations"}
+CHROMIUM_CHECKS = {"webhost-real", "headless-e2e", "webhost-browser-mutations"}
 
 
 def artifact(path):

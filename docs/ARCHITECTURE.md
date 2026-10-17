@@ -12,7 +12,8 @@ The package graph enforces three roles, checked by `scripts/verify-boundaries.py
 | MCPTransport / MCPBridge | Bounded stdio and four fixed read tools | None |
 | Bridge | Installed read client; no caller-selected identity, state path or destination | None |
 | AppSupport / App | Secure enrollment forms, pairing, grants, approvals and audit export | Own approval signing key only |
-| Browser | Fixed ephemeral WebKit workflow library, verified on synthetic sites | Caller-supplied transient bytes; production disconnected |
+| WebHostProtocol / WebHostLink | Authenticated credential-bearing host wire and broker-side admission link | Transient credentials; excluded from human app/bridge |
+| WebHost | Fixed Chromium workflows over private CDP pipes, owned contexts and cropped challenges | Transient authorized credentials; production disconnected |
 
 The signed bridge binds to the paired OS UID. `clientInfo` and tool arguments do not select
 identity. `accounts_list`, `action_run`, `request_resume` and `request_cancel` map to closed
@@ -30,9 +31,11 @@ Production state is a version-2 HMAC envelope. Account lifecycle and approval fi
 corruption and downgrade fail closed without overwriting the evidence. Interrupted intent is
 recovered using known Keychain IDs only. Version-1 developer state is not migrated automatically.
 
-Production browser deployment remains a separate architectural gate. A broker-linked web view
-needs a compatible isolated GUI host for human MFA/CAPTCHA. The current LaunchDaemon cannot
-vend that view across the DTO-only XPC channel. See BROWSER-DEPLOYMENT.md.
+Production browser deployment remains a separate architectural gate. The selected headless
+host owns private contexts; the human app receives validated cropped images and sends bounded
+typed input through a signed, connection-bound lease. Synthetic tests join these ports through
+the actual host and authenticated XPC. They do not establish installed daemon isolation or
+network confinement. The old WebKit engine is removed. See BROWSER-DEPLOYMENT.md.
 
 Developer fixtures, preview software keys and the legacy same-user CLI are development tools,
 excluded from the signed review bundle. No existing browser profile, global MCP configuration,

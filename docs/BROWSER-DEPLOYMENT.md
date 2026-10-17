@@ -1,42 +1,30 @@
 # Browser component deployment boundary
 
-`AgentVaultBrowser` is a verified library, not a deployed feature. It is **not** wired into
-the production broker, and the human app refuses to enroll browser-backed accounts.
+The selected implementation is `AgentVaultWebHost`, a separate fixed-workflow Chromium
+host. The legacy WebKit engine, its target and its continuation view are removed. The
+production broker configures no web host and the human app refuses browser enrollment.
 
-## What is verified
+## Local evidence and production limits
 
-Automated tests (`Tests/AgentVaultBrowserTests`) drive real `WKWebView` sessions against a
-synthetic loopback website (`AgentVaultBrowserFixture`) and prove, for that fixture:
+Synthetic loopback tests use real Chromium, the authenticated host link, Core, read/admin
+XPC, AppModel, HumanStepModel and ImageIO. U5 joins those components to exercise challenge
+frames/input, close/reopen, Finish, revocation, expiry and host loss, ending in a typed
+profile. These listeners run under one interactive UID with a software fixture signer;
+they do not prove a visible native window, real protected approval key or installed daemon.
+See [U5 evidence and source checkpoints](design/browser-host/selected-headless/U5-E2E.md).
+The parent integration checkpoint must be verified separately after review corrections.
 
-- ephemeral, per-account, non-persistent data stores that are destroyed on revoke or timeout;
-- exact scheme/host/port navigation policy, including server redirects, `localhost` versus
-  `127.0.0.1`, meta refresh, script navigation, off-origin frames, downloads and popups;
-- subresources limited to allowed origins by a WebKit content rule list;
-- credential injection only on the exact origin, into one known form whose action stays on that
-  origin, with exactly one username and one password field;
-- typed output (`profile`, `human_step_required`, closed failure codes); no HTML, cookie, URL or script
-  entry point is exposed, enforced by source-invariant tests;
-- MFA and CAPTCHA pause the session; the library never submits or bypasses them.
+Fixed origins/recipes, request interception, document CSP, paused target attachment and
+private CDP pipes constrain the tested browser flow. No agent receives HTML, cookies,
+storage, a profile path, debugging endpoint or reusable authenticated session. A bound
+challenge crop is delivered only to the human app, not to an agent tool.
 
-## What is not established
-
-- **No live verification.** GitHub selectors, headers, subresource hosts and the post-login page
-  shape are assumptions. No real account or credential was used.
-- **CAPTCHA domains are not allow-listed.** The production policy blocks third-party challenge
-  hosts, so a real CAPTCHA step would fail closed until reviewed and verified live.
-- **No deployed human continuation.** `HumanContinuationView` needs a WindowServer session in
-  the same process as the web view. The production broker is a dedicated-UID LaunchDaemon in the
-  system bootstrap domain with no GUI login session. The human app, a different process, cannot
-  receive that view over the current data-only RPC, and nothing in this repository claims it can.
-- The fixture origin can only be built in DEBUG builds (`BrowserPolicy.fixture`); production is
-  fixed to `https://github.com`. `browser.demo` has no production origin.
-
-## Production position
-
-Keep browser enrollment and browser actions disabled (`AppFeatures.production`) until the
-selected separate headless host, protected human continuation and installed isolation/egress
-gates pass. The legacy WebKit component remains a fixture library; it is not the selected
-production deployment.
+Live GitHub selectors, resources, challenge origins and landing pages are unverified.
+The production challenge-origin list is empty and fails closed. The DEBUG loopback fixture
+is not a production service. In-browser request policy is not whole-process egress
+confinement. Signed distribution, dedicated-UID LaunchDaemon startup and installed
+network/process isolation remain open P0–P4 gates. Keep browser enrollment/actions disabled
+until those gates pass, even when deployment has been authorized.
 
 ## Selected production path (in progress)
 
@@ -66,7 +54,8 @@ Bounded source review accepted these corrections at `a7a2a4c`. The
 [combined record](verification/browser-u2-u4-integration.json) at `9390b46` passes a
 31-test real-host run and all 18 browser mutations after a passing baseline, with restored
 source rebuilt. It also passes all 32 synthetic continuation mutations. Source and browser
-executable hashes stay unchanged. The real host and human relay are still separate fixtures.
+executable hashes stay unchanged. That record predates U5, which joins the host and human
+relay through synthetic authenticated XPC and the native app model.
 
 The measured renderer/GPU sandbox is not whole-process egress confinement: the browser and
 network utility are unsandboxed. Fetch and CSP are in-browser policy. Interactive same-UID
@@ -77,7 +66,7 @@ U3/U4 now relay a signed, connection-bound step over the authenticated admin con
 ImageIO validates a single JPEG's type, actual dimensions and orientation before display;
 typed input names the latest frame. Finish drains input acknowledgments and stops polling.
 Disconnect liveness is checked before lease creation, relay delivery and Finish/Cancel
-admission. Synthetic app/XPC tests cover these paths; the full flow through a real host
-remains U5 work. Host peer loss is terminal and teardown prevents new context creation.
+admission. U5 joins these paths to the real host with a synthetic origin and fixture signer.
+Visible GUI and installed protected-key continuation remain unverified. Host peer loss is terminal and teardown prevents new context creation.
 The production broker still configures no host, the app refuses browser enrollment,
 and every installed isolation and egress proof gate (P0–P4) remains open.
