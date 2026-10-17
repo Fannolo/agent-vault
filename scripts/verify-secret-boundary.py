@@ -11,7 +11,8 @@ CHROMIUM = Path('/Users/alessandro/Library/Caches/ms-playwright/chromium_headles
 
 
 def main():
-    if len(sys.argv) != 1 or not CHROMIUM.is_file():
+    prove_rotation = sys.argv[1:] == ['--prove-rotation']
+    if (sys.argv[1:] and not prove_rotation) or not CHROMIUM.is_file():
         print('secret-boundary: FAIL (designated fixture unavailable or unexpected arguments)')
         return 1
     logs = ROOT / 'verification-logs'
@@ -33,15 +34,51 @@ def main():
         ('build', ['/usr/bin/swift', 'build', '--build-tests', '--force-resolved-versions', '-j', '4'], 600),
         ('boundary', ['/usr/bin/swift', 'test', '--skip-build', '--filter', 'SecretBoundaryTests|SecretExposureDetectorTests'], 240),
     ]
-    for name, command, timeout in commands:
+    def execute(name, command, timeout):
         code, output = helper.run_owned(command, timeout=timeout, cwd=ROOT)
         with (run / (name + '.log')).open('x') as log:
             os.fchmod(log.fileno(), 0o600)
             log.write(output)
+        return code, output
+
+    for name, command, timeout in commands:
+        code, _ = execute(name, command, timeout)
         print(f'{name}: {"PASS" if code == 0 else "FAIL"}; private logs retained', flush=True)
         if code != 0:
             return 1
-    return 0
+    if not prove_rotation:
+        return 0
+
+    # Closed deliberate failure control. Only this owned test source is changed;
+    # restore its exact bytes even when a build/test fails or is interrupted.
+    source = ROOT / 'Tests/AgentVaultHeadlessE2ETests/SecretBoundaryTests.swift'
+    original = source.read_bytes()
+    needle = b'let rotated = await model.rotate(account: account, secret: probe.password, username: "mfa-user")'
+    if original.count(needle) != 1:
+        print('rotation-control: FAIL (closed mutation precondition)')
+        return 1
+    detected = False
+    try:
+        source.write_bytes(original.replace(needle, b'let rotated = true // deliberate no-op rotation control'))
+        code, _ = execute('noop-build', commands[0][1], 600)
+        if code == 0:
+            code, output = execute('noop-boundary', [
+                '/usr/bin/swift', 'test', '--skip-build', '--filter',
+                'realWorkflowKeepsFreshCanariesOutOfObservedOutputs'], 240)
+            detected = code not in (0, None) and 'decoded login POST must use rotated B rather than enrolled A' in output
+    finally:
+        source.write_bytes(original)
+    print(f'rotation-control: {"PASS" if detected else "FAIL"}; private logs retained', flush=True)
+    # The final binary must correspond to restored source and pass the baseline again.
+    restored = True
+    for name, command, timeout in commands:
+        code, _ = execute('restored-' + name, command, timeout)
+        print(f'restored-{name}: {"PASS" if code == 0 else "FAIL"}; private logs retained', flush=True)
+        if code != 0:
+            restored = False
+            break
+    return 0 if detected and restored else 1
+
 
 
 if __name__ == '__main__':

@@ -128,9 +128,9 @@ final class HeadlessStack {
         }
     }
 
-    static func make(user: String = "mfa-user", password: String = FixtureSite.password, windows: LifecycleWindows = .standard) async throws -> HeadlessStack {
+    static func make(user: String = "mfa-user", password: String = FixtureSite.password, acceptedPassword: String? = nil, windows: LifecycleWindows = .standard) async throws -> HeadlessStack {
         let binary = try #require(fixtureChromium)
-        let site = FixtureSite(syntheticPassword: password)
+        let site = FixtureSite(syntheticPassword: acceptedPassword ?? password)
         try await site.start()
         var template = Array(FileManager.default.temporaryDirectory.appendingPathComponent("av-u5-XXXXXX").path.utf8CString)
         guard let created = mkdtemp(&template) else { site.stop(); throw VaultError.stateUnavailable }
@@ -191,11 +191,11 @@ final class HeadlessStack {
         return stack
     }
 
-    static func using(user: String = "mfa-user", password: String = FixtureSite.password, windows: LifecycleWindows = .standard,
+    static func using(user: String = "mfa-user", password: String = FixtureSite.password, acceptedPassword: String? = nil, windows: LifecycleWindows = .standard,
                       _ body: @MainActor (HeadlessStack) async throws -> Void) async throws {
-        let stack = try await make(user: user, password: password, windows: windows)
-        do { try await body(stack) } catch { await stack.finish(); throw error }
-        await stack.finish()
+        let stack = try await make(user: user, password: password, acceptedPassword: acceptedPassword, windows: windows)
+        do { try await body(stack) } catch { let original = error; try await stack.finish(); throw original }
+        try await stack.finish()
     }
 
     func transport() -> (XPCAdminTransport, VaultAdminClient) {
@@ -233,19 +233,33 @@ final class HeadlessStack {
     }
     var posts: [FixtureRequest] { site.trusted.requests.filter { $0.method == "POST" } }
 
-    private func finish() async {
+    private func finish() async throws {
         // Independent of host.end/teardown: retain the owned pipe, kill through its pinned
         // handle and await confirmed reap before any service cleanup or directory removal.
+        var reaped = true
         if let pipe = await host.launched {
             pipe.killGroup()
-            #expect(await eventually { pipe.isReaped }, "U5 cleanup requires a confirmed owned-group reap")
+            reaped = await eventually { pipe.isReaped }
         }
-        watchdog?.cancel(); await watchdog?.value; watchdog = nil
-        for model in models { await model.dismissHumanStep() }
-        for client in adminClients { client.invalidate() }
-        read.invalidate(); server.invalidate(); hostServer.invalidate()
-        await host.teardown()
-        site.stop()
-        try? FileManager.default.removeItem(at: directory)
+        try await OwnedTestCleanup.finish(directory: directory, confirmedReap: reaped) {
+            watchdog?.cancel(); await watchdog?.value; watchdog = nil
+            for model in models { await model.dismissHumanStep() }
+            for client in adminClients { client.invalidate() }
+            read.invalidate(); server.invalidate(); hostServer.invalidate()
+            await host.teardown()
+            site.stop()
+        }
+    }
+}
+
+/// Test-owned cleanup gate: uncertain process ownership preserves evidence, while the
+/// caller still closes its listeners/connections. Never deletes a live browser profile.
+enum OwnedTestCleanup {
+    enum Failure: Error { case unconfirmedReap }
+    @MainActor static func finish(directory: URL, confirmedReap: Bool,
+                                  close: () async -> Void) async throws {
+        await close()
+        guard confirmedReap else { throw Failure.unconfirmedReap }
+        try FileManager.default.removeItem(at: directory)
     }
 }

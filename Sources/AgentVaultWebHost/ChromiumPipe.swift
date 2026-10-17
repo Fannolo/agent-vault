@@ -226,6 +226,13 @@ final class ChromiumPipe: @unchecked Sendable {
     /// True once the leader has been reaped, after every member of its group was ended.
     var isReaped: Bool { owned.isReaped }
 
+    #if DEBUG
+    /// Test observation only: the child PID remains ours for the entire synchronous body.
+    func withOwnedChild<T>(_ body: (pid_t) throws -> T) rethrows -> T? {
+        try owned.withPinnedChild(body)
+    }
+    #endif
+
     var isClosed: Bool { lock.withLock { closed } }
 
     private func finish(_ id: Int, _ result: Result<JSONValue, CDPError>) {
@@ -331,6 +338,16 @@ final class OwnedGroup: @unchecked Sendable {
     }
 
     var isReaped: Bool { lock.withLock { ownership == .reaped } }
+
+    #if DEBUG
+    /// Shares the reaper/signaller lock; no observer can race a reap and PID reuse.
+    func withPinnedChild<T>(_ body: (pid_t) throws -> T) rethrows -> T? {
+        try lock.withLock {
+            guard ownership == .pinned else { return nil }
+            return try body(id)
+        }
+    }
+    #endif
 
     /// Waits for the leader to exit without reaping it, ends any member it left behind while the
     /// group ID is still pinned, then reaps it. Holds itself alive until then.

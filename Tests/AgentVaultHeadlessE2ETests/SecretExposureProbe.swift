@@ -9,7 +9,8 @@ final class SecretExposureProbe: CustomStringConvertible, CustomDebugStringConve
         case readReply, adminSnapshot, appMetadata, auditExport, persistedMetadata
         case mcpReply, mcpError, browserArtifacts, browserArgv, browserEnvironment
     }
-    let password = UUID().uuidString + "+/=&\"\\" + UUID().uuidString
+    let previousPassword = UUID().uuidString + UUID().uuidString
+    let password = UUID().uuidString + "+/=&\"\\" + UUID().uuidString + "-"
     let humanInput = UUID().uuidString + UUID().uuidString
     private var observations: [Channel: Int] = [:]
     private var leaks: [Channel: Int] = [:]
@@ -19,22 +20,26 @@ final class SecretExposureProbe: CustomStringConvertible, CustomDebugStringConve
         let bytes = Data(value.utf8)
         let hex = bytes.map { String(format: "%02x", $0) }.joined()
         let percent = bytes.map { String(format: "%%%02X", $0) }.joined()
-        let json = String(decoding: try! JSONEncoder().encode(value), as: UTF8.self)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let json = String(decoding: try! encoder.encode(value), as: UTF8.self)
+        let escapedSlash = json.replacingOccurrences(of: "\\/", with: "/").replacingOccurrences(of: "/", with: "\\/")
         let unicode = value.utf16.map { String(format: "\\u%04x", $0) }.joined()
         let unicodeUpper = value.utf16.map { String(format: "\\u%04X", $0) }.joined()
         let base64 = bytes.base64EncodedString()
-        let base64url = base64.replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        let base64urlPadded = base64.replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        let base64url = base64urlPadded.replacingOccurrences(of: "=", with: "")
         let form = value.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
         return [bytes, Data(base64.utf8), Data(base64.replacingOccurrences(of: "=", with: "").utf8),
-                Data(base64url.utf8), Data(hex.utf8), Data(hex.uppercased().utf8),
+                Data(base64url.utf8), Data(base64urlPadded.utf8), Data(hex.utf8), Data(hex.uppercased().utf8),
                 Data(percent.utf8), Data(percent.lowercased().utf8), Data(form.utf8), Data(json.utf8),
-                Data(json.dropFirst().dropLast().utf8), Data(unicode.utf8), Data(unicodeUpper.utf8),
+                Data(json.dropFirst().dropLast().utf8), Data(escapedSlash.utf8),
+                Data(escapedSlash.dropFirst().dropLast().utf8), Data(unicode.utf8), Data(unicodeUpper.utf8),
                 value.data(using: .utf16LittleEndian)!, value.data(using: .utf16BigEndian)!]
     }
     func observe(_ channel: Channel, _ bytes: Data) {
         observations[channel, default: 0] += 1
-        for secret in [password, "mfa-user\n" + password, humanInput] {
+        for secret in [previousPassword, "mfa-user\n" + previousPassword, password, "mfa-user\n" + password, humanInput] {
             for pattern in Self.encodings(secret) where bytes.range(of: pattern) != nil {
                 leaks[channel, default: 0] += 1
             }

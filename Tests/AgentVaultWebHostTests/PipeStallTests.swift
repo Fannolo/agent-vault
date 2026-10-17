@@ -101,6 +101,8 @@ private func reaped(_ pipe: ChromiumPipe, within seconds: Double = 3) -> Bool {
         defer { StalledReader.release(pipe) }
         #expect(reaped(pipe), "observer failure must end the child without waiting for its 20 s lifetime")
         #expect(!pipe.signalGroup(SIGKILL))
+        let observation = pipe.withOwnedChild { _ in true }
+        #expect(observation == nil, "observation is refused after confirmed reap")
     }
 
     @Test func interruptedWaitRetriesBeforeReportingTheChildReaped() throws {
@@ -132,6 +134,8 @@ private func reaped(_ pipe: ChromiumPipe, within seconds: Double = 3) -> Bool {
         #expect(calls.count == 1)
         #expect(!pipe.signalGroup(SIGKILL), "ownership cannot be assumed after ECHILD or a failed wait")
         #expect(!pipe.isReaped, "only a confirmed wait may report successful cleanup")
+        let observation = pipe.withOwnedChild { _ in true }
+        #expect(observation == nil, "observation is refused when ownership becomes uncertain")
     }
 
     @Test func aStoppedBrowserIsNeitherExitedNorReapedUntilItIsKilled() async throws {

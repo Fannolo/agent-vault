@@ -1,5 +1,10 @@
 # U5: real host and human-model composition
 
+Private `verification-logs/...` paths in this historical U5 note are relative to the
+original evidence worktree `/Users/alessandro/.t3/projects/agent-vault-worktrees/browser-e2e`,
+where those logs remain locally available. They are not claimed to be copied into
+other worktrees. Later secret-boundary runs have their own local evidence.
+
 The U5 test target joins the real HostService, WebHostServer, WebHostLink, Core Broker,
 read/admin XPC services, AppModel, HumanStepModel and ImageIO. Only this test target links
 those implementation modules together. Product roles retain their previous dependency
