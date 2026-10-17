@@ -69,29 +69,18 @@ python3 scripts/verify-mcp.py --keychain-demo
 AGENT_VAULT_KEYCHAIN_TEST=1 swift test --filter nativeKeychainRoundTripWhenExplicitlyEnabled
 ```
 
-## GitHub development account
+## Real credential enrollment
 
-Use a disposable, minimally scoped token for development. Enter it only at the
-hidden terminal prompt, never in chat, command arguments or an environment variable:
+Enter service credentials only in the signed native app's secure fields. The app sends
+an authenticated administrative request to the broker. Terminal enrollment is refused,
+even when a controlling TTY is available; passwords and tokens are never command arguments,
+environment variables or terminal prompts. The development CLI exposes only `demo.status`.
 
-```sh
-.build/debug/agent-vault enroll github
-.build/debug/agent-vault client
-.build/debug/agent-vault grant --client-id CLIENT_UUID --account-id ACCOUNT_UUID --seconds 3600 --calls 20
-```
-
-Then call `action_run` with `github.profile`. The destination, method and output
-schema are fixed. Redirects are rejected; upstream errors and headers are not returned.
-The GitHub service and local operating system remain trusted.
-
-```sh
-.build/debug/agent-vault revoke-grant --grant-id GRANT_UUID
-.build/debug/agent-vault revoke-client --client-id CLIENT_UUID
-```
-
-Attempted operations consume budget even if the provider fails. Revocation blocks
-new calls and suppresses the result of an in-flight call; it cannot recall a request
-already received by the provider.
+Do not enroll production credentials until provisioning, protected-key signing and installed
+isolation gates pass. The fixed `github.profile` adapter remains available through the
+production broker/app architecture; it is not exposed by the synthetic terminal fixture.
+Revocation blocks new calls and suppresses in-flight results, but cannot recall a request
+already received by the approved service.
 
 ## Local plugin and release work
 
