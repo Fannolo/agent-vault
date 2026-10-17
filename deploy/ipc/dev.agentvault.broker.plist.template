@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.agentvault.broker</string>
+    <key>Program</key>
+    <string>/Library/PrivilegedHelperTools/dev.agentvault.broker</string>
+    <key>UserName</key>
+    <string>_agentvault</string>
+    <key>GroupName</key>
+    <string>_agentvault</string>
+    <key>InitGroups</key>
+    <false/>
+    <key>Umask</key>
+    <integer>63</integer>
+    <key>MachServices</key>
+    <dict>
+        <key>dev.agentvault.broker.read</key>
+        <true/>
+        <key>dev.agentvault.broker.admin</key>
+        <true/>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/private/var/db/agent-vault</string>
+    <key>ProcessType</key>
+    <string>Adaptive</string>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>dev.agentvault.app</string>
+    </array>
+</dict>
+</plist>

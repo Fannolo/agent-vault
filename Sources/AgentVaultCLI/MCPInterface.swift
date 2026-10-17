@@ -1,3 +1,4 @@
+import AgentVaultContracts
 import AgentVaultCore
 import Foundation
 import MCP
@@ -7,14 +8,14 @@ enum MCPInterface {
         let server = Server(name: "agent-vault", version: "0.1.0", capabilities: .init(tools: .init()))
         await server.withMethodHandler(ListTools.self) { _ in
             .init(tools: [
-                Tool(name: "accounts_list", description: "List accounts permitted by current development grants.",
+                Tool(name: "accounts_list", description: "List synthetic demo accounts permitted by development grants.",
                      inputSchema: .object(["type": "object", "properties": .object([:]),
                                            "additionalProperties": false])),
-                Tool(name: "action_run", description: "Run one fixed read-only action. No URLs or credentials accepted.",
+                Tool(name: "action_run", description: "Run synthetic demo.status. No URLs or credentials accepted.",
                      inputSchema: .object([
                         "type": "object", "properties": .object([
                             "accountId": .object(["type": "string", "format": "uuid"]),
-                            "action": .object(["type": "string", "enum": .array(Action.allCases.map { .string($0.rawValue) })])
+                            "action": .object(["type": "string", "enum": .array([.string(Action.demoStatus.rawValue)])])
                         ]), "required": .array(["accountId", "action"]), "additionalProperties": false
                      ]))
             ])
@@ -26,31 +27,31 @@ enum MCPInterface {
                 case "accounts_list":
                     guard arguments.isEmpty else { throw VaultError.invalidInput }
                     let accounts = try await broker.availableAccounts(clientID: clientID)
-                    let payload = Value.object(["accounts": .array(accounts.map {
-                        .object(["id": .string($0.id.uuidString.lowercased()),
-                                 "service": .string($0.service.rawValue),
-                                 "action": .string($0.service.action.rawValue)])
-                    })])
-                    return try response(payload)
+                    return try response(ReadReply(.outcome(.completed), accounts: accounts.filter { $0.service == .demo }.map {
+                        AccountSummary(id: $0.id, service: $0.service.wire, status: $0.lifecycle.rawValue)
+                    }))
                 case "action_run":
                     guard Set(arguments.keys) == ["accountId", "action"],
                           let id = arguments["accountId"]?.stringValue.flatMap(UUID.init(uuidString:)),
-                          let action = arguments["action"]?.stringValue.flatMap(Action.init(rawValue:)) else {
+                          let action = arguments["action"]?.stringValue.flatMap(Action.init(rawValue:)),
+                          action == .demoStatus else {
                         throw VaultError.invalidInput
                     }
                     let result = try await broker.run(clientID: clientID, accountID: id, action: action)
                     switch result {
                     case .demoReady:
-                        return try response(.object(["status": "ready", "service": "demo"]))
-                    case .githubProfile(let profile):
-                        return try response(.object(["status": "completed", "profile": .object([
-                            "login": .string(profile.login), "id": .int(profile.id)
-                        ])]))
+                        return try response(ReadReply(.outcome(.ready)))
+                    case .profile(let profile):
+                        return try response(ReadReply(.outcome(.completed), profile: profile))
+                    case .approvalRequired(let id):
+                        return try response(ReadReply(.outcome(.approvalRequired), requestID: id.uuid))
+                    case .humanStepRequired(let id):
+                        return try response(ReadReply(.outcome(.humanStepRequired), requestID: id.uuid))
                     }
                 default: throw VaultError.invalidInput
                 }
             } catch {
-                let code = (error as? VaultError)?.rawValue ?? "operation_failed"
+                let code = ((error as? VaultError)?.readFailure ?? .operationFailed).rawValue
                 return .init(content: [.text(text: code, annotations: nil, _meta: nil)], isError: true)
             }
         }
@@ -58,7 +59,7 @@ enum MCPInterface {
         await server.waitUntilCompleted()
     }
 
-    private static func response(_ value: Value) throws -> CallTool.Result {
+    private static func response(_ value: some Encodable) throws -> CallTool.Result {
         let data = try JSONEncoder().encode(value)
         return .init(content: [.text(text: String(decoding: data, as: UTF8.self), annotations: nil, _meta: nil)], isError: false)
     }

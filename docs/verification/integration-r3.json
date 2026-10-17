@@ -1,0 +1,681 @@
+{
+  "checks": [
+    {
+      "argv": [
+        "swift",
+        "test",
+        "--force-resolved-versions",
+        "-j",
+        "4"
+      ],
+      "elapsedSeconds": 34.713,
+      "exitCode": 0,
+      "logSha256": "b8289ac88d9b5edb3129d31a3c36037a9eb6f5fbf602a8fb787437cea33dfe3b",
+      "name": "swift",
+      "observedSummary": [
+        "\u2714 Test run with 190 tests in 9 suites passed after 15.511 seconds."
+      ]
+    },
+    {
+      "argv": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+        "scripts/verify-mcp.py"
+      ],
+      "elapsedSeconds": 0.523,
+      "exitCode": 0,
+      "logSha256": "2fd9cda462f7c45f73c823ca3d27b2c8abb245f6b8ecd1ee216ec5cd98f2b540",
+      "name": "mcp",
+      "observedSummary": [
+        "PASS: MCP lifecycle, narrow tools, authorization, strict inputs and private-entry checks"
+      ]
+    },
+    {
+      "argv": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+        "scripts/verify-boundaries.py"
+      ],
+      "elapsedSeconds": 0.407,
+      "exitCode": 0,
+      "logSha256": "94ce263f37288bd47d38f2d9c80395de702bfd92d1f3c09fefaaf3fa8083be93",
+      "name": "boundaries",
+      "observedSummary": [
+        "PASS: package graph preserves broker, app and MCP bridge boundaries"
+      ]
+    },
+    {
+      "argv": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+        "scripts/verify-installer.py"
+      ],
+      "elapsedSeconds": 10.005,
+      "exitCode": 0,
+      "logSha256": "db1620f83cd901ce03cdf5cf2d5b3658b61b65939c2c3a0827858665c42d2367",
+      "name": "installer",
+      "observedSummary": [
+        "tests -O: optimize=1 isolated=1 | Ran 42 tests in 2.626s | OK",
+        "tests default: optimize=0 isolated=1 | Ran 42 tests in 2.892s | OK",
+        "mutation 'ancestors not checked': caught",
+        "mutation 'hard links accepted': caught",
+        "mutation 'source inspected instead of snapshot': caught",
+        "mutation 'debugger entitlement accepted': caught",
+        "mutation 'unsafe code entitlements accepted': caught",
+        "mutation 'unknown role entitlements accepted': caught",
+        "mutation 'partial account adopted': caught",
+        "mutation 'approval key replaced silently': caught",
+        "mutation 'no restart after interruption': caught",
+        "mutation 'private directory built in place': caught",
+        "mutation 'sandbox allowed as root': caught",
+        "mutation 'payload links followed': caught",
+        "verify-installer: passed"
+      ]
+    },
+    {
+      "argv": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+        "-I",
+        "deploy/tests/test_release.py"
+      ],
+      "elapsedSeconds": 0.256,
+      "exitCode": 0,
+      "logSha256": "a88853893eff9b512af13d0fe435fcd9bcdeb81a8decbd5e125a76e856410e49",
+      "name": "release-entitlements",
+      "observedSummary": [
+        "Ran 3 tests in 0.088s",
+        "OK"
+      ]
+    },
+    {
+      "argv": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+        "-I",
+        "deploy/tests/test_xpc_cleanup.py"
+      ],
+      "elapsedSeconds": 0.254,
+      "exitCode": 0,
+      "logSha256": "6f283ee6225d2cef4c0127d95456a6f954c45141c92b97dd89016cb1c630e8f4",
+      "name": "xpc-cleanup",
+      "observedSummary": [
+        "Ran 2 tests in 0.002s",
+        "OK"
+      ]
+    },
+    {
+      "argv": [
+        "swift",
+        "test",
+        "--force-resolved-versions",
+        "-j",
+        "4",
+        "--filter",
+        "privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled|nativeKeychainRoundTripWhenExplicitlyEnabled"
+      ],
+      "elapsedSeconds": 4.357,
+      "exitCode": 0,
+      "logSha256": "c4cde042e1fd75440284753eee8d902566349b8248f6e0da46288cf60dea19d6",
+      "name": "native-keychain",
+      "observedSummary": [
+        "\u2714 Test run with 2 tests in 0 suites passed after 0.053 seconds."
+      ]
+    },
+    {
+      "argv": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+        "scripts/verify-xpc.py",
+        "--evidence",
+        "/var/folders/kf/zg5hrcpd5dj0wchcrcfz8pz00000gn/T/agent-vault-verification-mqifzjla/xpc.json"
+      ],
+      "elapsedSeconds": 5.138,
+      "evidence": {
+        "cleanup": {
+          "dev.agentvault.ipcproof.3aad7f44.main": "removed",
+          "dev.agentvault.ipcproof.3aad7f44.spoof": "removed",
+          "dev.agentvault.ipcproof.3aad7f44.uid": "removed",
+          "work_dir_removed": true
+        },
+        "results": [
+          {
+            "passed": true,
+            "result": {
+              "bridge": [
+                "dev.agentvault.fixture.bridge",
+                "dca2509380ed985477f16111cbeb6e75ec1e701f"
+              ],
+              "impostor": [
+                "dev.agentvault.fixture.bridge",
+                "7895ebd91cd77c1fbbd11f75fba3fc3401d6472c"
+              ]
+            },
+            "scenario": "impostor copies the bridge signing identifier with a different cdhash"
+          },
+          {
+            "passed": true,
+            "result": {
+              "accounts": 1,
+              "login": "",
+              "outcome": "ok",
+              "status": "ok"
+            },
+            "scenario": "bridge reads accounts"
+          },
+          {
+            "passed": true,
+            "result": {
+              "accounts": 0,
+              "login": "uid-501",
+              "outcome": "ok",
+              "status": "ok"
+            },
+            "scenario": "broker binds the bridge's kernel UID"
+          },
+          {
+            "passed": true,
+            "result": {
+              "audit": 1,
+              "authorize": "applied",
+              "enroll": "fixture_holds_no_credentials",
+              "outcome": "ok",
+              "pendingStatus": "approved",
+              "replay": "unknown_challenge",
+              "snapshotUID": 501
+            },
+            "scenario": "human app completes snapshot, begin, authorize and replay refusal"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "connection_failed"
+            },
+            "scenario": "bridge cannot call the admin service"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "connection_failed"
+            },
+            "scenario": "human app cannot call the read service"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "connection_failed"
+            },
+            "scenario": "copied bridge signing identifier is refused"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "request_too_large"
+            },
+            "scenario": "raw oversize request gets request_too_large"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "invalid_request"
+            },
+            "scenario": "raw unknown-key request gets invalid_request"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "invalid_request"
+            },
+            "scenario": "raw unknown-operation request gets invalid_request"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "invalid_request"
+            },
+            "scenario": "raw null-value request gets invalid_request"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "xpc_error_4097"
+            },
+            "scenario": "admin selector on the read service is not dispatched"
+          },
+          {
+            "passed": true,
+            "result": {
+              "counts": {
+                "busy": 8,
+                "ok": 4
+              },
+              "outcome": "ok"
+            },
+            "scenario": "excess concurrency on one connection returns busy"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "connection_failed"
+            },
+            "scenario": "broker refuses an unexpected kernel UID"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "broker_rejected"
+            },
+            "scenario": "bridge refuses a spoofed broker"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "broker_rejected"
+            },
+            "scenario": "human app refuses a spoofed broker"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "broker_rejected"
+            },
+            "scenario": "bridge refuses a genuine broker with an unexpected kernel UID"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "broker_rejected"
+            },
+            "scenario": "human app refuses a genuine broker with an unexpected kernel UID"
+          },
+          {
+            "passed": true,
+            "result": {
+              "outcome": "invalid_configuration"
+            },
+            "scenario": "production configuration in a user-owned file is refused"
+          },
+          {
+            "passed": true,
+            "result": {
+              "main": [
+                "authorize uid=501",
+                "begin enroll uid=501",
+                "begin prune uid=501",
+                "read accounts uid=501",
+                "read run uid=501",
+                "snapshot uid=501"
+              ],
+              "spoof": [],
+              "uid": []
+            },
+            "scenario": "only the genuine broker's handlers ran, each with the bound UID"
+          }
+        ],
+        "scope": "same-UID inter-process; separate broker UID unproven",
+        "signing": {
+          "app": {
+            "cdhash": "1a12e07697e7e95f3aa5bfcf79bc2687f3ecc028",
+            "identifier": "dev.agentvault.fixture.app",
+            "requirement": "identifier \"dev.agentvault.fixture.app\" and cdhash H\"1a12e07697e7e95f3aa5bfcf79bc2687f3ecc028\""
+          },
+          "bridge": {
+            "cdhash": "dca2509380ed985477f16111cbeb6e75ec1e701f",
+            "identifier": "dev.agentvault.fixture.bridge",
+            "requirement": "identifier \"dev.agentvault.fixture.bridge\" and cdhash H\"dca2509380ed985477f16111cbeb6e75ec1e701f\""
+          },
+          "broker": {
+            "cdhash": "16b34d064f5ff9a4df720d66fad899631a342e34",
+            "identifier": "dev.agentvault.fixture.broker",
+            "requirement": "identifier \"dev.agentvault.fixture.broker\" and cdhash H\"16b34d064f5ff9a4df720d66fad899631a342e34\""
+          },
+          "impostor-bridge": {
+            "cdhash": "7895ebd91cd77c1fbbd11f75fba3fc3401d6472c",
+            "identifier": "dev.agentvault.fixture.bridge",
+            "requirement": "identifier \"dev.agentvault.fixture.bridge\" and cdhash H\"7895ebd91cd77c1fbbd11f75fba3fc3401d6472c\""
+          },
+          "impostor-broker": {
+            "cdhash": "c6aee58165459939dcd03656fb89f08e505c8016",
+            "identifier": "dev.agentvault.fixture.broker",
+            "requirement": "identifier \"dev.agentvault.fixture.broker\" and cdhash H\"c6aee58165459939dcd03656fb89f08e505c8016\""
+          }
+        },
+        "uid": 501
+      },
+      "exitCode": 0,
+      "logSha256": "563a9338f1af0dfbf9577145ce4cad66a31b4f1b9d923b7612274fbe5daf9fd1",
+      "name": "xpc",
+      "observedSummary": [
+        "PASS  impostor copies the bridge signing identifier with a different cdhash: {\"bridge\": [\"dev.agentvault.fixture.bridge\", \"dca2509380ed985477f16111cbeb6e75ec1e701f\"], \"impostor\": [\"dev.agentvault.fixture.bridge\", \"7895ebd91cd77c1fbbd11f75fba3fc3401d6472c\"]}",
+        "PASS  bridge reads accounts: {\"accounts\": 1, \"login\": \"\", \"outcome\": \"ok\", \"status\": \"ok\"}",
+        "PASS  broker binds the bridge's kernel UID: {\"accounts\": 0, \"login\": \"uid-501\", \"outcome\": \"ok\", \"status\": \"ok\"}",
+        "PASS  human app completes snapshot, begin, authorize and replay refusal: {\"audit\": 1, \"authorize\": \"applied\", \"enroll\": \"fixture_holds_no_credentials\", \"outcome\": \"ok\", \"pendingStatus\": \"approved\", \"replay\": \"unknown_challenge\", \"snapshotUID\": 501}",
+        "PASS  bridge cannot call the admin service: {\"outcome\": \"connection_failed\"}",
+        "PASS  human app cannot call the read service: {\"outcome\": \"connection_failed\"}",
+        "PASS  copied bridge signing identifier is refused: {\"outcome\": \"connection_failed\"}",
+        "PASS  raw oversize request gets request_too_large: {\"outcome\": \"request_too_large\"}",
+        "PASS  raw unknown-key request gets invalid_request: {\"outcome\": \"invalid_request\"}",
+        "PASS  raw unknown-operation request gets invalid_request: {\"outcome\": \"invalid_request\"}",
+        "PASS  raw null-value request gets invalid_request: {\"outcome\": \"invalid_request\"}",
+        "PASS  admin selector on the read service is not dispatched: {\"outcome\": \"xpc_error_4097\"}",
+        "PASS  excess concurrency on one connection returns busy: {\"counts\": {\"busy\": 8, \"ok\": 4}, \"outcome\": \"ok\"}",
+        "PASS  broker refuses an unexpected kernel UID: {\"outcome\": \"connection_failed\"}",
+        "PASS  bridge refuses a spoofed broker: {\"outcome\": \"broker_rejected\"}",
+        "PASS  human app refuses a spoofed broker: {\"outcome\": \"broker_rejected\"}",
+        "PASS  bridge refuses a genuine broker with an unexpected kernel UID: {\"outcome\": \"broker_rejected\"}",
+        "PASS  human app refuses a genuine broker with an unexpected kernel UID: {\"outcome\": \"broker_rejected\"}",
+        "PASS  production configuration in a user-owned file is refused: {\"outcome\": \"invalid_configuration\"}",
+        "PASS  only the genuine broker's handlers ran, each with the bound UID: {\"main\": [\"authorize uid=501\", \"begin enroll uid=501\", \"begin prune uid=501\", \"read accounts uid=501\", \"read run uid=501\", \"snapshot uid=501\"], \"spoof\": [], \"uid\": []}"
+      ]
+    },
+    {
+      "argv": [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+        "scripts/verify-xpc-mutations.py",
+        "--evidence",
+        "/var/folders/kf/zg5hrcpd5dj0wchcrcfz8pz00000gn/T/agent-vault-verification-mqifzjla/xpc-mutations.json"
+      ],
+      "elapsedSeconds": 47.035,
+      "evidence": [
+        {
+          "cleanup": {
+            "dev.agentvault.ipcproof.ecec4d73.main": "removed",
+            "dev.agentvault.ipcproof.ecec4d73.spoof": "removed",
+            "dev.agentvault.ipcproof.ecec4d73.uid": "removed",
+            "work_dir_removed": true
+          },
+          "expected": [
+            "broker refuses an unexpected kernel UID",
+            "only the genuine broker's handlers ran, each with the bound UID"
+          ],
+          "failed": [
+            "broker refuses an unexpected kernel UID",
+            "only the genuine broker's handlers ran, each with the bound UID"
+          ],
+          "harnessExitCode": 1,
+          "mutation": "no server UID check",
+          "ok": true
+        },
+        {
+          "cleanup": {
+            "dev.agentvault.ipcproof.2cd4bd73.main": "removed",
+            "dev.agentvault.ipcproof.2cd4bd73.spoof": "removed",
+            "dev.agentvault.ipcproof.2cd4bd73.uid": "removed",
+            "work_dir_removed": true
+          },
+          "expected": [
+            "bridge cannot call the admin service",
+            "copied bridge signing identifier is refused",
+            "human app cannot call the read service"
+          ],
+          "failed": [
+            "bridge cannot call the admin service",
+            "copied bridge signing identifier is refused",
+            "human app cannot call the read service"
+          ],
+          "harnessExitCode": 1,
+          "mutation": "no server code requirements",
+          "ok": true
+        },
+        {
+          "cleanup": {
+            "dev.agentvault.ipcproof.ccabcad4.main": "removed",
+            "dev.agentvault.ipcproof.ccabcad4.spoof": "removed",
+            "dev.agentvault.ipcproof.ccabcad4.uid": "removed",
+            "work_dir_removed": true
+          },
+          "expected": [],
+          "failed": [],
+          "harnessExitCode": 0,
+          "mutation": "listener requirement only",
+          "ok": true
+        },
+        {
+          "cleanup": {
+            "dev.agentvault.ipcproof.eb0beb7e.main": "removed",
+            "dev.agentvault.ipcproof.eb0beb7e.spoof": "removed",
+            "dev.agentvault.ipcproof.eb0beb7e.uid": "removed",
+            "work_dir_removed": true
+          },
+          "expected": [],
+          "failed": [],
+          "harnessExitCode": 0,
+          "mutation": "connection requirement only",
+          "ok": true
+        },
+        {
+          "cleanup": {
+            "dev.agentvault.ipcproof.bd045dec.main": "removed",
+            "dev.agentvault.ipcproof.bd045dec.spoof": "removed",
+            "dev.agentvault.ipcproof.bd045dec.uid": "removed",
+            "work_dir_removed": true
+          },
+          "expected": [
+            "bridge refuses a spoofed broker",
+            "human app refuses a spoofed broker",
+            "only the genuine broker's handlers ran, each with the bound UID"
+          ],
+          "failed": [
+            "bridge refuses a spoofed broker",
+            "human app refuses a spoofed broker",
+            "only the genuine broker's handlers ran, each with the bound UID"
+          ],
+          "harnessExitCode": 1,
+          "mutation": "no client broker requirement",
+          "ok": true
+        },
+        {
+          "cleanup": {
+            "dev.agentvault.ipcproof.3ee14b28.main": "removed",
+            "dev.agentvault.ipcproof.3ee14b28.spoof": "removed",
+            "dev.agentvault.ipcproof.3ee14b28.uid": "removed",
+            "work_dir_removed": true
+          },
+          "expected": [
+            "only the genuine broker's handlers ran, each with the bound UID"
+          ],
+          "failed": [
+            "only the genuine broker's handlers ran, each with the bound UID"
+          ],
+          "harnessExitCode": 1,
+          "mutation": "requests not gated on the broker probe",
+          "ok": true
+        },
+        {
+          "cleanup": {
+            "dev.agentvault.ipcproof.479a04e5.main": "removed",
+            "dev.agentvault.ipcproof.479a04e5.spoof": "removed",
+            "dev.agentvault.ipcproof.479a04e5.uid": "removed",
+            "work_dir_removed": true
+          },
+          "expected": [
+            "bridge refuses a genuine broker with an unexpected kernel UID",
+            "human app refuses a genuine broker with an unexpected kernel UID"
+          ],
+          "failed": [
+            "bridge refuses a genuine broker with an unexpected kernel UID",
+            "human app refuses a genuine broker with an unexpected kernel UID"
+          ],
+          "harnessExitCode": 1,
+          "mutation": "no client broker UID check",
+          "ok": true
+        },
+        {
+          "cleanup": {
+            "dev.agentvault.ipcproof.bdb88b1a.main": "removed",
+            "dev.agentvault.ipcproof.bdb88b1a.spoof": "removed",
+            "dev.agentvault.ipcproof.bdb88b1a.uid": "removed",
+            "work_dir_removed": true
+          },
+          "expected": [
+            "excess concurrency on one connection returns busy"
+          ],
+          "failed": [
+            "excess concurrency on one connection returns busy"
+          ],
+          "harnessExitCode": 1,
+          "mutation": "no per-connection concurrency limit",
+          "ok": true
+        }
+      ],
+      "exitCode": 0,
+      "logSha256": "3f5792e2a604b05c2337b26441991d6ba7c0d36600aee44fa467f71e7117d649",
+      "name": "xpc-mutations",
+      "observedSummary": [
+        "PASS  no server UID check: failed=['broker refuses an unexpected kernel UID', \"only the genuine broker's handlers ran, each with the bound UID\"]",
+        "PASS  no server code requirements: failed=['bridge cannot call the admin service', 'copied bridge signing identifier is refused', 'human app cannot call the read service']",
+        "PASS  listener requirement only: failed=[]",
+        "PASS  connection requirement only: failed=[]",
+        "PASS  no client broker requirement: failed=['bridge refuses a spoofed broker', 'human app refuses a spoofed broker', \"only the genuine broker's handlers ran, each with the bound UID\"]",
+        "PASS  requests not gated on the broker probe: failed=[\"only the genuine broker's handlers ran, each with the bound UID\"]",
+        "PASS  no client broker UID check: failed=['bridge refuses a genuine broker with an unexpected kernel UID', 'human app refuses a genuine broker with an unexpected kernel UID']",
+        "PASS  no per-connection concurrency limit: failed=['excess concurrency on one connection returns busy']"
+      ]
+    }
+  ],
+  "clockNote": "Wall-clock observations are local metadata, not an attestation of command order",
+  "finishedAt": "2026-10-15T13:39:30.602833+00:00",
+  "scope": "Local synthetic checks; not installed isolation, production browser or notarization proof",
+  "source": {
+    "commit": "83971b71bab6d2fb27fdd1bf51002bed88e2d8de",
+    "dirty": false,
+    "trackedFileSha256": {
+      ".audit/complete-plan.tsv": "f067116566a3e80fddb7101c9ec45bc399ae16ed83e4f672227679a58a4b4978",
+      ".github/workflows/ci.yml": "df6926f4021dec4bcb4ba5deff6e2bbbffa1278eec3f0b24dcee9e6a1c6c8872",
+      ".gitignore": "ec8de88b5b382c48b85655d3f080f1ff975d940b3fe83382dbe8b9eb3d7d371e",
+      "AGENTS.md": "822479214e822800f0dca721d64f7bd9ea97a0eaec05a08abd562af365546fc4",
+      "LICENSE": "dafc75cc975b26f4da306a127b1869b80688bf834fa6d2f82cacd7933fdffbd5",
+      "Package.resolved": "d6ae2d74b542049effc2a50eb14cba430acce47a836e0c97bba622e4453fbcb3",
+      "Package.swift": "6c811ff6485e47d6f689498d74b3affa087c8723396dc48b1c12bc2b4bb7c710",
+      "README.md": "b7fa3f63c5ccb23566776f099fb24006fbf40f7d261457e5da737894504cf424",
+      "SECURITY.md": "bc5176a1fec903a6b59853d7920e8a252991dc375a5f34a8249a7a689db4f091",
+      "Sources/AgentVaultApp/AgentVaultApp.swift": "56f94727c1001bff3d0cc0a6ceefd6bfc09e925237d21896d98206b6e0d064f1",
+      "Sources/AgentVaultAppSupport/AdminAuthorizationService.swift": "46002dc7cfc61d670d3121cf8e02bf7f92bc9e26dae001bd58e99366a0770e73",
+      "Sources/AgentVaultAppSupport/AdminPlans.swift": "531619f1ab4cfbb57170aa48a6c9d461272e4da53d684bc13e3fa3e94507e022",
+      "Sources/AgentVaultAppSupport/AdminTransport.swift": "ccdfacbee51b3ee22a2e2ac2d0d67283c55af8ef0cec6c7d2553e3126a437932",
+      "Sources/AgentVaultAppSupport/AppComposition.swift": "800ba46781b30c73e2abcff918a3fefa72bd1fdd715ccad04b3bc89a0b9ac1bb",
+      "Sources/AgentVaultAppSupport/AppModel.swift": "c55bb071b6126e8e1bf9687713fae1bd087f7c390e9963906964c88f90ab5708",
+      "Sources/AgentVaultAppSupport/ApprovalKeyExport.swift": "ad0bc3165a29553a43b3b4ff420ff49b246d37cf994371707e5331f7576d51be",
+      "Sources/AgentVaultAppSupport/ApprovalSigning.swift": "5f8ea2ac176789ff0c11ae88a9dc805af5e05b817b4a5199695441367e6d23cd",
+      "Sources/AgentVaultAppSupport/AuditExport.swift": "2d176761c5f8d686924f472fd4c05cd863a82c79a599d10c36c134e4a0d7007e",
+      "Sources/AgentVaultAppSupport/Fixtures/InMemoryBroker.swift": "727dcbc389117954ee3f5337ebb7391d19253d6197290d1dad80726e5eab1728",
+      "Sources/AgentVaultAppSupport/Fixtures/SoftwareFixtureSigner.swift": "f978af90a17f8c6e895c7ca228337fd9a1585d580e6838bd700e3fa01388a2cb",
+      "Sources/AgentVaultAppSupport/HumanApprovalSigner.swift": "f1776929cd2c93a9898e3ae5a4dc0f07e23e337a4db29acbdba49d486d1740d1",
+      "Sources/AgentVaultAppSupport/ScreenshotTour.swift": "942a5b0346487b75cb0fef4b2fa3b4224c8cf1639deac7afa55353024164b0e3",
+      "Sources/AgentVaultAppSupport/Views/AccountsView.swift": "f82b3ae356297cc5a86ee8ecb54aa13feaef17ab8c9bfee46590a7274db50f88",
+      "Sources/AgentVaultAppSupport/Views/ApprovalKeyView.swift": "8a7a368ae6b6ff743fc78f3a9cc548f225c8e24eb96515e0d415ad192958aa0d",
+      "Sources/AgentVaultAppSupport/Views/AuditView.swift": "1caff26c6b038016da40f618dbcae17c8668a384e8bded677cc77394fb57710a",
+      "Sources/AgentVaultAppSupport/Views/ClientsView.swift": "bf605c60419ec72056fb26b56485148091539985b7e5ee42ebde355760078ce1",
+      "Sources/AgentVaultAppSupport/Views/GrantsView.swift": "a285db2910b0233dbf90cfa3667282a18404f4e99cd6f2e9096a87759782c092",
+      "Sources/AgentVaultAppSupport/Views/RequestsView.swift": "d19922cc88d527efca69d1c7c597520cdeaf060b7e06c0ace2d2a8b915285630",
+      "Sources/AgentVaultAppSupport/Views/RootView.swift": "8e4ee7598ab7974fda8c03eca09636c59711bc149132e3118f0b8891bfa82820",
+      "Sources/AgentVaultAppSupport/XPCAdminTransport.swift": "09258a4336af4277cb981220e0133c7000a33cb05e8384c50ecf3a1f2a869f8e",
+      "Sources/AgentVaultApproval/ApprovalIntent.swift": "e4516c1b3a4e41b94453f6b5e0f3d323156a20a25f1d4de6db0aee2ab4e846a3",
+      "Sources/AgentVaultBridge/BridgeMain.swift": "04983af5d6a89c3fc5249cf2054aaef453d04cb158772df86f3bc928b060961f",
+      "Sources/AgentVaultBrokerDaemon/BrokerMain.swift": "cc155ab4c8dfc984ebd75271b8a34757f5dc8ba07cf40f43b793b3bf0b95af19",
+      "Sources/AgentVaultBrowser/BrowserContext.swift": "4548fa93610d16f3b1b6467b6e5e0cf851d22bbae38d71159efe1e9009c3fba4",
+      "Sources/AgentVaultBrowser/BrowserPolicy.swift": "6fa8b45f7ff8f1d583609b58eb204e88b4e5cb76b1711138fcbe5e829e49e60f",
+      "Sources/AgentVaultBrowser/BrowserSessionManager.swift": "2f35d3401924752943eeef56ae3f57c266b8fe3be448cd341ea300fc4945524f",
+      "Sources/AgentVaultBrowser/BrowserTypes.swift": "f2f29eaac553069815e988d32eec5a38f6d282cd2946d942b0b4fa89ab7ad2c0",
+      "Sources/AgentVaultBrowser/FixedRecipes.swift": "91e1429d5d0daea6ce31dba3f8fa56a3439e65880e577a9287fbff8cd5aad4b3",
+      "Sources/AgentVaultBrowser/HumanContinuationView.swift": "83437bb75c459c4ab1a1549682df97669f651fcba77b25791ba214a4548b6e75",
+      "Sources/AgentVaultBrowser/WebOrigin.swift": "6d5f0609b5ed87f72489dd9a2b07686782ef5682d8a5155dd4444d91a515e3aa",
+      "Sources/AgentVaultBrowserFixture/FixtureHTTPServer.swift": "8f518fa100753bf74a5366f7777387c1c75abc67825073a198ca3eaab2dc9cf7",
+      "Sources/AgentVaultBrowserFixture/FixtureSite.swift": "857edae8a27a75d1726470d3009e949c5da8682758473421312bde8fc1f26cf3",
+      "Sources/AgentVaultCLI/AgentVaultMain.swift": "db6c42b3bcb0e72f03317637f099d30e4895f3fe039c8e6b8fe903b7e3d3686c",
+      "Sources/AgentVaultCLI/MCPInterface.swift": "35565869fe02f4762338d2f451fc2d9f54f9869c243228c8b7102b84a7cf36c7",
+      "Sources/AgentVaultContracts/Contracts.swift": "6ed6883dd9d3cdc205acb43c7949b70705ac19e45add4608d599ad1354a073f1",
+      "Sources/AgentVaultCore/Administration.swift": "e260237e0490925be4179666cfe7a9ee2e8ee151739b3078d45c3e6a861b3b22",
+      "Sources/AgentVaultCore/Broker.swift": "f6eed89b9385d079a6d49238ba094b5fa68f871aa05674af21db61e691ec2adf",
+      "Sources/AgentVaultCore/Domain.swift": "492faca8309b2911c2ef76c7709eac3a26bb27b23100f0109fbfa2a969abe076",
+      "Sources/AgentVaultCore/FileStateStore.swift": "402234b181a0fd79d3975f533576e6b9c8a08cd72b805f241ecc3c016b2ebb27",
+      "Sources/AgentVaultCore/GitHubAdapter.swift": "3bff6fe6cbd3d8eabe53975f499b4cda01a69b576d3aa40b9e967f530ee17fb8",
+      "Sources/AgentVaultCore/KeychainStore.swift": "8a30b39f5bbbbf49e0f6e6fdc2d1bbaa50323e7a43e6615bb864096d39308145",
+      "Sources/AgentVaultCore/PrivateKeychainStore.swift": "59d14279d5a6282b3b8b803206ac961227102069217f25c939b0de1159ee1aca",
+      "Sources/AgentVaultCore/SecretIOExecutor.swift": "c31aa817538fb77277c5407432eaa14e9953ea8ee2e844a5ef712543ddddaf6c",
+      "Sources/AgentVaultIPC/IPCConfiguration.swift": "374af4c95d281adec18130bde775d12f07601ef7963eeaff1e9e4932d18c3c0c",
+      "Sources/AgentVaultIPC/IPCError.swift": "06286a04b716a1b68b7ae5f43f8bc36ab3fc5e024798cd52feeeb6e414f81050",
+      "Sources/AgentVaultIPC/VaultXPCClients.swift": "49bb6792eee7d111d06dda3e7d78bb16271cf5664272c1961459abdcd6a79839",
+      "Sources/AgentVaultIPC/VaultXPCServer.swift": "f32d8f4b51014222f7d3a1073e8151e29c68a14a0143746c276b161c418b73b5",
+      "Sources/AgentVaultIPC/WireCodec.swift": "c6301eb158372379adcf6eb38a2eb40729a18d3c31730498a72af1e72356a222",
+      "Sources/AgentVaultJSON/JSONObjectGuard.swift": "3b8e23390c79e1c578c3885054dbb46050068a3da5c1608169f8bdeda32b83aa",
+      "Sources/AgentVaultMCPBridge/BridgeServer.swift": "2963f62aef13ddecb7793cf6713c179ef04a0bf26c545ffd5387d82efc6f8611",
+      "Sources/AgentVaultMCPTransport/BoundedStdioTransport.swift": "29d88be687ecfff15199e0152b0fe4395c994b67bd8cda987a62093778b098d9",
+      "Sources/AgentVaultMCPTransport/JSONMessageValidator.swift": "4d34b81ca5ef4ca4861182d2cc579450ad040622d34edc7bb01369f3cf5ab697",
+      "Sources/AgentVaultRuntime/Deployment.swift": "aa8f36ca890ffee9910f3538682918d3f50e067991cae5638d21c44147cc6077",
+      "Tests/AgentVaultAppTests/AdminFlowTests.swift": "797ac0f2d2c33152d128a7210ee707d72ddfb02dca062271c29c74d191f0abb1",
+      "Tests/AgentVaultAppTests/AppInvariantTests.swift": "9e87627a4baffa9fc5d1a1d84aa07cd4b91b4c76cf36b31cb174e5eec7ec1a13",
+      "Tests/AgentVaultAppTests/SignerTests.swift": "285b37415bc7db92cb7061ffeb3875b22698089125c5513b837e1c6d792cacb6",
+      "Tests/AgentVaultApprovalTests/ApprovalIntentTests.swift": "2d14ce1d7d75808e6b07c65082302a848f903498f9db472aa3a2cb54ccc13d7c",
+      "Tests/AgentVaultBrowserTests/BrowserWorkflowTests.swift": "ce50ca73c7b6dcf092f96106b2c96e5348cface9a999ee2e9809583df98b43b6",
+      "Tests/AgentVaultBrowserTests/Harness.swift": "46f8d8ed7064bfce369f1c35f535ec7f1d1f6d033f4f4e54b22dca7a6121c7e0",
+      "Tests/AgentVaultBrowserTests/PolicyAndSourceTests.swift": "4c0885c10932f202671531545d7e9821281e7bb4f5bdde2a4bb53c64db284e25",
+      "Tests/AgentVaultCoreTests/AdapterTests.swift": "4c4d484f6d4c3b1514adb35f430685335717d02deef712a37d1a5061492a8df4",
+      "Tests/AgentVaultCoreTests/AdministrationAuditTests.swift": "5928e1d85bb2bbb136a93d3c585c9c95d81864ce3c740cbd347701635f960dda",
+      "Tests/AgentVaultCoreTests/BrokerTests.swift": "34b4a95ffe0d89c3f3d95b965be43830f45926d0ce96472248b7261add38bcf4",
+      "Tests/AgentVaultCoreTests/LifecycleApprovalTests.swift": "8ee351c5fae3d0b47d3f467ed031ede530f81120f457d730b4cee4920ad42d2e",
+      "Tests/AgentVaultCoreTests/SecretIOTests.swift": "375683cac81ca9200ee3b7d71be86683329691ee171a3f6a1c49758793d1f29e",
+      "Tests/AgentVaultCoreTests/StorageTests.swift": "988c4de43084d883ec0084b61c37563543b1bf8d791d0625f68c0cc47059b18c",
+      "Tests/AgentVaultCoreTests/Support.swift": "80b37e250f79b8f6933d85670e82ab693531d379d9c5e04d6f63518db44b1515",
+      "Tests/AgentVaultIPCTests/ConfigurationTests.swift": "20555ee34eca6414d3eea4452d4e46a4a96ac98b540ebde63deb9e74c9e1f953",
+      "Tests/AgentVaultIPCTests/LoopbackXPCTests.swift": "bbb60cd5df3dad24e2aceaba88fa80c048f607d9b3824e5288e8269d25ddf503",
+      "Tests/AgentVaultIPCTests/Support.swift": "a4223ede10bbafc70c8bd0c8a8e1c31d32f66be664a3b8aca10f20a2d04b7b4b",
+      "Tests/AgentVaultIPCTests/WireCodecTests.swift": "f127ea18d0e8b73a52232c5cf57b320bad48f71c09ee2559f1a4b57f95c917df",
+      "Tests/AgentVaultMCPBridgeTests/BridgeTests.swift": "80bc397fc6725c18a0760b6d87620581865f8d4d52bffdb59521fa47a0036806",
+      "Tests/AgentVaultMCPTransportTests/BoundedStdioTransportTests.swift": "dddb4ff013fc63f582d2f059088296040d44cf2afb21ad1adb311738da0120c3",
+      "Tests/AgentVaultParserFuzzTests/FuzzCorpus.swift": "5f790c98d3b9ff5c5ec68dd95d2ce5c75e064141819574efc2da960e67c19268",
+      "Tests/AgentVaultParserFuzzTests/GitHubParserFuzzTests.swift": "b6b96b64a3dc14bb88a977c5f366d8f124dca991b19079737b831a6d69fe9214",
+      "Tests/AgentVaultParserFuzzTests/IPCParserFuzzTests.swift": "ca4462fbcfd1d1475121ccf3247fc10781127e0523c83b578bcf6202a460a598",
+      "Tests/AgentVaultParserFuzzTests/MCPParserFuzzTests.swift": "53eb142bbc8c9aa902889f8dd52882bdccf6242c9a9db678eb916afd5a21d98b",
+      "Tests/AgentVaultParserFuzzTests/README.md": "54c32742d49b85978aad6dee7fb4f9abeb5effa08769be5fea1e9740ec049299",
+      "Tests/AgentVaultRuntimeTests/DeploymentTests.swift": "a38b66be9fc16b6136cafbf7575259a709aa82680ed135f834f1f71b3e524ac8",
+      "Tests/IPCFixtures/Genuine/main.swift": "e1c858e606971de055b74cbb2f9f58a8e3a34f04e878f91862cb260693f26277",
+      "Tests/IPCFixtures/Impostor/main.swift": "2d8fa3b6dab4d1d1a41c11c62aa483c2cf9747dc26502e8e5f404bf03668f479",
+      "Tests/IPCFixtures/Kit/FixtureCommand.swift": "4118c7d3b91872f4de8a49090d84be0127e8c0894e3769dbd6ca82f68afb0f49",
+      "Tests/IPCFixtures/Kit/RawProbe.swift": "b4c666d9e3b1ffe08095824c4eac4f65ec10f78a491094ef60624659ab57ebd4",
+      "deploy/ipc/agentvault_installer.py": "b471ee1b7dcb1df31754acd027a9608a8ad6cf59541a0462984c4f71fedeef3e",
+      "deploy/ipc/config.json.template": "972fb7edb23c14e9c743be70e3f440ae69987d14e938ec452228ba104f09bd2f",
+      "deploy/ipc/dev.agentvault.broker.plist.template": "cdc2ca3c99f91bcc464fb5307fd6ca4eaf915bb1f7ec13ae4125fb406fb30363",
+      "deploy/tests/test_installer.py": "b73b8179b699cf12bf40db3f9c133e02ee7fb062fd364031a90db6ca5d0c2c83",
+      "deploy/tests/test_release.py": "a80e515036fd012b8c0469ec794bacc5164515048aa2f2eaf56d1ba36e56bec8",
+      "deploy/tests/test_xpc_cleanup.py": "801fb740cc5232ffd18fd85deb50b9200eacbc697f818cf05431e1333d245c73",
+      "docs/ARCHITECTURE.md": "a609bf39991a74f41a2e85b4affb7ae2e724a7898f883ecb529f813bb712b633",
+      "docs/BROWSER-DEPLOYMENT.md": "fcd52785a88bf68da4082b68b1d15e1e0ea736581c6b7b1ccbaba656e719b170",
+      "docs/IMPLEMENTATION-PLAN.md": "6d57cd1ec2a744670f2c69bd167b802aa0901ac7353b72285d56370bb9e49639",
+      "docs/INSTALLATION.md": "7dc7fa29600a53a6ad92d1d01ecba90b5b45eb955d598f32bf6a07df5f8a60e8",
+      "docs/IPC.md": "eaf89ce89c1297e271bb1602afcb28b780818c47cb118a6a783941d190f2abaa",
+      "docs/NATIVE-APP.md": "10e60681597827d0a276ebe7beab4bb360d20babc714114aac0e73e9a6afecfb",
+      "docs/SECURITY-REVIEW.md": "8c3d3c88965cd1175f9b4d28adf2ddd1f99f7d0e5cab276948864e96ad1686d4",
+      "docs/THREAT-MODEL.md": "678701a033560b7737feae93f7e2be2c7166ec480b65ea503f4f7c62a838e9c1",
+      "docs/contracts/FULL-PLAN.md": "4edafb8f454a2b5e18b354fa03b7b0cea71422a0bef7295732c62a5c4f83d971",
+      "docs/design/browser-host/GROUNDING.md": "e2a1566bffd7ed261f40e627ca4ab6e5fd258dc5461fe5f00d4ad63d031b94f4",
+      "docs/design/browser-host/JUDGE.md": "0d9eb1e0ec919531fc335801f87eec03aafa3432844736ec93f9f04d454d87b4",
+      "docs/design/browser-host/alternative-appliance/DEPLOYMENT-AND-PROOF.md": "49088da7d8f1f2eb125ce6ff42b2b765849c84e25ef624e08455643b0b2bf2f8",
+      "docs/design/browser-host/alternative-appliance/RATIONALE.md": "fff036b8affae95dd2146d5fa96352d6bd640857a6b205339f9fa1bffa6cdb65",
+      "docs/design/browser-host/selected-headless/DEPLOYMENT-ALTERNATIVES.md": "568dba17537a628a9721b2aff274f41688b2a1379559cede31acb44987ea00e3",
+      "docs/design/browser-host/selected-headless/RATIONALE.md": "3b1ecc827cac4cefd35ef80862e24c3abd99075c4bfded7944c2589657a52949",
+      "docs/design/browser-host/selected-headless/README.md": "31122724673551ad4a4bed07f4be9995f38bdb11337b1b7752a82224aafca438",
+      "docs/design/browser-host/selected-headless/ROLLOUT.md": "097ff583e47ba31090fe42f3c660e647d1c1333018bb338f34bf64150d9f6676",
+      "docs/verification/parser-fuzz.md": "1c97696d3363afdab4f8b777f20cd71e50f002d5945df2fce835fc91542d51f2",
+      "docs/verification/private-keychain-settings-block.txt": "3229288bbf33c49a1d53f99c8a29a020fe5338255bc5c07633ca0c3740fe9ccf",
+      "docs/verification/release-entitlements-r3.json": "451c52d60e0d68ea31543dd66aee1ff059e7038c067a9e481ffb1fad540f05d6",
+      "docs/verification/review-checkpoint.json": "99f189d265caae2cbfb650f80475a78516d58a32a0fe7f60db5baf31817d506c",
+      "docs/verification/security-followup.json": "f6cd7466f8b45bcd7056afaaae357af84016661054f725af7cd6ab971cd94a37",
+      "docs/verification/signed-review-bundle.json": "0d488f74492b383dcf0f4bafed5e72844cfb52606bb67dd65576ff1b969d24e5",
+      "docs/verification/ui-approvalKey-preview.png": "65e9bab811fcf748d7e0c903a383394d27a40ee01a1d62473e4dc1c53b32086b",
+      "docs/verification/ui-sheet-grant-preview.png": "f08b904462b1b84a4d567c84b1912cc63d96d08fbd07225cca0d4999cc9f00b9",
+      "docs/verification/xpc-json-guard-r3.json": "d329479e35905bb46d0ab1aab31334e0ac9eb24c2442134df0b96f5583d16598",
+      "docs/verification/xpc-same-uid.json": "c7cc144d579077295c931dff8f2146a46a1d44e2d57f7f09d055cb9604119b6c",
+      "mcp.json": "610eeddc65a2785821f071091e56ce2f36f016279e6307ef0cb8c8e17d604bc2",
+      "packaging/mac/Info.plist": "adaa5f95b85a21a775deb7719861373add1982ce6aa5eb4a9f9acb48e3356a58",
+      "plugin.json": "eec9537db60c2b9fd87d905a619e7415667530582f767f062dc798ac2ca9f38a",
+      "scripts/build-mac-app.sh": "38d72f5e570e0e3903819454bb0f4309840b4ca5324d9c01e19404cc689034a5",
+      "scripts/build-release.py": "d39f6a079de3ae17f152c271e6dbbe1bbd31b307628ec213270c7a6f22aac538",
+      "scripts/generate-sbom.py": "d16c9a5c398a0bac8809df1ff5b70fcee64e4fc4a855b4e6958a2949324b650d",
+      "scripts/record-verification.py": "820a07de84754ce60ee11068fa8443f00357ab23a34f0a343a967aaa2d14d68f",
+      "scripts/run-mcp.sh": "426b3b1c4661c29be29e9e0a5081217a21a601d4f3602fbd438ca86108e8032f",
+      "scripts/verify-boundaries.py": "4d2fa797c32638ca41953c6e47c796d533cca7781b675737818eef0d7c58ceee",
+      "scripts/verify-installer.py": "0a3b9fd16bce9672986d999986aa742ae92f2484b7a24a0a6f9d036940af6f74",
+      "scripts/verify-mcp.py": "067cdcbf6531c0508b7fdbb23fae515dbcc073530f7a3d768df15a40be20a848",
+      "scripts/verify-xpc-mutations.py": "75c84321075ab26b0e1a52ac24a1c83e109d4f014813e8ec3b7ebd95fcbdb9a2",
+      "scripts/verify-xpc.py": "32e4f72e64029967aef16d9cf4ae4ee264c144e8ca4b981527e7a94003d0b57d"
+    },
+    "tree": "7fa120fd3d93cd8510bd6ae3e1657a326fde9e4c"
+  },
+  "sourceUnchanged": true,
+  "startedAt": "2026-10-15T13:37:47.833194+00:00"
+}

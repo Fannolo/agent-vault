@@ -66,8 +66,9 @@ func privateDirectory() throws -> URL {
     #expect(try first.transaction { $0.clients.count } == 30)
 }
 
-@Test func nativeKeychainRoundTripWhenExplicitlyEnabled() throws {
-    guard ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1" else { return }
+@Test(.enabled(if: ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1",
+               "Set AGENT_VAULT_KEYCHAIN_TEST=1 to run the isolated native Keychain fixture"))
+func nativeKeychainRoundTripWhenExplicitlyEnabled() throws {
     let store = KeychainStore(namespace: "io.agent-vault.test.\(UUID())")
     let id = UUID(), value = Data("SYNTHETIC-only-keychain-fixture".utf8)
     defer { try? store.delete(for: id) }
@@ -116,4 +117,45 @@ func privateDirectory() throws -> URL {
     try await broker.revokeClient(client)
     #expect(try store.snapshot().grants.allSatisfy(\.revoked))
     #expect(try Data(contentsOf: root.appendingPathComponent("state.json")).count < 1_048_576)
+}
+
+@Test func authenticatedMetadataRejectsTamperingWrongKeyAndUnsignedFallback() throws {
+    let root = try privateDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let key = Data(repeating: 0x42, count: 32)
+    let store = try FileStateStore(directory: root, integrityKey: key)
+    let client = UUID()
+    try store.transaction { $0.clients.append(.init(id: client)) }
+    #expect(try FileStateStore(directory: root, integrityKey: key).snapshot().clients.map(\.id) == [client])
+    #expect(throws: VaultError.stateUnavailable) {
+        _ = try FileStateStore(directory: root, integrityKey: Data(repeating: 0x43, count: 32)).snapshot()
+    }
+    let path = root.appendingPathComponent("state.json")
+    var envelope = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
+    envelope["payload"] = try JSONEncoder().encode(VaultState()).base64EncodedString()
+    try JSONSerialization.data(withJSONObject: envelope).write(to: path)
+    #expect(throws: VaultError.stateUnavailable) { _ = try store.snapshot() }
+    // A valid plain state must not become a downgrade path in integrity mode.
+    try JSONEncoder().encode(VaultState()).write(to: path)
+    #expect(throws: VaultError.stateUnavailable) { _ = try store.snapshot() }
+}
+
+@Test(.enabled(if: ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1",
+               "Set AGENT_VAULT_KEYCHAIN_TEST=1 to run the isolated private Keychain fixture"))
+func privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled() throws {
+    let root = try privateDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let password = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
+    let path = root.appendingPathComponent("broker.keychain-db")
+    let store = try PrivateKeychainStore(path: path, password: password)
+    let id = UUID(), value = Data("SYNTHETIC-private-keychain".utf8)
+    defer { try? store.delete(for: id) }
+    try store.save(value, for: id)
+    #expect(try store.load(for: id) == value)
+    try store.lockForSyntheticTest()
+    #expect(try store.load(for: id) == value)
+    let reopened = try PrivateKeychainStore(path: path, password: password)
+    #expect(try reopened.load(for: id) == value)
+    try reopened.delete(for: id)
+    #expect(throws: VaultError.secretUnavailable) { _ = try store.load(for: id) }
 }

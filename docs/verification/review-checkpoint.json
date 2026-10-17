@@ -1,0 +1,144 @@
+{
+  "recordedAt": "2026-10-13T17:37:19.649824+00:00",
+  "sourceCheckpoint": "425c6af",
+  "scope": "Local development checks; no privileged install, production credential enrollment or notarization",
+  "checks": [
+    {
+      "name": "swift-tests",
+      "command": "swift test --force-resolved-versions -j 4",
+      "exitCode": 0,
+      "logSha256": "ad4fe2924a03b1fc5a7ba6fd4612fe2bb7ab91fc47edb0ec4805fcbbdd49d413",
+      "observedSummary": [
+        "\u2714 Test run with 161 tests in 9 suites passed after 15.608 seconds."
+      ],
+      "note": ""
+    },
+    {
+      "name": "native-keychain",
+      "command": "AGENT_VAULT_KEYCHAIN_TEST=1 swift test -j 4 --filter 'privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled|nativeKeychainRoundTripWhenExplicitlyEnabled'",
+      "exitCode": 0,
+      "logSha256": "30d3c23ddf338937b3505abcccb79f2452155f853d608d81068ec229f379d640",
+      "observedSummary": [
+        "\u2714 Test run with 2 tests in 0 suites passed after 0.049 seconds."
+      ],
+      "note": ""
+    },
+    {
+      "name": "installer",
+      "command": "python3 scripts/verify-installer.py --signed-payload dist/AgentVault-review",
+      "exitCode": 0,
+      "logSha256": "455a603fed8802e75a796a461adfe92aec8d2effcfa67b68ff5bac4214dcb2dc",
+      "observedSummary": [
+        "tests -O: optimize=1 isolated=1 | Ran 38 tests in 3.030s | OK",
+        "tests default: optimize=0 isolated=1 | Ran 38 tests in 2.501s | OK",
+        "mutation 'ancestors not checked': caught",
+        "mutation 'hard links accepted': caught",
+        "mutation 'source inspected instead of snapshot': caught",
+        "mutation 'debugger entitlement accepted': caught",
+        "mutation 'partial account adopted': caught",
+        "mutation 'approval key replaced silently': caught",
+        "mutation 'no restart after interruption': caught",
+        "mutation 'private directory built in place': caught",
+        "mutation 'sandbox allowed as root': caught",
+        "mutation 'payload links followed': caught",
+        "verify-installer: passed"
+      ],
+      "note": "Fresh signed payload source 425c6af; real codesign, simulated account ownership and launchd; install/verify/retry/uninstall all exit 0",
+      "signedSandboxResults": [
+        "sandbox-init: exit 0: sandbox ready: /private/var/folders/kf/zg5hrcpd5dj0wchcrcfz8pz00000gn/T/av-installer-signed-pv4bya3n/system",
+        "install: exit 0: installed: account _agentvault uid 200, broker seeds, dev.agentvault.broker, agent-vault-bridge, AgentVault.app, config.json, LaunchDaemon plist, daemon restarted",
+        "pinned cdhashes match codesign of the source payload: True {'brokerRequirement': '0c763186730df9c40262302ce0c7f144f1ae4296', 'readRequirement': 'b70de7ee3bce0cfc9e97645eb3b352f7237a896a', 'adminRequirement': '4b66430eb645d9ffb018d888c8ce054bbe4993d5'}",
+        "verify: exit 0: verified: installed files, pins, seeds and plist match",
+        "install: exit 0: installed: already current",
+        "uninstall: exit 0: removed: daemon stopped, LaunchDaemon plist, dev.agentvault.broker, agent-vault-bridge, AgentVault.app, config.json; kept /private/var/db/agent-vault and the _agentvault account",
+        "rerun reported no changes: True"
+      ]
+    },
+    {
+      "name": "mcp-demo",
+      "command": "python3 scripts/verify-mcp.py --keychain-demo",
+      "exitCode": 0,
+      "logSha256": "d050867558599aa16f1780e4b793f3186d50517599e958d631b7a1eda9cb9ce9",
+      "observedSummary": [
+        "PASS: MCP lifecycle, narrow tools, authorization, strict inputs and private-entry checks, native Keychain, revocation and hidden TTY overflow checks"
+      ],
+      "note": ""
+    },
+    {
+      "name": "xpc",
+      "command": "python3 scripts/verify-xpc.py --evidence /tmp/agent-vault-xpc-review-fixes.json",
+      "exitCode": 0,
+      "scenariosPassed": 20,
+      "evidence": "xpc-same-uid.json",
+      "scope": "Same-UID only; all three temporary launch agents and work directory removed"
+    },
+    {
+      "name": "xpc-mutations",
+      "command": "python3 scripts/verify-xpc-mutations.py",
+      "exitCode": 0,
+      "mutationsPassed": 8,
+      "observedSummary": [
+        "PASS  no server UID check: failed=['broker refuses an unexpected kernel UID', \"only the genuine broker's handlers ran, each with the bound UID\"]",
+        "PASS  no server code requirements: failed=['bridge cannot call the admin service', 'copied bridge signing identifier is refused', 'human app cannot call the read service']",
+        "PASS  listener requirement only: failed=[]",
+        "PASS  connection requirement only: failed=[]",
+        "PASS  no client broker requirement: failed=['bridge refuses a spoofed broker', 'human app refuses a spoofed broker', \"only the genuine broker's handlers ran, each with the bound UID\"]",
+        "PASS  requests not gated on the broker probe: failed=[\"only the genuine broker's handlers ran, each with the bound UID\"]",
+        "PASS  no client broker UID check: failed=['bridge refuses a genuine broker with an unexpected kernel UID', 'human app refuses a genuine broker with an unexpected kernel UID']",
+        "PASS  no per-connection concurrency limit: failed=['excess concurrency on one connection returns busy']",
+        "8/8 mutations behaved as expected"
+      ],
+      "logSha256": "3f5792e2a604b05c2337b26441991d6ba7c0d36600aee44fa467f71e7117d649"
+    },
+    {
+      "name": "module-boundaries",
+      "command": "python3 scripts/verify-boundaries.py",
+      "exitCode": 0,
+      "observedSummary": "PASS: package graph preserves broker, app and MCP bridge boundaries"
+    },
+    {
+      "name": "signed-review",
+      "command": "python3 scripts/build-release.py --identity 'Developer ID Application: Bite Technology Limited (3JWAQ92CB4)' --review-only",
+      "exitCode": 0,
+      "evidence": "signed-review-bundle.json"
+    },
+    {
+      "name": "ui-preview",
+      "command": "AGENT_VAULT_UI_PREVIEW=1 AGENT_VAULT_UI_SCREENSHOTS=/tmp/agent-vault-review-ui .build/debug/AgentVaultApp",
+      "exitCode": 0,
+      "scope": "DEBUG synthetic software-key preview; no actual user-presence approval",
+      "screenshotsRendered": 9,
+      "inspected": [
+        "ui-approvalKey-preview.png",
+        "ui-sheet-grant-preview.png"
+      ],
+      "observedSummary": "Full SHA-256 fingerprint and preview warning visible; grant form defaults to per-call approval; no seven-day option"
+    }
+  ],
+  "historical": {
+    "integrated147": {
+      "sourceCheckpoint": "26b41aa",
+      "summary": [
+        "\u2714 Test run with 147 tests in 9 suites passed after 16.697 seconds."
+      ],
+      "logSha256": "3d068e8d747d52017a2fcc4dc2d9c8981a6e29e0ce9e8c3713d6a7d4d60025e3"
+    }
+  },
+  "openGates": [
+    "Dedicated-UID install and filesystem/process isolation",
+    "Provisioned approval key and real fresh user-presence signature",
+    "Isolated browser GUI host and live GitHub selectors/MFA",
+    "Notarization and target-host compatibility"
+  ],
+  "environment": {
+    "macOS": "15.6.1 (24G90)",
+    "Xcode": "26.3 (17C529)",
+    "Swift": "6.2.4",
+    "architecture": "arm64"
+  },
+  "nativeSettingsAttempt": {
+    "result": "Blocked in SecKeychainSetSettings; test process terminated",
+    "response": "Removed settings mutation; unlock before every access. Explicit lock/unlock/load passed in opt-in test.",
+    "evidence": "private-keychain-settings-block.txt"
+  }
+}

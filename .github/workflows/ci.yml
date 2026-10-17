@@ -18,5 +18,23 @@ jobs:
         run: swift test --force-resolved-versions
       - name: Verify stdio MCP with synthetic data
         run: python3 scripts/verify-mcp.py
+      - name: Verify module boundaries
+        run: python3 scripts/verify-boundaries.py
+      - name: Verify installer guards without root
+        run: python3 scripts/verify-installer.py
+      - name: Verify signed release entitlement checks
+        run: python3 -I deploy/tests/test_release.py
+      - name: Verify cross-process fixture cleanup
+        run: python3 -I deploy/tests/test_xpc_cleanup.py
+      - name: Verify web host harness process ownership
+        run: python3 -I deploy/tests/test_webhost_link_mutations.py
+      - name: Verify secret-boundary mutation driver source guard
+        run: python3 -I deploy/tests/test_secret_boundary_driver.py
+      - name: Verify disabled offline web host preparation
+        run: python3 -I deploy/tests/test_webhost_distribution.py
+      - name: Verify offline preparation with Python assertions disabled
+        run: python3 -I -O deploy/tests/test_webhost_distribution.py
+      - name: Verify evidence recorder behavior
+        run: python3 -I deploy/tests/test_recorder.py
       - name: Build release executable
         run: swift build -c release --force-resolved-versions

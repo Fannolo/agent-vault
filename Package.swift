@@ -4,15 +4,71 @@ import PackageDescription
 let package = Package(
     name: "AgentVault",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "agent-vault", targets: ["AgentVaultCLI"])],
+    products: [
+        .executable(name: "agent-vault", targets: ["AgentVaultCLI"]),
+        .executable(name: "agent-vault-bridge", targets: ["AgentVaultBridge"]),
+        .executable(name: "agent-vault-broker", targets: ["AgentVaultBrokerDaemon"])
+    ],
     dependencies: [
-        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1")
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1"),
+        .package(url: "https://github.com/apple/swift-log.git", exact: "1.16.1")
     ],
     targets: [
-        .target(name: "AgentVaultCore", linkerSettings: [.linkedFramework("Security")]),
+        .target(name: "AgentVaultContracts"),
+        .target(name: "AgentVaultJSON"),
+        .target(name: "AgentVaultApproval", dependencies: ["AgentVaultContracts"]),
+        .testTarget(name: "AgentVaultApprovalTests", dependencies: ["AgentVaultApproval", "AgentVaultContracts"]),
+        .target(name: "AgentVaultAppSupport", dependencies: ["AgentVaultContracts", "AgentVaultApproval", "AgentVaultIPC", "AgentVaultRuntime"],
+                linkerSettings: [.linkedFramework("Security"), .linkedFramework("LocalAuthentication"), .linkedFramework("SwiftUI"), .linkedFramework("AppKit")]),
+        .executableTarget(name: "AgentVaultApp", dependencies: ["AgentVaultAppSupport"]),
+        .testTarget(name: "AgentVaultAppTests", dependencies: ["AgentVaultAppSupport", "AgentVaultContracts"]),
+        .target(name: "AgentVaultRuntime", dependencies: ["AgentVaultIPC"]),
+        .target(name: "AgentVaultMCPTransport", dependencies: ["AgentVaultJSON", .product(name: "MCP", package: "swift-sdk"), .product(name: "Logging", package: "swift-log")]),
+        .target(name: "AgentVaultMCPBridge", dependencies: ["AgentVaultContracts", "AgentVaultMCPTransport", .product(name: "MCP", package: "swift-sdk")]),
+        .executableTarget(name: "AgentVaultBridge", dependencies: ["AgentVaultIPC", "AgentVaultRuntime", "AgentVaultMCPBridge"]),
+        .executableTarget(name: "AgentVaultBrokerDaemon", dependencies: ["AgentVaultCore", "AgentVaultIPC", "AgentVaultRuntime"]),
+        .testTarget(name: "AgentVaultMCPTransportTests", dependencies: ["AgentVaultMCPTransport"]),
+        .testTarget(name: "AgentVaultRuntimeTests", dependencies: ["AgentVaultRuntime"]),
+        .testTarget(name: "AgentVaultMCPBridgeTests", dependencies: ["AgentVaultMCPBridge", "AgentVaultContracts", .product(name: "MCP", package: "swift-sdk")]),
+        .target(name: "AgentVaultCore", dependencies: ["AgentVaultContracts", "AgentVaultApproval", "AgentVaultJSON"], linkerSettings: [.linkedFramework("Security")]),
         .executableTarget(name: "AgentVaultCLI", dependencies: [
-            "AgentVaultCore", .product(name: "MCP", package: "swift-sdk")
+            "AgentVaultCore", "AgentVaultContracts", .product(name: "MCP", package: "swift-sdk")
         ]),
-        .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCore"])
+        .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCore", "AgentVaultContracts"]),
+        .testTarget(name: "AgentVaultParserFuzzTests", dependencies: [
+            "AgentVaultIPC", "AgentVaultMCPTransport", "AgentVaultCore", "AgentVaultContracts", "AgentVaultWebHostProtocol"
+        ], exclude: ["README.md"]),
+        // Synthetic loopback websites used only by automated and GUI verification.
+        .target(name: "AgentVaultBrowserFixture", linkerSettings: [.linkedFramework("Network")]),
+        .target(name: "AgentVaultIPC", dependencies: ["AgentVaultContracts", "AgentVaultJSON"], linkerSettings: [.linkedFramework("Security")]),
+        // Credential-bearing broker <-> web host wire. Linked only by the host link and the host:
+        // never by Core, the app or the MCP bridge (enforced by scripts/verify-boundaries.py).
+        .target(name: "AgentVaultWebHostProtocol", dependencies: ["AgentVaultContracts", "AgentVaultJSON", "AgentVaultIPC"]),
+        // The broker's client for the web host; implements Core's domain port over that wire.
+        .target(name: "AgentVaultWebHostLink", dependencies: ["AgentVaultCore", "AgentVaultWebHostProtocol", "AgentVaultIPC"]),
+        // The `_agentvaultweb` host: Chromium over private pipes, fixed recipes and a pure request
+        // gate. Product graph checks keep its CDP surface out of every other process role.
+        .executableTarget(name: "AgentVaultWebHost", dependencies: ["AgentVaultWebHostProtocol", "AgentVaultContracts", "AgentVaultIPC"]),
+        .testTarget(name: "AgentVaultWebHostTests", dependencies: [
+            "AgentVaultWebHost", "AgentVaultWebHostProtocol", "AgentVaultContracts", "AgentVaultBrowserFixture"
+        ]),
+        .testTarget(name: "AgentVaultWebHostLinkTests", dependencies: [
+            "AgentVaultWebHostLink", "AgentVaultWebHostProtocol", "AgentVaultCore", "AgentVaultContracts", "AgentVaultIPC"
+        ]),
+        .target(name: "IPCFixtureKit", dependencies: ["AgentVaultIPC", "AgentVaultContracts"], path: "Tests/IPCFixtures/Kit"),
+        .executableTarget(name: "agent-vault-ipc-fixture", dependencies: ["IPCFixtureKit"], path: "Tests/IPCFixtures/Genuine"),
+        .executableTarget(name: "agent-vault-ipc-impostor", dependencies: ["IPCFixtureKit"], path: "Tests/IPCFixtures/Impostor"),
+        .testTarget(name: "AgentVaultIPCTests", dependencies: ["AgentVaultIPC", "AgentVaultContracts"]),
+        // The human app driven over real XPC into the real broker, in one test process. Only this
+        // test target may link the app with Core; verify-boundaries.py checks product targets.
+        .testTarget(name: "AgentVaultContinuationE2ETests", dependencies: [
+            "AgentVaultAppSupport", "AgentVaultCore", "AgentVaultIPC", "AgentVaultContracts"
+        ]),
+        // Synthetic composition only: no product role may link these implementation surfaces.
+        .testTarget(name: "AgentVaultHeadlessE2ETests", dependencies: [
+            "AgentVaultWebHost", "AgentVaultWebHostLink", "AgentVaultWebHostProtocol", "AgentVaultCore",
+            "AgentVaultAppSupport", "AgentVaultIPC", "AgentVaultContracts", "AgentVaultBrowserFixture",
+            "AgentVaultMCPBridge", .product(name: "MCP", package: "swift-sdk")
+        ])
     ]
 )

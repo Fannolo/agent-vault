@@ -1,14 +1,16 @@
+import AgentVaultContracts
+import AgentVaultJSON
 import Foundation
 
 public struct FixedServiceAdapter: ServiceAdapter {
     public init() {}
-    public func execute(service: Service, credential: Data) async throws -> OperationResult {
+    public func execute(service: APIService, credential: Data) async throws -> ServiceOutput {
         switch service {
         case .demo:
             guard !credential.isEmpty else { throw VaultError.secretUnavailable }
             return .demoReady
         case .github:
-            return .githubProfile(try await GitHubAdapter().profile(credential: credential))
+            return .profile(try await GitHubAdapter().profile(credential: credential))
         }
     }
 }
@@ -36,16 +38,11 @@ public struct GitHubAdapter: Sendable {
         session = URLSession(configuration: configuration, delegate: RejectRedirects(), delegateQueue: nil)
     }
 
-    public static func validateCredential(_ data: Data) throws {
-        guard data.count >= 10, data.count <= 8192,
-              data.allSatisfy({ (0x21...0x7E).contains($0) }) else { throw VaultError.invalidInput }
-    }
-
-    public func profile(credential: Data) async throws -> GitHubProfile {
+    public func profile(credential: Data) async throws -> AccountProfile {
         // The adapter owns this single-operation delegated session.
         defer { session.invalidateAndCancel() }
-        try Self.validateCredential(credential)
-        guard let token = String(data: credential, encoding: .utf8) else { throw VaultError.invalidInput }
+        guard CredentialFormat.isValid(credential, for: .github),
+              let token = String(data: credential, encoding: .utf8) else { throw VaultError.invalidInput }
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -67,15 +64,15 @@ public struct GitHubAdapter: Sendable {
         } catch { throw (error as? VaultError) ?? VaultError.upstreamUnavailable }
     }
 
-    public static func decodeProfile(_ body: Data) throws -> GitHubProfile {
+    private struct Body: Decodable { let login: String; let id: Int }
+
+    public static func decodeProfile(_ body: Data) throws -> AccountProfile {
         guard body.count <= 65_536 else { throw VaultError.invalidResponse }
         do {
-            let value = try JSONDecoder().decode(GitHubProfile.self, from: body)
-            guard value.id > 0, value.login.range(of: "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
-                                                  options: .regularExpression) != nil else {
-                throw VaultError.invalidResponse
-            }
-            return value
+            try JSONObjectGuard.validate(body)
+            let value = try JSONDecoder().decode(Body.self, from: body)
+            guard let profile = AccountProfile(login: value.login, userID: value.id) else { throw VaultError.invalidResponse }
+            return profile
         } catch { throw VaultError.invalidResponse }
     }
 }

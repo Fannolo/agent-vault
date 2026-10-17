@@ -23,7 +23,7 @@ struct AgentVaultMain {
         guard let command = args.first else { printHelp(); return }
         args.removeFirst()
         if command == "help" || command == "--help" { printHelp(); return }
-        guard ["demo", "enroll", "client", "grant", "revoke-grant", "revoke-client", "mcp"].contains(command)
+        guard ["demo", "client", "grant", "revoke-grant", "revoke-client", "mcp"].contains(command)
         else { throw VaultError.invalidInput }
         let store = try FileStateStore(directory: directory)
         let broker = Broker(state: store, secrets: KeychainStore(namespace: namespace))
@@ -38,11 +38,6 @@ struct AgentVaultMain {
             try printJSON(["accountId": account.id.uuidString.lowercased(),
                            "clientId": client.id.uuidString.lowercased(),
                            "grantId": grant.id.uuidString.lowercased(), "service": "demo"])
-        case "enroll":
-            guard args == ["github"] else { throw VaultError.invalidInput }
-            let credential = try hiddenCredential()
-            let account = try await broker.enroll(service: .github, credential: credential)
-            try printJSON(["accountId": account.id.uuidString.lowercased(), "service": "github"])
         case "client":
             guard args.isEmpty else { throw VaultError.invalidInput }
             let client = try await broker.registerClient()
@@ -97,24 +92,6 @@ struct AgentVaultMain {
         return id
     }
 
-    private static func hiddenCredential() throws -> Data {
-        // Reserve one extra payload byte so readpassphrase truncation is detected.
-        // GitHub tokens fit this limit; stay below the TTY canonical-line limit.
-        let limit = 256
-        var buffer = [CChar](repeating: 0, count: limit + 2)
-        defer { buffer.withUnsafeMutableBytes { _ = memset($0.baseAddress, 0, $0.count) } }
-        guard isatty(STDIN_FILENO) == 1 else { throw VaultError.invalidInput }
-        return try buffer.withUnsafeMutableBufferPointer { bytes in
-            guard let pointer = readpassphrase("GitHub token (hidden): ", bytes.baseAddress,
-                                               bytes.count, RPP_REQUIRE_TTY) else {
-                throw VaultError.invalidInput
-            }
-            let count = strlen(pointer)
-            guard count > 0, count <= limit else { throw VaultError.invalidInput }
-            return Data(bytes: pointer, count: count)
-        }
-    }
-
     private static func printJSON(_ object: [String: Any]) throws {
         let bytes = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         FileHandle.standardOutput.write(bytes + Data([0x0a]))
@@ -122,17 +99,17 @@ struct AgentVaultMain {
 
     private static func printHelp() {
         print("""
-        Agent Vault 0.1.0 — local development prototype
+        Agent Vault — synthetic development fixture
         Commands:
           demo                              Create a synthetic account and one-hour grant
-          enroll github                     Privately enroll a GitHub token from a TTY
           client                            Register a development client ID
           grant --client-id ID --account-id ID [--seconds 3600] [--calls 20]
           revoke-grant --grant-id ID
           revoke-client --client-id ID
           mcp --client-id ID --development   Start the stdio MCP development server
         Global options: --state-dir PATH, --keychain-namespace NAME
-        The launch client ID is not an authentication boundary. See docs/THREAT-MODEL.md.
+        Real credentials are accepted only by the native app, never by this terminal fixture.
+        Only demo.status is exposed here. The launch client ID is not an authentication boundary.
         """)
     }
 }

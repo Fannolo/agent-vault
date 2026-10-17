@@ -1,0 +1,13 @@
+{
+  "ipc": {
+    "readServiceName": "dev.agentvault.broker.read",
+    "adminServiceName": "dev.agentvault.broker.admin",
+    "brokerRequirement": "anchor apple generic and identifier \"dev.agentvault.broker\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"3JWAQ92CB4\" and cdhash H\"@BROKER_CDHASH@\"",
+    "readRequirement": "anchor apple generic and identifier \"dev.agentvault.bridge\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"3JWAQ92CB4\" and cdhash H\"@READ_CDHASH@\"",
+    "adminRequirement": "anchor apple generic and identifier \"dev.agentvault.app\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"3JWAQ92CB4\" and cdhash H\"@ADMIN_CDHASH@\"",
+    "brokerUID": @BROKER_UID@,
+    "allowedUID": @CLIENT_UID@,
+    "development": false
+  },
+  "approvalPublicKey": "@APPROVAL_PUBLIC_KEY@"
+}

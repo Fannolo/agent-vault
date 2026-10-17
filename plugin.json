@@ -1,15 +1,15 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agent-vault",
-  "version": "0.1.0",
-  "description": "A local development prototype for fixed credential-backed agent operations.",
+  "version": "0.2.0",
+  "description": "A macOS credential broker with scoped agent operations and human approval.",
   "author": { "name": "Fannolo" },
   "extensions": {
     "com.openai": {
       "interface": {
         "displayName": "Agent Vault",
         "shortDescription": "Scoped credential operations",
-        "longDescription": "Run fixed read-only operations with native macOS Keychain storage and development grants. OS-isolated broker authentication is planned.",
+        "longDescription": "Use an installed signed bridge to request fixed read-only operations from Agent Vault. Grants and credential changes require the human app. Development builds require the documented verification gates.",
         "developerName": "Fannolo",
         "category": "Developer Tools",
         "defaultPrompt": "List my permitted Agent Vault accounts."

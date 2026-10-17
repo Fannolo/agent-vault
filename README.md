@@ -1,28 +1,30 @@
 # Agent Vault
 
-Agent Vault lets an agent request a fixed service operation while the application
-uses credentials internally. The project is a macOS development prototype with a
-native Swift core and a stdio MCP interface.
+Agent Vault is a native macOS credential broker for fixed agent operations, with a human
+approval app and a thin stdio MCP bridge.
 
-**This version does not isolate credentials from an agent with unrestricted access
-to the same macOS account. It is not ready for production passwords or PINs.**
-The signed broker, authenticated IPC, human approval app and controlled browser
-remain implementation milestones.
+**Development build: dedicated-user isolation, real protected-key signing and notarization
+remain release gates. Do not use production passwords or PINs yet.**
 
-## Implemented
+Implemented, with component checks:
 
-- Native Keychain enrollment, with private terminal entry for GitHub tokens.
-- Exact client/account/action grants with expiry, revocation and persistent call budgets.
-- Two MCP tools: `accounts_list` and `action_run`.
-- A synthetic `demo.status` action and a fixed `github.profile` action that performs
-  `GET https://api.github.com/user` and returns only `login` and `id`.
-- Private, locked metadata storage with atomic replacement and a bounded audit history.
-- Stable public error codes, strict tool inputs, and no raw credential retrieval tool.
+- Authenticated, separate read/admin XPC channels with exact code-hash and kernel UID checks.
+- A daemon designed for a dedicated user, protected configuration, explicit private Keychain
+  and owner lease. Its installed dedicated-user behavior remains unverified.
+- Recoverable enrollment, rotation/deletion, per-call approvals, expiry, revocation and budgets.
+- Native secure forms, client/grant management, pending approvals and private audit export.
+- Four production bridge tools: `accounts_list`, `action_run`, `request_resume`, `request_cancel`.
+- Fixed `demo.status` and `github.profile` operations, returning only typed results.
+- Bounded stdio before SDK parsing, authenticated metadata and safe public error codes.
+- A separate Chromium host and authenticated link with scoped losses, dispatch deadlines,
+  post-probe authorization and a native challenge-image/input relay. Synthetic U5 tests
+  join the real host to the app model; the old WebKit engine has been removed. Production
+  browser actions remain disabled pending installed isolation and service verification.
 
-MCP `clientInfo` does not grant permissions. The development client ID is selected
-by the launching host. **That ID is configuration, not client authentication.**
-A same-user process can run the CLI, alter grants or launch a server under another
-development client ID. The next broker milestone addresses this boundary.
+The bridge and app do not link Core or the service credential store. Permissions belong to
+an authenticated bridge and paired OS user; a model-supplied identity does not authorize calls.
+The legacy CLI below remains a same-user development fixture and is excluded from distribution
+review bundles.
 
 ## Try the synthetic demo
 
@@ -68,47 +70,46 @@ python3 scripts/verify-mcp.py --keychain-demo
 AGENT_VAULT_KEYCHAIN_TEST=1 swift test --filter nativeKeychainRoundTripWhenExplicitlyEnabled
 ```
 
-## GitHub development account
+## Real credential enrollment
 
-Use a disposable, minimally scoped token for development. Enter it only at the
-hidden terminal prompt, never in chat, command arguments or an environment variable:
+Enter service credentials only in the signed native app's secure fields. The app sends
+an authenticated administrative request to the broker. Terminal enrollment is refused,
+even when a controlling TTY is available; passwords and tokens are never command arguments,
+environment variables or terminal prompts. The development CLI exposes only `demo.status`.
+
+Do not enroll production credentials until provisioning, protected-key signing and installed
+isolation gates pass. The fixed `github.profile` adapter remains available through the
+production broker/app architecture; it is not exposed by the synthetic terminal fixture.
+Revocation blocks new calls and suppresses in-flight results, but cannot recall a request
+already received by the approved service.
+
+## Local plugin and release work
+
+`plugin.json` and `mcp.json` launch `/Library/AgentVault/agent-vault-bridge mcp` through a
+small script. No development client ID or secret is passed in the host environment. Cloning
+or building does not install the plugin, daemon, app or account or modify other applications.
+
+Run the complete local checks:
 
 ```sh
-.build/debug/agent-vault enroll github
-.build/debug/agent-vault client
-.build/debug/agent-vault grant --client-id CLIENT_UUID --account-id ACCOUNT_UUID --seconds 3600 --calls 20
+swift test --force-resolved-versions
+python3 scripts/verify-mcp.py
+python3 scripts/verify-boundaries.py
+python3 scripts/verify-xpc.py
+python3 scripts/verify-installer.py
 ```
 
-Then call `action_run` with `github.profile`. The destination, method and output
-schema are fixed. Redirects are rejected; upstream errors and headers are not returned.
-The GitHub service and local operating system remain trusted.
+The XPC harness uses uniquely named temporary user launch agents and removes exactly its own
+jobs. It proves same-UID process authentication only. The release script creates a Developer ID
+signed review bundle under ignored `dist/`, with a dependency inventory and manifest; it never
+installs. A matching Developer ID provisioning profile is required for the app's protected
+Keychain key. Missing provisioning/notarization or unmeasured isolation does not become a
+production-ready release.
 
-```sh
-.build/debug/agent-vault revoke-grant --grant-id GRANT_UUID
-.build/debug/agent-vault revoke-client --client-id CLIENT_UUID
-```
-
-Attempted operations consume budget even if the provider fails. Revocation blocks
-new calls and suppresses the result of an in-flight call; it cannot recall a request
-already received by the provider.
-
-## Local plugin package
-
-`plugin.json` and `mcp.json` describe a local plugin. Build with `swift build -c release`,
-then configure `AGENT_VAULT_CLIENT_ID` in the host's MCP launch environment.
-`scripts/run-mcp.sh` refuses to start without that configuration or a built binary.
-The package is not automatically installed in a host by cloning this repository.
-No cloud server or OpenAI directory listing is provisioned.
-
-Metadata defaults to `~/.local/share/agent-vault/`. Credentials use the Keychain
-service `io.agent-vault.credentials.v1`. State and Keychain namespace overrides
-exist for developer tests; MCP callers cannot change them through tool arguments.
-Terminal enrollment rejects tokens longer than 256 bytes. The development CLI
-does not yet offer account deletion, credential rotation or recovery of enrollment
-interrupted between Keychain and metadata writes. Use temporary namespaces for
-disposable test accounts. Metadata caps are 128 accounts, 128 clients and 512 grants;
-new enrollment/grants fail at capacity while revocation remains available.
+State and credentials for the legacy CLI default to `~/.local/share/agent-vault/` and its own
+Keychain namespace. Installed broker state is separate under `/private/var/db/agent-vault`.
+No existing developer state or personal Keychain is migrated automatically.
 
 See the [implementation plan](docs/IMPLEMENTATION-PLAN.md),
 [architecture](docs/ARCHITECTURE.md), [threat model](docs/THREAT-MODEL.md),
-and [security reporting policy](SECURITY.md).
+[native app](docs/NATIVE-APP.md), [IPC evidence](docs/IPC.md), and [security policy](SECURITY.md).
