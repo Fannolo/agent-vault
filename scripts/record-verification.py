@@ -33,6 +33,7 @@ CHECKS = {
                      "HeadlessContinuationE2ETests|SecretBoundaryTests|SecretExposureDetectorTests"],
     "webhost-release": [sys.executable, "-I", "deploy/tests/test_webhost_distribution.py"],
     "webhost-release-optimized": [sys.executable, "-I", "-O", "deploy/tests/test_webhost_distribution.py"],
+    "secret-driver": [sys.executable, "-I", "deploy/tests/test_secret_boundary_driver.py"],
     "webhost-browser-mutations": [sys.executable, "scripts/verify-webhost-mutations.py"],
     "continuation-mutations": [sys.executable, "scripts/verify-continuation-mutations.py"],
     "xpc": [sys.executable, "scripts/verify-xpc.py"],

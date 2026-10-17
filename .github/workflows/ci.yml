@@ -28,6 +28,12 @@ jobs:
         run: python3 -I deploy/tests/test_xpc_cleanup.py
       - name: Verify web host harness process ownership
         run: python3 -I deploy/tests/test_webhost_link_mutations.py
+      - name: Verify secret-boundary mutation driver source guard
+        run: python3 -I deploy/tests/test_secret_boundary_driver.py
+      - name: Verify disabled offline web host preparation
+        run: python3 -I deploy/tests/test_webhost_distribution.py
+      - name: Verify offline preparation with Python assertions disabled
+        run: python3 -I -O deploy/tests/test_webhost_distribution.py
       - name: Verify evidence recorder behavior
         run: python3 -I deploy/tests/test_recorder.py
       - name: Build release executable
