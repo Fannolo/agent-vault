@@ -31,6 +31,8 @@ CHECKS = {
     "webhost-real": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter", "AgentVaultWebHostTests"],
     "headless-e2e": ["swift", "test", "--force-resolved-versions", "-j", "4", "--filter",
                      "HeadlessContinuationE2ETests|SecretBoundaryTests|SecretExposureDetectorTests"],
+    "webhost-release": [sys.executable, "-I", "deploy/tests/test_webhost_distribution.py"],
+    "webhost-release-optimized": [sys.executable, "-I", "-O", "deploy/tests/test_webhost_distribution.py"],
     "webhost-browser-mutations": [sys.executable, "scripts/verify-webhost-mutations.py"],
     "continuation-mutations": [sys.executable, "scripts/verify-continuation-mutations.py"],
     "xpc": [sys.executable, "scripts/verify-xpc.py"],

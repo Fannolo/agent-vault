@@ -70,3 +70,13 @@ admission. U5 joins these paths to the real host with a synthetic origin and fix
 Visible GUI and installed protected-key continuation remain unverified. Host peer loss is terminal and teardown prevents new context creation.
 The production broker still configures no host, the app refuses browser enrollment,
 and every installed isolation and egress proof gate (P0–P4) remains open.
+
+## Offline distribution preparation
+
+`prepare-webhost-release.py` validates and stages an explicitly supplied local browser,
+host and evidence set. Its checked-in pin refuses preparation until reviewed inputs exist.
+Archive hash and ZIP inspection use one bounded anonymous snapshot; publication uses pinned
+directory descriptors and conservative trusted-ancestry/ACL checks. All activation, runtime
+proof and notarization flags remain false, and configuration/plist outputs are disabled.
+This is not an installer or P0–P4 proof. See the
+[preparation scope](design/browser-host/selected-headless/U6-DISTRIBUTION-PREPARATION.md).

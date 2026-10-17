@@ -19,8 +19,14 @@ boundaries without claiming production readiness or 1Password equivalence.
 
 U5's real-host-to-app-model composition and legacy WebKit removal are integrated from
 `4a0cf25`/`265debd`. Grok 4.7 conditionally accepted the development units and identified
-bounded test/evidence gaps. The separate canary unit and its corrections await integration;
-parent verification is pending. The old U2–U4 record below remains historical evidence.
+bounded test/evidence gaps. The canary unit and review corrections are integrated as `6966fae`/`f458398`;
+parent verification of the final combined source is pending. The U5 browser mutation
+record below passes all 20 deliberate defense removals on `6f4e506` after a passing
+baseline and restored build, with unchanged source and selected browser executable. The old U2–U4 record below remains historical evidence.
+Offline U6 preparation is integrated as `ac7b71b`/`c3e0f6f`: bounded archive snapshots,
+pinned publication descriptors and conservative ancestry/ACL validation address two
+Medium review findings. It emits only disabled, noninstallable payloads; it is not runtime
+U6 completion. Operator-supplied metadata/report receipts remain unauthenticated evidence.
 Release preflight retains the missing matching Bite provisioning and AgentVault notarization
 profiles as open prerequisites; no deployment or real credential enrollment has occurred.
 
