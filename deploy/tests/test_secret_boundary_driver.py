@@ -29,10 +29,14 @@ def uses_canonical_source_guard(source):
     if len(guards) != 1:
         return False
     # Merely mentioning the helper cannot protect commands executed outside its context.
-    return any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-               and node.func.id == 'execute' and node.args
-               and isinstance(node.args[0], ast.Constant) and node.args[0].value == 'noop-build'
-               for statement in guards[0].body for node in ast.walk(statement))
+    guarded_commands = {
+        node.args[0].value
+        for statement in guards[0].body for node in ast.walk(statement)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id == 'execute' and node.args
+        and isinstance(node.args[0], ast.Constant)
+    }
+    return {'noop-build', 'noop-boundary'} <= guarded_commands
 
 
 class SecretBoundarySourceGuardTests(unittest.TestCase):
@@ -61,9 +65,18 @@ execute('noop-build', command, 600)
         direct_write = '''
 with helper.changed_source(source, original, mutated):
     execute('noop-build', command, 600)
+    execute('noop-boundary', command, 240)
 source.write_bytes(original)
 '''
         self.assertFalse(uses_canonical_source_guard(direct_write))
+
+    def test_mutant_test_outside_guard_is_rejected(self):
+        escaped_test = '''
+with helper.changed_source(source, original, mutated):
+    execute('noop-build', command, 600)
+execute('noop-boundary', command, 240)
+'''
+        self.assertFalse(uses_canonical_source_guard(escaped_test))
 
 
 if __name__ == '__main__':
