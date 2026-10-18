@@ -1,0 +1,35 @@
+{
+  "scope": "Signed local diagnostic UI; actual user-presence result pending",
+  "sourceCommit": "ee5c4e4b7eb9cfb47497b0627ba2ad4a57184959",
+  "sourceDirty": false,
+  "defaultSwiftRegisteredTests": 352,
+  "defaultSuiteOptOutSkips": true,
+  "newBehaviorTests": 5,
+  "mcpPassed": true,
+  "boundariesPassed": true,
+  "profileEmbedded": true,
+  "strictRoleSignaturesVerifiedByBuilder": true,
+  "manifestFileHashesVerified": true,
+  "archiveSHA256": "2673c6162224c2f3042956f39a6f4b90986259cd1a187b4abb48e5521a81b0cf",
+  "actualNativeSigningVerified": false,
+  "notarized": false,
+  "productionIsolationVerified": false,
+  "logs": [
+    {
+      "path": "verification-logs/reviews/approval-self-test-swift.log",
+      "sha256": "07eec1aa2cca5d9eb65fd051352e1d293dfb616647bb5cadb7b25684df60671a"
+    },
+    {
+      "path": "verification-logs/reviews/approval-self-test-mcp.log",
+      "sha256": "2fd9cda462f7c45f73c823ca3d27b2c8abb245f6b8ecd1ee216ec5cd98f2b540"
+    },
+    {
+      "path": "verification-logs/reviews/approval-self-test-boundaries.log",
+      "sha256": "94ce263f37288bd47d38f2d9c80395de702bfd92d1f3c09fefaaf3fa8083be93"
+    },
+    {
+      "path": "verification-logs/reviews/approval-self-test-release.log",
+      "sha256": "af0d75c4dc0506c94dfe790b57ec243e9dd3b7ef5510e9bebed6104f274dcc5d"
+    }
+  ]
+}
