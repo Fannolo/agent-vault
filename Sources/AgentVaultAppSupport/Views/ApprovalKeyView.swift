@@ -23,6 +23,17 @@ struct ApprovalKeyView: View {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(registration.publicKeyBase64, forType: .string)
                     }
+                    if registration.protection != .softwareFixture {
+                        Button("Test Approval") { Task { await model.testApprovalKey() } }
+                            .disabled(model.approvalKeyTest == .testing)
+                        switch model.approvalKeyTest {
+                        case .notTested: Text("Test a local approval using Touch ID or your Mac password.")
+                        case .testing: ProgressView("Waiting for macOS approval…")
+                        case .passed: Label("Approval test passed", systemImage: "checkmark.shield.fill")
+                        case .cancelled: Text("Approval test cancelled. You can try again.")
+                        case .failed: Text("Approval test failed. The protected key could not be verified.")
+                        }
+                    }
                 } else if let problem = model.keyProblem {
                     Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     Button("Try Again") { Task { await model.loadApprovalKey() } }

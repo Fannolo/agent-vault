@@ -11,7 +11,11 @@ value goes into one admin request and the form state is cleared before the reque
 Accounts (add, replace, delete), Clients (pair by UID, revoke), Grants (client + account,
 expiry, call budget, per-call approval toggle, revoke), Requests (waiting or approved; only
 `waiting` has Approve/Reject), Audit (metadata table and JSON export, mode 0600) and Approval Key
-(protection level, public key and its SHA-256 fingerprint to register).
+(protection level, public key and its SHA-256 fingerprint to register). **Test Approval**
+asks for fresh macOS user presence, signs a fixed-format random local diagnostic message,
+and verifies it against the loaded public key. It displays only pass/cancel/fail status;
+no signature is exported and no broker/account mutation is requested. Passing this check
+is local signing evidence, not installed broker isolation or production readiness.
 
 ## Admin protocol
 

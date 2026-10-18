@@ -1,4 +1,5 @@
 import AgentVaultContracts
+import CryptoKit
 import Foundation
 import Observation
 
@@ -10,6 +11,7 @@ public struct Notice: Equatable, Sendable, Identifiable {
 }
 
 public enum AuditStatus: Equatable, Sendable { case notLoaded, loaded, unavailable }
+public enum ApprovalKeyTestStatus: Equatable, Sendable { case notTested, testing, passed, cancelled, failed }
 
 public enum AppSheet: String, Identifiable, Sendable { case enroll, pair, grant; public var id: String { rawValue } }
 
@@ -27,6 +29,7 @@ public final class AppModel {
     public private(set) var auditStatus = AuditStatus.notLoaded
     public private(set) var registration: ApprovalKeyRegistration?
     public private(set) var keyProblem: String?
+    public private(set) var approvalKeyTest = ApprovalKeyTestStatus.notTested
     public private(set) var brokerReachable: Bool?
     public private(set) var isBusy = false
     public var notice: Notice?
@@ -76,6 +79,8 @@ public final class AppModel {
     public func refreshAudit() async { await refresh() }
 
     public func loadApprovalKey() async {
+        guard approvalKeyTest != .testing else { return }
+        approvalKeyTest = .notTested
         do {
             registration = try await signer.registration()
             keyProblem = nil
@@ -85,6 +90,32 @@ public final class AppModel {
         } catch {
             registration = nil
             keyProblem = "The approval key is unavailable."
+        }
+    }
+
+    /// Local diagnostic only. No caller-selected payload or signature leaves this method.
+    public func testApprovalKey() async {
+        guard approvalKeyTest != .testing else { return }
+        guard let key = registration, key.protection != .softwareFixture else {
+            approvalKeyTest = .failed
+            return
+        }
+        approvalKeyTest = .testing
+        // Domain-separated from the broker's structured approval challenges.
+        let payload = Data(("AgentVault local approval self-test v1\n" + UUID().uuidString).utf8)
+        do {
+            let signature = try await signer.sign(payload: payload, reason: "Test Agent Vault approval on this Mac")
+            guard !Task.isCancelled, registration == key else {
+                approvalKeyTest = .cancelled
+                return
+            }
+            let publicKey = try P256.Signing.PublicKey(x963Representation: key.publicKeyX963)
+            let parsed = try P256.Signing.ECDSASignature(derRepresentation: signature)
+            approvalKeyTest = publicKey.isValidSignature(parsed, for: payload) ? .passed : .failed
+        } catch ApprovalSigningError.userCancelled {
+            approvalKeyTest = .cancelled
+        } catch {
+            approvalKeyTest = .failed
         }
     }
 
