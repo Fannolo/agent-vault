@@ -1,5 +1,20 @@
 # Threat model and measured guarantees
 
+The separate portable codec under `Packages/VaultCore` is a new development unit. Its
+current scope is signed immutable encrypted records with trusted fixture keys; it proves
+no cloud enrollment/sync, native Linux isolation, recovery/revocation or browser integration.
+The [multi-platform design](design/multiplatform/DESIGN.md) describes the new target and
+explicit limitations. Existing implemented macOS boundaries below remain in force until
+a separately reviewed migration; cloud login must never become vault decryption authority.
+
+The prototype AVSEAL01 version 1 format exposes record length, identifiers, ancestry and
+recipient metadata. It has no padding or explicit data-key commitment. An authorized
+writer is not proven to give every recipient a consistent plaintext. A reviewed successor
+format is a gate before persistent real-password storage or cross-user sharing. Current
+LoginItem plaintext is for trusted service code only; aggregate redaction does not hide
+an explicitly read password property or guarantee memory erasure. See the design's
+[format limits and storage gate](design/multiplatform/DESIGN.md#format-limits-and-storage-gate).
+
 Agent Vault exposes fixed read-only operations and safe metadata. No MCP operation returns a
 password, PIN, token, cookie, raw page, profile path, CDP endpoint, arbitrary URL, executable
 recipe or script. Every invocation checks a live account/action grant, reserves attempt budget,

@@ -1,5 +1,41 @@
 # Implementation plan
 
+## Multi-platform checkpoint: 21 October 2026
+
+The confirmed product scope includes independent native Linux and macOS hosts, account
+signup/login, encrypted cloud sync and discovery-first private login for approved agents.
+Broad website grants include submissions, messages, payments, deletion and security changes.
+The [selected architecture](design/multiplatform/DESIGN.md) replaces the Mac-relay proposal;
+it does not silently broaden existing fixed-action grants or imply those features ship today.
+
+First implementation: isolated `Packages/VaultCore`, AVSEAL01 signed immutable multi-recipient
+records using exact Swift Crypto 5.0.3. Sixteen tests pass on native macOS and Linux arm64;
+synthetic ciphertext opens across both directions. Compiled plaintext-log and signature-bypass
+defects are detected, and original source stays unchanged. Grok 4.7 and Opus 5.5 independently
+checked that initial source and evidence. Opus found a latent low-order-X25519 validation
+gap, which must be corrected before enrollment supplies any real recipient key. The
+correction now passes 21 tests on each platform, bidirectional exchange, 12 compiled
+defense-removal controls across both platforms, nine verifier tests and a cleanup-error
+regression control. CryptoKit rejected unchecked low-order HPKE natively; the pinned
+Linux backend permitted it. The codec now rejects invalid recipient and encapsulated
+keys before HPKE use. The [verification record](verification/portable-codec-v1.json) binds
+the corrected source/evidence. Opus 5.5 and Grok 4.7 independently accept that bounded
+fixture unit with no new blocker. This is not acceptance of a production password manager.
+
+Next units: signed membership/checkpoints and local encrypted storage; native Linux authority
+and UI; cloud auth/sync and pairing/recovery; private browser discovery/continuing operation;
+headless Linux-to-Linux approval; secure import/migration and actual distribution; explicit
+cross-user collections/sharing. Version 1 has no padding or key commitment and remains
+fixture-only. A reviewed successor format is required before persistent real-password
+storage or sharing; membership work can proceed with synthetic records. Current
+app/broker/MCP/root package remain unchanged by the portable codec. No live cloud or Linux
+password-manager app is claimed. Existing checkpoints below remain historical evidence.
+
+Before the next unit: add the Linux open-side validation removal control, an executable
+fixture-only dependency guard and explicit admitted-recipient matching. Broader Ed25519
+verification vectors and software-versus-hardware key custody must be resolved before
+multiwriter authority and platform adapters. See the [review responses](design/multiplatform/REVIEW-RESPONSES.md).
+
 ## Current checkpoint: 17 October 2026
 
 | Workstream | Implemented | Remaining verification |

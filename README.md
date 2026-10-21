@@ -1,7 +1,19 @@
 # Agent Vault
 
-Agent Vault is a native macOS credential broker for fixed agent operations, with a human
-approval app and a thin stdio MCP bridge.
+Agent Vault is building a free, open-source password manager for agents on macOS and Linux,
+with native local vaults/private browsers and client-side encrypted cloud synchronization.
+An agent should notice a website is logged out, ask whether it may use an approved account,
+and request private login without receiving password text.
+
+The current app is a macOS broker for fixed operations. Linux UI/broker, cloud signup/sync
+and general website operation are not implemented yet. The first portable component is
+the standalone [sealed-record core](Packages/VaultCore), tested on macOS and Linux with
+bidirectional synthetic ciphertext exchange. It is not connected to current app products.
+Its corrected codec passes 21 tests per platform and 12 deliberate-defense-removal checks;
+Opus 5.5 and Grok 4.7 accepted that bounded unit. Version 1 stays fixture-only until a reviewed format
+with padding and explicit key commitment is ready for real-password storage.
+See the [product goal](docs/PRODUCT-GOAL.md), [multi-platform design](docs/design/multiplatform/DESIGN.md)
+and [codec evidence](docs/verification/portable-codec-v1.json) for scope and remaining work.
 
 **Development build: dedicated-user isolation, real protected-key signing and notarization
 remain release gates. Do not use production passwords or PINs yet.**
@@ -25,6 +37,26 @@ The bridge and app do not link Core or the service credential store. Permissions
 an authenticated bridge and paired OS user; a model-supplied identity does not authorize calls.
 The legacy CLI below remains a same-user development fixture and is excluded from distribution
 review bundles.
+
+## Portable codec development
+
+The separate package uses pinned Swift Crypto and synthetic fixtures only. It has no CLI,
+cloud access, Keychain access or executable product:
+
+```sh
+swift test --package-path Packages/VaultCore --force-resolved-versions
+```
+
+On a macOS development host with Docker, run the Linux interoperability checks and the
+deliberate-defect checks using the result path printed by the first command:
+
+```sh
+python3 -I scripts/verify-portable-vault.py
+python3 -I scripts/verify-portable-vault-controls.py PATH_TO_RESULT_JSON
+```
+
+These checks prove bounded codec behavior, not account signup, live cloud sync, installed
+OS isolation or a production password manager.
 
 ## Try the synthetic demo
 

@@ -1,0 +1,238 @@
+{
+  "unit": "portable-sealed-revision-v1",
+  "status": "bounded_fixture_unit_independently_accepted",
+  "base_revision": "2d393f6",
+  "source_tree_sha256": "8d2470defaadd67e255535186c35d876fc80f932a647e4eb83a449f8cf29f076",
+  "hash_scope": "Packages/VaultCore Package.swift, Package.resolved, sorted Sources/*.swift then Tests/*.swift; each relative path NUL bytes NUL",
+  "dependency_pins": {
+    "swift-asn1": {
+      "revision": "3b6410f7dee09eb33cdd26260c5fd47fda19b0e2",
+      "version": "1.7.3"
+    },
+    "swift-crypto": {
+      "revision": "c2cbadd7263439d8015189668f96ff5b5be565ce",
+      "version": "5.0.3"
+    }
+  },
+  "native": {
+    "os": "macOS 15.6.1",
+    "architecture": "arm64",
+    "swift": "6.2.4",
+    "tests_passed": 21
+  },
+  "linux": {
+    "image": "swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197",
+    "os": "Linux",
+    "architecture": "arm64 (aarch64)",
+    "tests_passed": 21,
+    "container_exit_code": 0,
+    "owned_container_removed": true
+  },
+  "interoperability": {
+    "mac_to_linux": true,
+    "linux_to_mac": true,
+    "corrupted_exchanged_record_rejected": true,
+    "two_device_and_recovery_recipients_open": true,
+    "unrelated_key_rejected": true
+  },
+  "detector_controls": [
+    {
+      "defect": "plaintext_log",
+      "platform": "native",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 0,
+      "owned_copy_restored": true,
+      "test_output_sha256": "12e6014622bec14f40f205263c7c03f757f2320eedbe448c01c735ed3fbfa1e7"
+    },
+    {
+      "defect": "plaintext_log",
+      "platform": "linux",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 0,
+      "owned_copy_restored": true,
+      "test_output_sha256": "b9b82939a0aaaabf37dd29a668ed4cf5f80fcb94a16c97caf78b534971047150"
+    },
+    {
+      "defect": "signature_bypass",
+      "platform": "native",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "265feaff8ecf862db1fc57487490fd81cf0ed59b883662c81b97d65a3bb75682"
+    },
+    {
+      "defect": "signature_bypass",
+      "platform": "linux",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "a58a98c69ad75676647840af8a9353d303413713d4a6c499dab84279fac32d0b"
+    },
+    {
+      "defect": "context_bypass",
+      "platform": "native",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "0fc630e6468381c5f928d53521412dddfb17d050cce34fa1602b1f2f6358e49f"
+    },
+    {
+      "defect": "context_bypass",
+      "platform": "linux",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "d281bc1dc196ad333df15e4e48872148dc663c0d2906bcf1f01f0af0767a6bb6"
+    },
+    {
+      "defect": "role_binding_bypass",
+      "platform": "native",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "a58f0bbd1a571740cd00be274ec17e158f9bd7f19b2f493e74f050b7a407da07"
+    },
+    {
+      "defect": "role_binding_bypass",
+      "platform": "linux",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "7cf4c3470f084ceaea736ed6bd3fb23ca46c550351ecede27dba6ae43f4cc22b"
+    },
+    {
+      "defect": "recipient_order_bypass",
+      "platform": "native",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "d47a15ed23baeea35ff6b0d2a3caf67d343ec96656b9186a6d6778b36a79502b"
+    },
+    {
+      "defect": "recipient_order_bypass",
+      "platform": "linux",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "c60208133aa5514d7b2ae82082f406a66cc14f8129a7e50f37bb5b0e244a3947"
+    },
+    {
+      "defect": "low_order_recipient_bypass",
+      "platform": "native",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "c6ad9f70a34928cf73b0c86d3a1f50c8020a5173408c3caa308aa2069f06c79b"
+    },
+    {
+      "defect": "low_order_recipient_bypass",
+      "platform": "linux",
+      "detected": true,
+      "build_exit_code": 0,
+      "test_exit_code": 1,
+      "owned_copy_restored": true,
+      "test_output_sha256": "ea4436b6df6f700d8d6cdb9e35a53277c1d00390ecdf87a22a0f00d88e464bdb"
+    }
+  ],
+  "harness_tests_passed": 9,
+  "harness_source_sha256": {
+    "scripts/verify-portable-vault.py": "9e6f9dbe430a661feb602d8e7ff55812ac0d369a87d579c2f5b0037afbd86adf",
+    "scripts/verify-portable-vault-controls.py": "ccf93eceb577ab5ddac20aede2d01fb6a2583653ac3b13f2c02ffd9db64f73e3",
+    "deploy/tests/test_portable_vault_verifier.py": "691b70526f71479fa8946b1109417df4d4419240a700cf8d588b144f6346c80e",
+    "scripts/verify-webhost-link-mutations.py": "dac31914837ba341fa5b31f8ee3081a34f460d28654309f2ee1e3cb4029f74ba"
+  },
+  "evidence_paths": [
+    "verification-logs/portable-vault/a75f079509854e82873116952e44e4d6/result.json",
+    "verification-logs/portable-vault-controls/b3911ea2293b471fa17db5027b19642a/result.json",
+    "verification-logs/review-fixes/5a13b652b8664f118d33b1ec303e484a/python-regression-result.json"
+  ],
+  "limits": [
+    "Synthetic codec evidence only; no real credentials used.",
+    "Output scans cover specified synthetic canaries and raw/hex/base64 forms, not arbitrary information flow.",
+    "No signup, live cloud sync, native Linux UI/broker, device enrollment/revocation or browser integration implemented.",
+    "No installed isolation, notarization or password-manager security parity claim.",
+    "Version 1 exposes exact payload length and public record/recipient metadata, and has no data-key commitment.",
+    "Dependency downloads are allowed; these builds are not hermetic.",
+    "LoginItem plaintext belongs to trusted service code only; explicitly reading its password property reveals bytes."
+  ],
+  "history": [
+    {
+      "source_tree_sha256": "476cd5dbc83817e8b8df0476a03957498b313d83482f21f87412b8f21ee5e1c6",
+      "tests_per_platform": 16,
+      "controls": [
+        {
+          "defect": "plaintext_log",
+          "detected": true,
+          "build_exit_code": 0,
+          "test_exit_code": 0,
+          "owned_copy_restored": true
+        },
+        {
+          "defect": "signature_bypass",
+          "detected": true,
+          "build_exit_code": 0,
+          "test_exit_code": 1,
+          "owned_copy_restored": true
+        }
+      ],
+      "evidence_paths": [
+        "verification-logs/portable-vault/5f4088ea108b463ca4c49708a681d64c/result.json",
+        "verification-logs/portable-vault-controls/445d98c070a345ec8909cac3a108b090/result.json"
+      ],
+      "verdict": "independent_review_required_corrections"
+    }
+  ],
+  "captured_runtime": {
+    "native": {
+      "swift": "swift-driver version: 1.127.15 Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)\nTarget: arm64-apple-macosx15.0",
+      "os": "ProductName:\t\tmacOS\nProductVersion:\t\t15.6.1\nBuildVersion:\t\t24G90",
+      "architecture": "arm64"
+    },
+    "linux_image": {
+      "Id": "sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197",
+      "Os": "linux",
+      "Architecture": "arm64",
+      "RepoDigests": [
+        "swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197"
+      ]
+    }
+  },
+  "cleanup_regression_control": {
+    "defect": "cleanup_overwrites_primary_failure",
+    "detected": true,
+    "restored_harness_tests_passed": 9
+  },
+  "independent_review": {
+    "initial_source": [
+      "Grok 4.7",
+      "Opus 5.5"
+    ],
+    "corrected_source": "accepted_bounded_fixture_unit",
+    "responses": "docs/design/multiplatform/REVIEW-RESPONSES.md",
+    "reviewers": [
+      {
+        "model": "Opus 5.5",
+        "verdict": "accept; no new blocker",
+        "scope": "corrected codec and evidence only"
+      },
+      {
+        "model": "Grok 4.7",
+        "verdict": "accept; no new blocker",
+        "scope": "corrected codec and evidence only"
+      }
+    ],
+    "production_approval": false
+  },
+  "format_status": "AVSEAL01 v1 synthetic only; reviewed successor with commitment and padding required before real-password storage or sharing"
+}
