@@ -183,6 +183,12 @@ sync, installed isolation, device membership/revocation, website login or produc
 
 ## Subsequent delivery units
 
+The first group's accepted [membership design](MEMBERSHIP.md) separates an integration
+guard/verification unit, session-local membership plus stateless authorization, and a later
+retained-revision store. Its membership digest hashes the signed body without its signature;
+the AVSEAL01 parent/revision digest above still hashes the complete immutable record.
+Accepted design does not imply these units are implemented.
+
 1. Signed membership, local encrypted database, pinned checkpoints and explicit conflicts.
    Resolve the successor-format storage gate above before persisting real credentials;
    define authenticated deletion/tombstones and parent resolution in this unit.

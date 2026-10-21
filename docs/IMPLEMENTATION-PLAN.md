@@ -31,10 +31,38 @@ storage or sharing; membership work can proceed with synthetic records. Current
 app/broker/MCP/root package remain unchanged by the portable codec. No live cloud or Linux
 password-manager app is claimed. Existing checkpoints below remain historical evidence.
 
-Before the next unit: add the Linux open-side validation removal control, an executable
-fixture-only dependency guard and explicit admitted-recipient matching. Broader Ed25519
+U0 adds the Linux open-side validation removal control and executable fixture guard.
+The membership unit still requires explicit admitted-recipient matching. Broader Ed25519
 verification vectors and software-versus-hardware key custody must be resolved before
 multiwriter authority and platform adapters. See the [review responses](design/multiplatform/REVIEW-RESPONSES.md).
+
+The [portable membership design](design/multiplatform/MEMBERSHIP.md) is now accepted after
+revision and a fresh Opus review. It separates controller signing from reader validation
+and uses a signature-independent membership body digest. A native synthetic probe confirms
+different valid CryptoKit signatures can cover the same message/key.
+
+Implementation is split into portable membership U0 (guard, unchanged codec baselines and
+raw open-side control), U1 (session-local lineage and stateless revision authorization),
+then separately reviewed U2 (retained revisions and ancestry/conflicts). The corrected U0
+snapshot passes unchanged 21-test codec suites on Mac and Linux, 50 guard tests and 22 runner
+tests in each Python mode. Its raw open-side removal produces exactly 14 expected Linux
+failures; native masking is recorded separately. Root Swift testing reports 352 tests with
+24 existing gated tests skipped; MCP checks pass. Final current-source controls detect
+eight guard mutants and five runner regressions in both Python modes: 26 detections and
+26 passing targeted restores. Both full suites pass before and after, with no skips.
+The owned copies and 164 source inputs remain unchanged.
+
+Both first-round reviewers confirmed the initial runtime evidence. Real local SwiftPM
+probes also reproduced Opus's cold-output, pin-enforcement and canonical-source-path findings.
+The corrections isolate graph JSON, force pins, inspect dependency compiler inputs by file
+identity, honor the cleanup scan flag and include runner tests in CI. Opus 5.5 and Grok 4.7
+accept that corrected bounded unit. Opus also accepts the small follow-up that refuses a
+missing fixture directory, resolves pins before CI guard queries and records scan policy
+explicitly. The exact reviewed follow-up is applied and its current-source runtime checks
+pass. No membership feature is claimed. See the [U0 record](verification/membership-u0.json).
+Existing codec files, root app source and live credentials remain outside this change.
+Real-password storage and sharing still require the successor format and durable
+authority/storage gates.
 
 ## Current checkpoint: 17 October 2026
 

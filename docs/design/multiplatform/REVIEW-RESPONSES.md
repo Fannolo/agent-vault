@@ -74,6 +74,30 @@ Curve25519 keys from hardware-backed approval keys. Tighten the corrupt-record e
 and bind the Python regression's exact verifier/test/log hashes in the next harness update.
 The old package/control copies beside that Python-only regression are not its source proof.
 
+The subsequent [membership U0 record](../../verification/membership-u0.json) closes the
+open-side control and executable guard follow-ups without changing the codec. Its baseline
+reruns all 21 codec tests on each platform. The open-side removal produces exactly 14
+attributable Linux failures; native CryptoKit masks it. A wrapper-package bypass found by
+root review is fixed by validating the complete resolved dependency tree, with positive
+safe-wrapper and negative bypass controls. U0 also binds its exact runner/test/helper/log
+inputs and checks the detector and hash verifier with deliberate regressions. These new
+results do not add to or repeat the earlier 12 codec controls. Both first-round reviewers
+confirmed that evidence. Opus also found guard and cleanup gaps; real local SwiftPM probes
+reproduced the guard issues. Corrected source now uses private resolved-graph JSON, forced
+pins and filesystem-identity checks on dependency target/source paths. Safe ancestor and
+symlink wrappers remain supported. The runner honors the cleanup scan flag, runs from
+outside the repository and has both Python modes in CI. Updated native/Linux proof passes;
+seven guard mutants and three runner regressions are detected in each mode and restored.
+Opus 5.5 and Grok 4.7 accept the corrected bounded unit. Opus accepts a narrow follow-up
+for a missing directory anchor, an explicit pinned CI resolve and recorded scan policy.
+The exact follow-up is applied; fresh current-source native/Linux proof passes. Its
+unscanned container inspection is marked explicitly and is not called a clean scan.
+Final current-source recording detects eight guard mutants and five runner regressions
+in both Python modes, with 26 passing targeted restores and no skipped tests. All 164
+source inputs and restored owned copies match. The directory-content and selected manifest
+scan limits are recorded in MEMBERSHIP.md. Tightening the exchange marker belongs to
+U1's exchange.
+
 The Linux build uses the pinned official image and pinned source revisions, but permits
 dependency downloads; it is not a hermetic build. Output scanning checks specified synthetic
 values in raw ASCII/hex/base64 representations. The owned runner decodes process output

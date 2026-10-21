@@ -7,6 +7,17 @@ The [multi-platform design](design/multiplatform/DESIGN.md) describes the new ta
 explicit limitations. Existing implemented macOS boundaries below remain in force until
 a separately reviewed migration; cloud login must never become vault decryption authority.
 
+The root build's fixture-only maintenance guard rejects the portable package through
+direct or transitive dependencies and checks declared compiler source paths by filesystem
+identity, including dependency targets. Queries enforce pins and isolate resolved JSON from
+normal fetch diagnostics. It trusts SwiftPM's metadata and does not detect copied/renamed
+implementations, trace arbitrary compiler plugins or constrain a hostile maintainer.
+It is not an OS sandbox or a runtime credential boundary.
+The directory anchor does not authenticate fixture contents. A leftover ignored .build
+directory after a local move can hide a renamed fixture from the local path check.
+Clean CI checkouts refuse a missing anchor. The token/symlink manifest scan covers the
+default Package.swift only; semantic graph checks use SwiftPM's selected manifest.
+
 The prototype AVSEAL01 version 1 format exposes record length, identifiers, ancestry and
 recipient metadata. It has no padding or explicit data-key commitment. An authorized
 writer is not proven to give every recipient a consistent plaintext. A reviewed successor
