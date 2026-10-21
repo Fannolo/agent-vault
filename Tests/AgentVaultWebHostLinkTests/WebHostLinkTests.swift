@@ -10,9 +10,11 @@ import Testing
 
     @Test func genuineHostRunsTheFullVocabulary() async throws {
         let host = TestHost(handler: pausingHost)
-        let link = link { host.endpoint }
+        // Exercise the vocabulary with production budgets, including cold XPC authentication.
+        let link = link({ host.endpoint }, budgets: .standard)
         let run = BrowserRunID()
-        #expect(await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(600)) == .humanStep(.mfa))
+        let startResult = await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(600))
+        #expect(startResult == .humanStep(.mfa))
         #expect(await link.showHuman(step(run)))
         let frame = await link.frame(step(run), after: 0)
         #expect(frame?.sequence == 1 && frame?.width == 4)
