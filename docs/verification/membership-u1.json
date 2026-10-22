@@ -414,7 +414,7 @@
   ],
   "recorded_revision": "7972b596eb015c1b73c724d45758b8b413573af2",
   "ci_test_followup": {
-    "scope": "Test-only correction after the recorded runtime/review checkpoint. Existing receipt fields remain historical for7972b59.",
+    "scope": "Test-only correction after the recorded runtime/review checkpoint. Existing receipt fields remain historical for 7972b59.",
     "failure": "The test called valid balanced deep JSON invalid, depending on a decoder recursion limit. Both initial macos jobs failed that assertion.",
     "change": "Use genuinely unclosed JSON and mock decoder RecursionError to check existing error mapping. No executable verifier, parser, control-driver, Swift or app change.",
     "failed_jobs": [
@@ -451,6 +451,8 @@
       "normal_increased_recursion",
       "optimized_increased_recursion"
     ],
-    "runtime_receipt_policy": "Old receipts remain historical; current CLI refuses the old baseline after the bound test hash changes. No fresh Mac/Linux recording or CI success is claimed by this followup."
+    "local_test_interpreter": "Xcode Python 3.9.6",
+    "runtime_receipt_policy": "Old receipts remain historical; current CLI refuses the old baseline after the bound test hash changes. No fresh Mac/Linux recording or CI success is claimed by this followup.",
+    "runtime_receipt_policy_basis": "Source and unit-test supported policy; no CLI invocation against the historical baseline is logged in this transition."
   }
 }

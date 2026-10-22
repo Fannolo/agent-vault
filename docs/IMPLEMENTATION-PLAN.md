@@ -30,13 +30,16 @@ nor U2.
 CI exposed a test that incorrectly treated a balanced 2,000-level JSON array as malformed.
 Local Python rejected it at its recursion limit, while CI's decoder accepted the valid JSON.
 The test now uses an unclosed array and directly checks the existing `RecursionError`
-mapping with a mock. All 61 tests pass in normal and optimized modes, under both the default
-recursion limit and an increased limit. Parser, verifier and Swift code remain unchanged.
+mapping with a mock. With local Xcode Python 3.9.6, all 61 tests pass in normal and optimized
+modes, under both the default recursion limit and an increased limit. These local runs do
+not establish CI's interpreter behavior. Parser, verifier and Swift code remain unchanged.
 
 The test file is a bound input, so this correction changes the input epoch. The earlier
 Mac/Linux receipts remain evidence for `7972b59`; they are not a new recording of the
 corrected test epoch. The current control command requires a fresh matching baseline.
 The [U1 record](verification/membership-u1.json) includes the exact test-only transition.
+The old-baseline refusal policy is supported by source and a unit test; this transition
+does not include a logged CLI invocation against the historical baseline.
 
 ### Harness cleanup gate before further feature growth
 
