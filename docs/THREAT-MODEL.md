@@ -7,6 +7,25 @@ The [multi-platform design](design/multiplatform/DESIGN.md) describes the new ta
 explicit limitations. Existing implemented macOS boundaries below remain in force until
 a separately reviewed migration; cloud login must never become vault decryption authority.
 
+The synthetic U1 extension adds controller-signed membership, a bounded session-local fork
+latch and stateless current-head revision authorization. It requires exact recipient
+membership and validates every encapsulation before opening. Actual macOS/Linux checks pass
+55 tests and agree on 150 pinned signature cases. Bidirectional reader-only exchange,
+signature-flip refusal/restoration, 20 policy controls and separate low-order-key removal
+are recorded in the [U1 evidence](verification/membership-u1.json). Three AI model reviews
+accept that synthetic checkpoint; they are not a security certification.
+These RAM checkpoints provide neither durable rollback protection nor global freshness.
+The root app still does not link this fixture-only package.
+
+The controls package also has a writable alias under the container's evidence mount.
+Its read-only package mount is not hostile-container isolation; whole-copy snapshots detect
+changes afterwards. Canary scans cover finite known synthetic encodings, and reader custody
+checks are lexical over separately pinned source. The M10 scanner is scoped to a captured
+step. In these runs its canary appears inside the named test interval, which is a measured
+observation rather than a general enforcement guarantee. Native backend masking additionally
+requires manual confirmation that the mutant source was compiled. A recorded cleanup gate
+must be completed before further harness feature growth.
+
 The root build's fixture-only maintenance guard rejects the portable package through
 direct or transitive dependencies and checks declared compiler source paths by filesystem
 identity, including dependency targets. Queries enforce pins and isolate resolved JSON from
