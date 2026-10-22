@@ -26,6 +26,8 @@ jobs:
         run: python3 -I deploy/tests/test_membership_verifier.py
       - name: Verify membership evidence runner with Python assertions disabled
         run: python3 -I -O deploy/tests/test_membership_verifier.py
+      - name: Verify scoped secret buffer on macOS
+        run: swift test --package-path Packages/VaultSecret --no-parallel
       - name: Build and test pinned dependencies
         run: swift test --force-resolved-versions
       - name: Verify stdio MCP with synthetic data
@@ -48,3 +50,19 @@ jobs:
         run: python3 -I deploy/tests/test_recorder.py
       - name: Build release executable
         run: swift build -c release --force-resolved-versions
+  portable-linux:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    container:
+      image: swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+      options: --cap-drop ALL --security-opt no-new-privileges
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Record Linux toolchain
+        run: |
+          swift --version
+          uname -m
+      - name: Verify portable codec and membership
+        run: swift test --package-path Packages/VaultCore --force-resolved-versions --no-parallel --jobs 4
+      - name: Verify scoped secret buffer on Linux
+        run: swift test --package-path Packages/VaultSecret --no-parallel --jobs 4

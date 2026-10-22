@@ -1,5 +1,38 @@
 # Implementation plan
 
+## Headless delivery work: 23 October 2026
+
+The user authorized completion of private website login and continuing browser operation,
+native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
+The end-to-end acceptance criteria are in [DELIVERY-PLAN.md](DELIVERY-PLAN.md). This is active
+implementation work, not a completed product or release.
+
+The membership verifier's fixed tables now live in `scripts/membership_spec.py`. Live
+exchange and receipt replay share one sequence, and all policy/N1 source mutations use one
+definition. A required negative-exchange check prevents both paths agreeing on an incomplete
+run. Native backend-masking evidence now requires a compiler line for the mutated source.
+The Python suite passes 64 tests in normal and optimized modes. Fresh complete recording
+and controls remain pending; historical receipts are not evidence for these changed bytes.
+
+A new standalone `Packages/VaultSecret` provides a redacted immutable owned buffer and scoped
+trusted byte access. Six native tests pass, including concurrent reads, diagnostic redaction,
+copy-on-write alias behavior and the clearing helper. Opus accepted the initial four-test
+component; follow-up tests/documentation make the alias limitation explicit. The package is
+not linked to the app; credential-type replacement and reveal-import enforcement remain open.
+
+Local Linux attempts are retained as failures. One lost the Docker connection; a later run
+passed all 55 Swift tests on each platform but interleaved framework output with corpus JSON,
+which the strict recorder correctly refused. U1 recording commands now select `--no-parallel`.
+Another attempt found Docker stopped before container creation. The user explicitly asked
+to leave OrbStack stopped. New isolated Linux CI checks cover VaultCore and VaultSecret;
+their results, plus complete exchange/control receipts, must be verified before claiming
+the cleanup gate or Linux product integration complete.
+
+The user selected Bite for hosting. The connected Bite Supabase organization has existing
+application projects; Agent Vault needs separate project/storage. New-project provisioning
+is awaiting explicit acceptance of the quoted $10/month. No existing app schema, data or
+credentials have been changed. A managed-auth design revision is under review.
+
 ## Membership implementation checkpoint: 22 October 2026
 
 Synthetic U1 membership lineage and stateless revision authorization are verified in the
