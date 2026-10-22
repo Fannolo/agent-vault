@@ -1,6 +1,6 @@
 {
   "unit": "membership-U1-synthetic-lineage-and-revision-policy",
-  "status": "accepted_bounded_synthetic_source_and_runtime",
+  "status": "accepted_bounded_synthetic_runtime_at_recorded_epoch",
   "date": "2026-10-22",
   "base_revision": "aab2b7c33a269824ca67aa6c3a8571164cbae361",
   "scope": "Single immutable controller/writer, session-local membership lineage and stateless current-head authorization; no persistence or product adapter.",
@@ -411,5 +411,46 @@
     "Alias regression directly checks canonical fixture paths/U0 receipt; whole default-TMPDIR suite covers the U1 snapshot path.",
     "CI interpreter/job behavior is not established by this local record.",
     "No production readiness, 1Password parity, memory-erasure or security-certification claim."
-  ]
+  ],
+  "recorded_revision": "7972b596eb015c1b73c724d45758b8b413573af2",
+  "ci_test_followup": {
+    "scope": "Test-only correction after the recorded runtime/review checkpoint. Existing receipt fields remain historical for7972b59.",
+    "failure": "The test called valid balanced deep JSON invalid, depending on a decoder recursion limit. Both initial macos jobs failed that assertion.",
+    "change": "Use genuinely unclosed JSON and mock decoder RecursionError to check existing error mapping. No executable verifier, parser, control-driver, Swift or app change.",
+    "failed_jobs": [
+      "https://github.com/Fannolo/agent-vault/actions/runs/39697697402/job/119559000739",
+      "https://github.com/Fannolo/agent-vault/actions/runs/39697657863/job/119558870119"
+    ],
+    "changed_epoch_inputs": [
+      "deploy/tests/test_membership_verifier.py"
+    ],
+    "test_file_before": {
+      "sha256": "6c171af2d16e93fa180a950e5dd89caa0fdedf74b9e7e95baa6ecb2f9d957f00",
+      "size": 107023
+    },
+    "test_file_after": {
+      "sha256": "04f5324b1595a171168b0b76b91396209bd7e2187c8a6c7ac0bad6733548c3fa",
+      "size": 107401
+    },
+    "old_epoch_sha256": "27e7298dfd6699a42b4550600b4321dd890844cce3b1ac26f6c5b539dd243a6a",
+    "new_epoch_sha256": "7ff81e3aca9c8f187cadee16eccd043401fd4b8f175e509f8b54bc92acf5329a",
+    "proof": {
+      "path": "verification-logs/ci-pr9-json-fixture-5e4667dcf76b443e880c71b415238873/result.json",
+      "sha256": "7ab082c67cfcd78be838a127c9f4a3e656ecf35843efba82d01df019c573aa7b",
+      "size": 70739
+    },
+    "reproduction": {
+      "path": "verification-logs/ci-pr9-json-fixture-5e4667dcf76b443e880c71b415238873/before.json",
+      "sha256": "7fb7255d0f9bcf9876e29501bb17e7d696086eb85fc5bdc38d529d19df466be7",
+      "size": 34727
+    },
+    "tests_each_run": 61,
+    "runs": [
+      "normal_default_recursion",
+      "optimized_default_recursion",
+      "normal_increased_recursion",
+      "optimized_increased_recursion"
+    ],
+    "runtime_receipt_policy": "Old receipts remain historical; current CLI refuses the old baseline after the bound test hash changes. No fresh Mac/Linux recording or CI success is claimed by this followup."
+  }
 }

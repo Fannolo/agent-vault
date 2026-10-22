@@ -68,6 +68,8 @@ by the native backend. The Python verifier passes 61 tests in normal and optimiz
 Opus 5.5, Grok 4.7 and Codex accept this bounded source and measured evidence.
 
 The [U1 record](docs/verification/membership-u1.json) describes the actual results and limits.
+Its runtime receipts describe the measured `7972b59` checkpoint. A later CI test-only
+correction changes the bound test-file hash; the record keeps those epochs separate.
 The [membership document](docs/design/multiplatform/MEMBERSHIP.md) retains its frozen
 pre-verification introduction because the receipts bind its bytes. Current status is recorded
 here and in the [implementation plan](docs/IMPLEMENTATION-PLAN.md). The harness must be

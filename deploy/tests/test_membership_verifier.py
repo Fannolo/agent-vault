@@ -686,9 +686,14 @@ class U1FoundationTests(unittest.TestCase):
                            (b"NaN", "exchange_json_invalid"), (b"Infinity", "exchange_json_invalid"),
                            (b"1e999", "exchange_json_invalid"), (b"{}{}", "exchange_json_invalid"),
                            (b"{", "exchange_json_invalid"), (b"\xff", "exchange_json_invalid"),
-                           (b"[" * 2000 + b"]" * 2000, "exchange_json_invalid")):
+                           # Keep this unclosed. Balanced deep arrays are valid JSON;
+                           # decoder recursion limits vary across Python builds.
+                           (b"[" * 2000 + b"]" * 1999, "exchange_json_invalid")):
             with self.subTest(data=data[:50]), self.assertRaisesRegex(v.VerificationFailure, code):
                 v.parse_exchange_json(data)
+        with mock.patch.object(v.json, "loads", side_effect=RecursionError):
+            with self.assertRaisesRegex(v.VerificationFailure, "exchange_json_invalid"):
+                v.parse_exchange_json(b"{}")
 
     def test_evidence_reference_hash_is_required(self):
         path = self.root / "summary.json"

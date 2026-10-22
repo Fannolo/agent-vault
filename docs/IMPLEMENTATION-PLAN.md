@@ -20,9 +20,23 @@ Failed attempts remain failed; source restoration and owned-container removal ar
 See the [U1 evidence](verification/membership-u1.json).
 
 `MEMBERSHIP.md` and `AGENTS.md` remain byte-identical to the measured epoch. The membership
-document's pre-verification introduction is historical; status updates live here and in the
-evidence record so current-source receipt replay remains valid. This completes the bounded
-synthetic U1 checkpoint. It does not permit app linkage, real-password storage or U2.
+document's pre-verification introduction is historical. The documentation-only status update
+preserves the measured `7972b59` epoch. The CI test correction below creates a later input
+epoch. The bounded synthetic checkpoint permits neither app linkage, real-password storage
+nor U2.
+
+### CI JSON test portability correction
+
+CI exposed a test that incorrectly treated a balanced 2,000-level JSON array as malformed.
+Local Python rejected it at its recursion limit, while CI's decoder accepted the valid JSON.
+The test now uses an unclosed array and directly checks the existing `RecursionError`
+mapping with a mock. All 61 tests pass in normal and optimized modes, under both the default
+recursion limit and an increased limit. Parser, verifier and Swift code remain unchanged.
+
+The test file is a bound input, so this correction changes the input epoch. The earlier
+Mac/Linux receipts remain evidence for `7972b59`; they are not a new recording of the
+corrected test epoch. The current control command requires a fresh matching baseline.
+The [U1 record](verification/membership-u1.json) includes the exact test-only transition.
 
 ### Harness cleanup gate before further feature growth
 
