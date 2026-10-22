@@ -11,3 +11,9 @@ state.json
 *.log
 *.zip
 dist/
+
+__pycache__/
+*.pyc
+*.provisionprofile
+*.mobileprovision
+/verification-logs/

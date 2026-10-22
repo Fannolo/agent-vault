@@ -78,7 +78,7 @@ actor PausedAdapter: ServiceAdapter {
     private var started = false
     private var startedWaiter: CheckedContinuation<Void, Never>?
     private var releaseWaiter: CheckedContinuation<Void, Never>?
-    func execute(service: Service, credential: Data) async throws -> OperationResult {
+    func execute(service: APIService, credential: Data) async throws -> ServiceOutput {
         started = true
         startedWaiter?.resume()
         await withCheckedContinuation { releaseWaiter = $0 }
@@ -98,10 +98,11 @@ actor PausedAdapter: ServiceAdapter {
     try await f.broker.revokeGrant(f.grant.id)
     await adapter.release()
     await #expect(throws: VaultError.denied) { _ = try await task.value }
+    #expect(try f.state.snapshot().audit.filter { $0.outcome == "response_suppressed" }.count == 1)
 }
 
 struct FailingAdapter: ServiceAdapter {
-    func execute(service: Service, credential: Data) async throws -> OperationResult {
+    func execute(service: APIService, credential: Data) async throws -> ServiceOutput {
         throw NSError(domain: "SYNTHETIC-only-token", code: 1)
     }
 }
@@ -111,6 +112,7 @@ struct FailingAdapter: ServiceAdapter {
     await #expect(throws: VaultError.upstreamUnavailable) {
         _ = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
     }
+    #expect(try f.state.snapshot().audit.filter { $0.outcome == "failed" }.count == 1)
     await #expect(throws: VaultError.denied) {
         _ = try await f.broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
     }
@@ -154,12 +156,14 @@ final class DelayedState: StateStore, @unchecked Sendable {
 
 @Test func expiryAfterCompletionLockWaitSuppressesResponse() async throws {
     let f = try await Fixture.make()
-    let state = DelayedState(inner: f.state, clock: f.clock, advanceOnCall: 3)
-    let broker = Broker(state: state, secrets: f.secrets, now: { f.clock.now() })
+    let state = DelayedState(inner: f.state, clock: f.clock, advanceOnCall: 4)
+    let adapter = CountingAdapter()
+    let broker = Broker(state: state, secrets: f.secrets, adapter: adapter, now: { f.clock.now() })
     await #expect(throws: VaultError.denied) {
         _ = try await broker.run(clientID: f.client.id, accountID: f.account.id, action: .demoStatus)
     }
     #expect(f.secrets.reads == 1)
+    #expect(await adapter.calls == 1)
 }
 
 struct DelayedSecrets: SecretStore {
@@ -172,7 +176,7 @@ struct DelayedSecrets: SecretStore {
 
 actor CountingAdapter: ServiceAdapter {
     private(set) var calls = 0
-    func execute(service: Service, credential: Data) async throws -> OperationResult {
+    func execute(service: APIService, credential: Data) async throws -> ServiceOutput {
         calls += 1
         return .demoReady
     }

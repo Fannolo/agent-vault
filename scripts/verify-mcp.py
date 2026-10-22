@@ -67,7 +67,8 @@ def tool_payload(result):
     return json.loads(result["content"][0]["text"])
 
 
-def enroll_from_tty(command, value):
+def assert_terminal_enrollment_refused(command):
+    """Even an interactive terminal may not request a service credential."""
     master, slave = pty.openpty()
 
     def controlling_tty():
@@ -78,8 +79,7 @@ def enroll_from_tty(command, value):
                                stderr=slave, preexec_fn=controlling_tty)
     os.close(slave)
     output = b""
-    sent = False
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + 3
     try:
         while time.monotonic() < deadline:
             if not select.select([master], [], [], 0.1)[0]:
@@ -95,16 +95,15 @@ def enroll_from_tty(command, value):
             if not chunk:
                 break
             output += chunk
-            if not sent and b"(hidden): " in output:
-                os.write(master, value + b"\n")
-                sent = True
-        process.wait(timeout=2)
-        assert sent and value not in output, "Private TTY input was not hidden"
-        return process.returncode, output
+            if b"(hidden):" in output:
+                raise AssertionError("Terminal credential enrollment is still available")
+        if process.poll() is None:
+            raise AssertionError("Terminal enrollment did not refuse promptly")
+        assert process.returncode != 0 and b"invalid_input" in output
     finally:
         if process.poll() is None:
-            process.kill()
-            process.wait(timeout=5)
+            process.kill()  # only this exact child, never a process-name search
+        process.wait(timeout=5)
         os.close(master)
 
 
@@ -139,12 +138,20 @@ def main():
             rpc.notify("notifications/initialized")
             tools = rpc.call("tools/list")["tools"]
             assert {tool["name"] for tool in tools} == {"accounts_list", "action_run"}
+            action_tool = next(tool for tool in tools if tool["name"] == "action_run")
+            assert action_tool["inputSchema"]["properties"]["action"]["enum"] == ["demo.status"]
             listed = tool_payload(rpc.call("tools/call", {"name": "accounts_list", "arguments": {}}))
+            assert set(listed) == {"status", "accounts"} and listed["status"] == "completed"
             assert len(listed["accounts"]) == (1 if args.keychain_demo else 0)
+            if args.keychain_demo:
+                account = listed["accounts"][0]
+                assert set(account) == {"id", "service", "status"}
+                assert uuid.UUID(account["id"]) == uuid.UUID(fixture["accountId"])
+                assert account["service"] == "demo" and account["status"] == "active"
             result = rpc.call("tools/call", {"name": "action_run", "arguments": {
                 "accountId": fixture["accountId"], "action": "demo.status"}})
             if args.keychain_demo:
-                assert tool_payload(result) == {"status": "ready", "service": "demo"}
+                assert tool_payload(result) == {"status": "ready"}
                 admin("revoke-grant", "--grant-id", fixture["grantId"])
                 result = rpc.call("tools/call", {"name": "action_run", "arguments": {
                     "accountId": fixture["accountId"], "action": "demo.status"}})
@@ -152,6 +159,7 @@ def main():
             assert result["content"][0]["text"] == "access_denied"
             for name, arguments in [
                 ("get_password", {}),
+                ("action_run", {"accountId": fixture["accountId"], "action": "github.profile"}),
                 ("accounts_list", {"clientId": str(uuid.uuid4())}),
                 ("action_run", {"accountId": fixture["accountId"], "action": "demo.status",
                                 "url": "https://elsewhere.invalid", "password": "SYNTHETIC-leak-check"}),
@@ -178,22 +186,15 @@ def main():
                 peer.communicate(timeout=10)
                 assert peer.returncode == 0
             assert len(json.loads(Path(temporary, "state.json").read_text())["clients"]) == 13
-            if args.keychain_demo:
-                token = b"SYNTHETIC-long-token-" + b"a" * 160
-                code, output = enroll_from_tty(command, token)
-                assert code == 0
-                account = json.loads(output[output.index(b"{"):])
-                assert account["service"] == "github"
-                code, output = enroll_from_tty(command, b"SYNTHETIC-too-long-" + b"a" * 500)
-                assert code != 0 and b"invalid_input" in output
+            assert_terminal_enrollment_refused(command)
             print("PASS: MCP lifecycle, narrow tools, authorization, strict inputs and private-entry checks"
-                  + (", native Keychain, revocation and hidden TTY overflow checks" if args.keychain_demo else ""))
+                  + (", native Keychain and revocation checks" if args.keychain_demo else ""))
         finally:
             if rpc:
                 rpc.close()
             if args.keychain_demo:
                 # Unique synthetic namespace only. Never target normal user entries.
-                # At most two entries are created. Also cover interrupted enrollment.
+                # The demo creates one synthetic entry; interrupted runs use this namespace too.
                 for _ in range(3):
                     deleted = subprocess.run(["security", "delete-generic-password", "-s", namespace],
                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)

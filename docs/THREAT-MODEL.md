@@ -1,58 +1,159 @@
-# Threat model
+# Threat model and measured guarantees
 
-## Current prototype
+Agent Vault exposes fixed read-only operations and safe metadata. No MCP operation returns a
+password, PIN, token, cookie, raw page, profile path, CDP endpoint, arbitrary URL, executable
+recipe or script. Every invocation checks a live account/action grant, reserves attempt budget,
+and checks authority again after credential access and before returning output.
 
-The prototype protects against routine credential disclosure through its implemented
-MCP tools: no secret-returning operation, no arbitrary network destination, no shell
-execution, typed outputs and fixed public error codes. Grants are checked on each
-invocation, not inferred from a successful initialization.
+## Installed design
 
-It **does not** protect against arbitrary code running as the same macOS user.
-Such a process may edit metadata, invoke developer commands, launch another
-development client context, access Keychain if authorized by macOS, or observe
-process/UI state. Launch client IDs and private filesystem permissions do not
-authenticate an individual agent installation. Root, administrator compromise and
-a compromised credential broker are also outside the current guarantee.
+The intended production broker runs as the hidden `_agentvault` user. Root owns its signed
+executable and configuration. Its private directory, explicit Keychain database and metadata
+integrity key belong to that dedicated UID. Startup refuses root, equal broker/client UIDs,
+unsafe ownership, permissive files, invalid code requirements or another live broker owner.
 
-The GitHub adapter trusts `api.github.com` and normal OS TLS validation. A service
-receiving a credential can misuse it. Output schemas discard unapproved fields;
-they do not prove that a malicious service cannot encode secrets into valid fields.
-Returned account data is authorized business output and may still be confidential.
+Read and admin are separate XPC services. Both endpoints check Apple Developer ID, exact code
+hash, role identifier and kernel effective UID. Clients complete an empty authenticated probe
+before transmitting any request, including enrollment credentials. A copied genuine bridge
+shares its original code identity; permissions belong to the paired OS user and bridge, not
+to an individual model, chat or host name.
 
-The Swift SDK is a pinned dependency, not audited here. The server uses stdio,
-not its OAuth or HTTP transports. General protocol resource exhaustion remains a
-separate hardening item. There is no production release, native code signing,
-notarization, entitlement isolation, protected approval UI or browser login service.
+Admin mutations require a single-use challenge signed by the human app's protected
+P-256 key. Its digest binds operation metadata, challenge ID, random nonce and expiry.
+Credential bytes and credential-content hashes are excluded from that digest. The broker
+freezes the actual request privately and verifies the configured public key. The app
+recomputes the digest from its request before allowing a signature and
+requests fresh device-owner authentication for every signature and refuses unprotected or
+unverifiable keys. Public-key registration is a trusted installation ceremony; the public key
+alone is not hardware attestation. The approval key never stores service credentials.
 
-Enrollment updates Keychain and metadata in separate operations. A process crash
-between them can leave an orphaned Keychain item; crash-safe enrollment recovery,
-account deletion and rotation are tracked lifecycle work. Do not enroll durable
-production credentials in this prototype. Capacity limits keep normal metadata
-growth below the storage ceiling; they do not replace pruning or account lifecycle.
+## Verification limits
 
-## Target boundaries
+The dedicated-UID installation, real protected-key signing and notarization have not passed
+runtime verification. Same-UID signed fixtures demonstrate code and role rejection, not OS
+filesystem or process-memory isolation. **Do not enroll production passwords or PINs until the
+remaining gates in IMPLEMENTATION-PLAN.md pass.** The legacy `agent-vault` developer CLI runs
+Core in its own user process and retains no same-user confinement guarantee; it is excluded
+from distribution review bundles.
 
-The hardened broker must hold credentials and browser state outside the agent's
-OS privileges. Its IPC must authenticate the actual bridge/client principal and
-enrollment; signing a shared bridge does not identify the model behind it. Policy
-and trusted adapter code cannot reside in agent-writable workspaces. Per-call
-approval uses a protected human UI and freezes client, operation and inputs.
+The old WebKit engine and its same-process continuation view have been removed. Selected
+headless-host tests use isolated contexts, fixed origins/recipes and a native image/input
+relay. Synthetic U5 tests join the real host, authenticated XPC and app model. Browser accounts
+and actions remain disabled in production. Installed continuation, live GitHub selectors
+and CAPTCHA compatibility are unverified.
 
-Revocation must invalidate pending permissions and local sessions. An external
-request already dispatched may complete. Audit retention and tamper evidence need
-an explicit design; the prototype's latest 1,000 events are local mutable history,
-not an immutable log or security witness.
+The selected headless path now has an authenticated host wire and Core port, tested
+with synthetic XPC peers. Credentials are withheld until an empty host probe passes code
+and UID checks and Core rechecks live authority immediately before dispatch. Run losses
+are scoped to the connection generation; start/classify waits have Core-owned deadlines.
+Initial read cancellation ends its browser run, including late contexts; admin handlers
+continue to completion. Terminal host-peer loss prevents replacement peers and drops late
+results. Host teardown prevents late context creation. App-safe frame/input types and native
+JPEG validation do not establish an installed human relay or OS isolation.
 
-## Regression boundaries
+The separate U2 executable now implements fixed Chromium workflows over private pipes,
+with no TCP debugging endpoint. A serial nonblocking writer enforces each call's deadline
+outside the state lock; teardown kills only its spawned process group. Run admission waits
+for confirmed paused auto-attach. Exact-origin/phase gates and a CSP delivered with each
+document constrain the fixture's page traffic. They are not OS-enforced egress: Chromium's
+browser and network utility processes are unsandboxed. Same-UID loopback and renderer
+sandbox observations do not establish the installed daemon, whole-process network policy,
+signed distribution or live GitHub workflow. The production broker still composes no host.
 
-- Missing, expired, revoked, wrong-client and wrong-account grants.
-- Concurrent reservations exceeding a budget, including separate processes.
-- Revocation while a provider request is in flight.
-- Corrupt state, symlinks, hard links and permissive files.
-- Raw secrets in errors, metadata, logs, hashes or output schemas.
-- Header injection, redirects and oversized provider output.
-- Unknown tool names and additional input keys, including impersonation fields.
-- Prompt-injected attempts to add destinations, install adapters or export sessions.
+Human continuation uses a server-minted connection UUID and synchronous liveness flag.
+A signed open names the exact run, account, step epoch and kind. Relay calls check the
+grant and lease; Finish/Cancel refuses an already closed connection before its delayed
+cleanup callback. Admitted admin work retains its completion semantics. Separate bounded
+continuation capacity preserves admin capacity. ImageIO checks JPEG type, count, dimensions
+and orientation; this trusts the OS decoder. Finish drains input acknowledgments and late
+polling cannot overwrite its result. U5 exercises host-to-app-model integration on a synthetic
+origin under the same UID; visible GUI, protected-key and installed multi-UID proof remain open.
 
-Tests use synthetic credentials. Opt-in native tests delete only their own unique
-Keychain entries. Live user accounts must not be fixtures.
+Browser signals use a handle that pins its spawned leader until reaping. The reaper kills
+remaining group members before releasing the ID. Watcher failure triggers kill-and-wait;
+EINTR retries. Unconfirmed waits disable signals without reporting successful cleanup,
+potentially retaining a zombie until host exit. This controls only the owned process group;
+a compromised child escaping that group is not confined by the handle.
+
+## Trusted parties and exclusions
+
+The OS, protected installer, selected publisher, authenticated human app, broker and fixed
+service endpoints are trusted. Root/administrator compromise, replaced installation policy,
+compromised signing authority plus a root-approved update, and a compromised broker are outside
+the guarantee. A service receiving credentials can misuse them or encode them into permitted
+output fields; typed schemas are not a proof of information-flow noninterference.
+
+Revocation cancels pending approvals and tears down local session state. It cannot recall an
+external request already dispatched. A fixed HTTP operation refuses cancellation after
+dispatch. A browser cancellation ends its owned context, without claiming to undo an
+external request. An unreadable final policy state suppresses output and invalidates
+any adapter session. Operations are read-only; future writes require provider idempotency and
+an explicit uncertain-outcome/reconciliation design.
+
+## Storage, retention and resources
+
+Enrollment, rotation and deletion persist intent before mutating Keychain, retain item IDs
+across interruption, and recover under the daemon's exclusive owner lease. No automatic
+migration reads a user's existing Keychain or version-1 developer state. Production metadata
+requires an HMAC with an independent broker-only key and refuses unsigned downgrade. The latest
+audit history is bounded metadata: 256 reserved administration entries and 744 invocation
+entries in schema 3. Agent traffic cannot evict the administration partition; administration
+traffic can still evict older administration entries. No-op recovery emits no administration
+entries. Startup recovery retries keep a representative start until global completion or
+genuine administrative account cleanup, rollback or recovery completes; intent and failure
+records alone cannot reset it. Repeated failure
+and uncertain outcomes for the same account are coalesced until a real lifecycle transition.
+Alternating those failure kinds does not reset their representatives. This applies across broker
+restarts because the representatives live in the persisted administration history. They retain
+the first observation, not an exact retry count or most recent failure timestamp. Repeated denials
+and unapproved-request events for the same client/account/action are coalesced until a real reservation or terminal
+event resets that tuple. They are representative events, not exact attempt counts. Invocation
+overflow evicts the oldest entry from the registered client with the largest retained history,
+using the oldest entry across tied clients. With at most 128 registered clients, a client that
+has accumulated five entries retains at least its latest five while it remains registered;
+unused capacity is shared. One client's successful flood cannot erase another client's smaller
+history. This floor applies while the registered population is stable; trusted administration
+can prune clients and change that population. Unregistered callers do not create entries or
+retention partitions, and existing history from pruned clients is evicted first under pressure. Completed calls remain subject to
+this bounded retention. HMAC detects modification, not replay of an older
+authentic snapshot or deletion by a privileged attacker; audit is not an immutable witness.
+
+The MCP transport bounds input before SDK parsing: 64 KiB per line, depth 64, 16 queued and
+outstanding requests, strict JSON-RPC envelopes and duplicate-key/ID refusal. Notifications
+are limited to 8 KiB and 64/second with a burst of 16. Output is capped at 1 MiB with a write
+deadline. XPC bounds request/reply sizes, connections and concurrent handler calls. The pinned
+Swift SDK and dependencies are inventoried, not independently audited.
+
+Read traffic has 32 handler slots and administration has four independent slots. Cheap empty
+authentication probes do not consume those handler slots. Pending invocation approvals have
+a 120-second lifetime; waiting resumes report that approval is still required. The dedicated
+broker's explicit Keychain is unlocked with its private seed before every access, including
+after sleep or an explicit lock. Its lock policy stays unchanged. The native settings-change
+probe blocked inside Security.framework; no GUI dialog was observed. The settings change was
+removed. No Keychain
+setting or search list is changed.
+
+Synchronous credential operations run off the broker actor with at most four actual operations
+and no waiting queue. Reads reserve at most three slots, leaving one slot available to lifecycle
+writes even when agent reads stall. After authorization checks, a read slot is reserved in the
+same synchronous metadata transaction before consuming approval or attempt budget. A capacity
+refusal leaves both intact for retry; an admitted attempt spends budget even if credential
+access fails. Unused reservations are released when their metadata transaction fails, and each
+reservation can start only one read. Calls have a five-second deadline; a timed-out operation
+retains its slot and pending-write guard until it really finishes. Late results are discarded. Uncertain writes
+retain lifecycle journals and cannot race recovery or another mutation. This keeps metadata
+revocation responsive to a stalled credential store; it does not cancel an operation inside
+Security.framework. The private database password remains in broker memory for explicit unlocks.
+
+Recovery first closes admission for new credential invocations and lifecycle mutations, then
+asynchronously drains existing credential workers and lifecycle mutations before reading their
+journals. This drain is bounded by the credential-operation timeout (five seconds by default),
+so continuous read traffic cannot starve maintenance. A drain timeout returns busy and preserves
+the journals and actual-worker tracking. Metadata and revocation stay responsive; the admission
+gate is released whenever recovery exits, including cancellation or failure.
+
+Swift/Foundation may copy immutable credential buffers and strings. The design does not claim
+complete RAM zeroization. Native tests use unique synthetic namespaces and delete only their
+own entries; real credentials and business evidence are never fixtures. Without the explicit
+`AGENT_VAULT_KEYCHAIN_TEST=1` opt-in, the two native storage tests are reported as skipped rather
+than passed.
