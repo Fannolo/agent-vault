@@ -1,0 +1,1959 @@
+{
+  "unit": "membership-U0-fixture-boundary-and-codec-baseline",
+  "status": "accepted_bounded_u0_current_source_verified",
+  "base_revision": "03640839bd6ba2c7ce7db1485293cd868bcfe61a",
+  "scope": "synthetic maintenance guard and unchanged codec baseline; no membership implementation or ciphertext exchange",
+  "codec_sha256": "8d2470defaadd67e255535186c35d876fc80f932a647e4eb83a449f8cf29f076",
+  "recorded_input_snapshot_sha256": "a434accbf73bae744164b0d49806db96c17c690f01da46f4cac9f3fe49192a83",
+  "harness_sources": {
+    "scripts/verify-membership.py": {
+      "sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+      "size": 20465
+    },
+    "scripts/verify-membership-controls.py": {
+      "sha256": "7fbcd04db511793f65876da6c672159c72bc83db11c60eba2989d88a8af678e3",
+      "size": 6577
+    },
+    "deploy/tests/test_membership_verifier.py": {
+      "sha256": "59327d013640f2dd3ed92c5f0dded6a1424b53c833c415dbc822971c85631fa2",
+      "size": 24408
+    },
+    "scripts/verify-portable-vault.py": {
+      "sha256": "9e6f9dbe430a661feb602d8e7ff55812ac0d369a87d579c2f5b0037afbd86adf",
+      "size": 9700
+    },
+    "scripts/verify-webhost-link-mutations.py": {
+      "sha256": "dac31914837ba341fa5b31f8ee3081a34f460d28654309f2ee1e3cb4029f74ba",
+      "size": 16896
+    },
+    "scripts/verify-boundaries.py": {
+      "sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+      "size": 15539
+    },
+    "deploy/tests/test_vault_fixture_boundary.py": {
+      "sha256": "1a640a230624ed91ae7622d37ddcbd726b8edf3f2d2a47c3b05adbba64f501ea",
+      "size": 41405
+    },
+    ".github/workflows/ci.yml": {
+      "sha256": "b4a28bf6daf7455ae3e91fd92de9f7b4c4031c56c3be661f014682ac34d9054f",
+      "size": 2310
+    }
+  },
+  "baseline": {
+    "result": {
+      "path": "verification-logs/membership-u0-worker/baseline-ae5d27fb622c46b882eb2e7e8d831ba7/result.json",
+      "sha256": "5218bc766b05c099141fd7e8fd9317634f1c58620c30dcb35e0d37ffe1efcd2e",
+      "size": 69104
+    },
+    "tests_passed": {
+      "native": 21,
+      "linux": 21
+    },
+    "source_unchanged": true,
+    "owned_container_removed": true,
+    "runtime": {
+      "native_swift": "swift-driver version: 1.127.15 Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)\nTarget: arm64-apple-macosx15.0",
+      "native_os": "ProductName:\t\tmacOS\nProductVersion:\t\t15.6.1\nBuildVersion:\t\t24G90",
+      "native_architecture": "arm64",
+      "native_target": "{\n  \"compilerVersion\": \"Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)\",\n  \"swiftCompilerTag\": \"swiftlang-6.2.4.1.4\",\n  \"target\": {\n    \"triple\": \"arm64-apple-macosx15.0\",\n    \"unversionedTriple\": \"arm64-apple-macosx\",\n    \"moduleTriple\": \"arm64-apple-macos\",\n    \"platform\": \"macosx\",\n    \"arch\": \"arm64\",\n    \"pointerWidthInBits\": 64,\n    \"pointerWidthInBytes\": 8,\n    \"swiftRuntimeCompatibilityVersion\": \"6.0\",\n    \"compatibilityLibraries\": [ ],\n    \"openbsdBTCFIEnabled\": false,\n    \"librariesRequireRPath\": true\n  },\n  \"paths\": {\n    \"runtimeLibraryPaths\": [\n      \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx\",\n      \"/usr/lib/swift\"\n    ],\n    \"runtimeLibraryImportPaths\": [\n      \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx\"\n    ],\n    \"runtimeResourcePath\": \"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift\"\n  }\n}",
+      "linux_image": {
+        "Id": "sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197",
+        "Os": "linux",
+        "Architecture": "arm64",
+        "RepoDigests": [
+          "swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197"
+        ]
+      },
+      "linux_swift": "Swift version 6.2.4 (swift-6.2.4-RELEASE)\nTarget: aarch64-unknown-linux-gnu",
+      "linux_architecture": "aarch64",
+      "linux_os": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo",
+      "linux_target": "{\n  \"compilerVersion\": \"Swift version 6.2.4 (swift-6.2.4-RELEASE)\",\n  \"swiftCompilerTag\": \"swift-6.2.4-RELEASE\",\n  \"target\": {\n    \"triple\": \"aarch64-unknown-linux-gnu\",\n    \"unversionedTriple\": \"aarch64-unknown-linux-gnu\",\n    \"moduleTriple\": \"aarch64-unknown-linux-gnu\",\n    \"platform\": \"linux\",\n    \"arch\": \"aarch64\",\n    \"pointerWidthInBits\": 64,\n    \"pointerWidthInBytes\": 8,\n    \"compatibilityLibraries\": [ ],\n    \"openbsdBTCFIEnabled\": false,\n    \"librariesRequireRPath\": false\n  },\n  \"paths\": {\n    \"runtimeLibraryPaths\": [\n      \"/usr/lib/swift/linux\"\n    ],\n    \"runtimeLibraryImportPaths\": [\n      \"/usr/lib/swift/linux\",\n      \"/usr/lib/swift/linux/aarch64\"\n    ],\n    \"runtimeResourcePath\": \"/usr/lib/swift\"\n  }\n}"
+    },
+    "logs": {
+      "guard": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "94ce263f37288bd47d38f2d9c80395de702bfd92d1f3c09fefaaf3fa8083be93",
+        "size": 68
+      },
+      "native_swift": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "355986b284d60fc60e4b3c24d2bc54ff2562ee37b60ef688917cf2e531315105",
+        "size": 127
+      },
+      "native_os": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "074acf1db37ac012fbdaf7f3fb02fd1b487c130090903436e2bf0eb143622cb2",
+        "size": 65
+      },
+      "native_architecture": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "c1669e1d8edca98769c37d494b76442a1d6e5ffffd7b4da1fb63aef8ebaf6f01",
+        "size": 6
+      },
+      "native_target": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "f3211a5da4a5e424fc04f2668251bc61a530f12526cb8e3805ae199a5dda79eb",
+        "size": 999
+      },
+      "linux_image": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "b327a208d450d1b5d47a38fe1606c00eebcd32a1f92cc869f4e9dcf828114913",
+        "size": 2228
+      },
+      "linux_create": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "d3f554508c587a8051827c4711dd2557fae279ffc0aefcba1a04a750200e1611",
+        "size": 65
+      },
+      "linux_identity": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "49c2cf8e3a6e610c1c7c62eddec78b78c4f237a3bdce719b4a22d2115a6e240d",
+        "size": 8993
+      },
+      "linux_start": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "d3f554508c587a8051827c4711dd2557fae279ffc0aefcba1a04a750200e1611",
+        "size": 65
+      },
+      "linux_swift": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "ca93da9335ff69b38a68ad1ba3e8771ff89b65a7745fb0ed0471a7607f4dba6a",
+        "size": 76
+      },
+      "linux_architecture": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "5121ae59314a84da7b4d9587374398f1afa2000b243b3e54f491adefaac54f92",
+        "size": 8
+      },
+      "linux_os": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "87458b3b1f1ca0e5c693ade771de7007c3783bdc692fa6b39eb6414bf2af2763",
+        "size": 400
+      },
+      "linux_target": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "e0b6c8bb0a2c71e3a5193893e0b6f0054fe5ca7ca398e211e695c49d4ccd14cf",
+        "size": 727
+      },
+      "native-baseline-build": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "b35c88b337cdc5f5fe4234d5cadd71df3429014a9d3609b2ce1579893283f071",
+        "size": 6238
+      },
+      "native-baseline-test": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "7048f93049114cece87874e3a6de099d9d4b67c3b32c4206c3b767751d94dc2c",
+        "size": 3276
+      },
+      "linux-baseline-build": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "bb89f88c016b8f503176a86456bb42ba7d69e4681c5a0648d22934b3104ff3a5",
+        "size": 20332
+      },
+      "linux-baseline-test": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "478caaa21787ef6547ebb3f98b128febe4515a967cc83e9b47998fb4531de634",
+        "size": 3485
+      },
+      "container_inspect": {
+        "exit_code": 0,
+        "secret_output_scanned": false,
+        "sha256": "444ca46a3a22cc47a8abaee5d4281cbd64ebb0d51c462d8002266e81cc5823db",
+        "size": 9741
+      },
+      "container_remove": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "d3f554508c587a8051827c4711dd2557fae279ffc0aefcba1a04a750200e1611",
+        "size": 65
+      }
+    }
+  },
+  "raw_open_side_control": {
+    "result": {
+      "path": "verification-logs/membership-u0-worker/controls-b4c8dc1cf03a4702a3ecf417311328f0/result.json",
+      "sha256": "8d9f53651689717133d39584276be765f716fbb3476b3997ec1fedacc16dc71a",
+      "size": 91658
+    },
+    "target": "lowOrderEncapsulationRejectedAfterSignatureAndContext",
+    "assertion_location": "LowOrderTests.swift:158:20",
+    "results": [
+      {
+        "platform": "native",
+        "status": "backend_masked",
+        "baseline_status": "pass",
+        "restored_status": "pass",
+        "build_exit_code": 0,
+        "test_exit_code": 0,
+        "expected_linux_issues": null,
+        "test_output_sha256": "415bfd0dac307f259aa5752e9501f368e28cada655438dae6ecf3df50cefd614"
+      },
+      {
+        "platform": "linux",
+        "status": "detected",
+        "baseline_status": "pass",
+        "restored_status": "pass",
+        "build_exit_code": 0,
+        "test_exit_code": 1,
+        "expected_linux_issues": 14,
+        "test_output_sha256": "5447443288b00ea0184deda0be10abd83dba942f6df748f430ba301e7bfe0454"
+      }
+    ],
+    "source_unchanged": true,
+    "owned_copy_restored": true,
+    "owned_container_removed": true,
+    "logs": {
+      "native_swift": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "355986b284d60fc60e4b3c24d2bc54ff2562ee37b60ef688917cf2e531315105",
+        "size": 127
+      },
+      "native_os": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "074acf1db37ac012fbdaf7f3fb02fd1b487c130090903436e2bf0eb143622cb2",
+        "size": 65
+      },
+      "native_architecture": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "c1669e1d8edca98769c37d494b76442a1d6e5ffffd7b4da1fb63aef8ebaf6f01",
+        "size": 6
+      },
+      "native_target": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "f3211a5da4a5e424fc04f2668251bc61a530f12526cb8e3805ae199a5dda79eb",
+        "size": 999
+      },
+      "linux_image": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "b327a208d450d1b5d47a38fe1606c00eebcd32a1f92cc869f4e9dcf828114913",
+        "size": 2228
+      },
+      "linux_create": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "1489ba73ff8142ea7cfb52d7840a9b565597e8ffb8d3790446c1f22d30e5ba02",
+        "size": 65
+      },
+      "linux_identity": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "d2ea74b608ef20468ab148aee3349d12db91327da5b07466a63e6377f5b19cf8",
+        "size": 9145
+      },
+      "linux_start": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "1489ba73ff8142ea7cfb52d7840a9b565597e8ffb8d3790446c1f22d30e5ba02",
+        "size": 65
+      },
+      "linux_swift": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "ca93da9335ff69b38a68ad1ba3e8771ff89b65a7745fb0ed0471a7607f4dba6a",
+        "size": 76
+      },
+      "linux_architecture": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "5121ae59314a84da7b4d9587374398f1afa2000b243b3e54f491adefaac54f92",
+        "size": 8
+      },
+      "linux_os": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "87458b3b1f1ca0e5c693ade771de7007c3783bdc692fa6b39eb6414bf2af2763",
+        "size": 400
+      },
+      "linux_target": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "e0b6c8bb0a2c71e3a5193893e0b6f0054fe5ca7ca398e211e695c49d4ccd14cf",
+        "size": 727
+      },
+      "native-n1-before-build": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "0d6a0c7c7330e17ab914ebe6dd796bf784ca12393fbad0813656e4ea04a1eee1",
+        "size": 6212
+      },
+      "native-n1-before-test": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "76f81e2e0b14f5f33b7675e3635a210ed620a77d1638c0df2838dd3a023924e5",
+        "size": 787
+      },
+      "native-n1-mutant-build": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "930eabe698f31a4382522e734c19babd2656793674ab97bf91a8759e9edc4da7",
+        "size": 1205
+      },
+      "native-n1-mutant-test": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "415bfd0dac307f259aa5752e9501f368e28cada655438dae6ecf3df50cefd614",
+        "size": 787
+      },
+      "native-n1-restored-build": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "0867ecc223863d672d831451094b84ca16990797b7cc653cb7f2b1b110164805",
+        "size": 286
+      },
+      "native-n1-restored-test": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "b79b0e1232cc9b96929a709dbd06ca057076f2024416876d5226c2383c67d406",
+        "size": 787
+      },
+      "linux-n1-before-build": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "884caccb232534c7b89b2e0a9d4e15718887c5efa78d3e06312549a870470ae7",
+        "size": 20333
+      },
+      "linux-n1-before-test": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "0702d50eb138b981d7c8218132208cf1087af12cdd35a180b7709dd0d2b9f2f4",
+        "size": 572
+      },
+      "linux-n1-mutant-build": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "9404e2092e9d9ed0c3c29559c33a77cbb72e61fa7f75ffef7ebfe2af9908f8fe",
+        "size": 1052
+      },
+      "linux-n1-mutant-test": {
+        "exit_code": 1,
+        "secret_output_scanned": true,
+        "sha256": "5447443288b00ea0184deda0be10abd83dba942f6df748f430ba301e7bfe0454",
+        "size": 2842
+      },
+      "linux-n1-restored-build": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "44f84cf18434850a9e49a58933fb7921f85e3b6ea8aa77f67224876d136dba81",
+        "size": 292
+      },
+      "linux-n1-restored-test": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "692b42767aecb3d6a42907b7c5e8f644a61d08aa3cbe27aebb5df59d025a3524",
+        "size": 572
+      },
+      "container_inspect": {
+        "exit_code": 0,
+        "secret_output_scanned": false,
+        "sha256": "5310d9e4e759c422df2911b9f21bd759642aa4410e818b84da7299fed62e6eed",
+        "size": 9893
+      },
+      "container_remove": {
+        "exit_code": 0,
+        "secret_output_scanned": true,
+        "sha256": "1489ba73ff8142ea7cfb52d7840a9b565597e8ffb8d3790446c1f22d30e5ba02",
+        "size": 65
+      }
+    }
+  },
+  "python_and_root_checks": {
+    "guard_tests_per_mode": 50,
+    "runner_tests_per_mode": 22,
+    "modes": [
+      "normal",
+      "optimized"
+    ],
+    "root_preflight": {
+      "path": "verification-logs/membership-u0-root/final-preflight-a9c9f25bb05a4189937d25bd547ff63c/result.json",
+      "sha256": "7d821bd7e331a264f1a8ae1514e955eadc48470d479576b660bdf428c4dff4cc",
+      "size": 52812
+    },
+    "root_swift_reported_tests": 352,
+    "root_swift_skipped_tests": 24,
+    "mcp_exit_code": 0,
+    "pinned_resolve_exit_code": 0,
+    "recorder_sha256": "9ff872c390bf4c5eea5888fa7343b629f947e30636b425a3045f85f5833f0e7f",
+    "preparation_script_sha256": "21b395657f4cdffa3eb8a3e32feccce37d8556b597fc55acb97422b15d046d80",
+    "python": "3.9.6 (default, Jan  9 2026, 11:03:41) \n[Clang 17.0.0 (clang-1700.6.4.2)]"
+  },
+  "applied_hardening": {
+    "record": {
+      "path": "verification-logs/membership-u0-root/hardening-94c3f76fc5b54c2a9bcfca5e7f6f40bd/applied.json",
+      "sha256": "434d60613670fd9789e160e8fe679844b7f65a516d9cc24432344d51a07fb70a",
+      "size": 723
+    },
+    "exact_reviewed_candidate": true,
+    "final_runtime_verified_by_root": true
+  },
+  "final_negative_controls": {
+    "status": "pass",
+    "scope": "synthetic guard fixtures and mocked runner boundaries; native/Linux codec proof is recorded separately",
+    "result": {
+      "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/result.json",
+      "sha256": "a2e51825e0bfdbfc054ec6bf645ba7dc63ec606719e7fd5bc1244b01aacb3e3f",
+      "size": 279647
+    },
+    "audit": {
+      "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/audit.json",
+      "sha256": "edad6b9379e181d3f739952600899ff432153b0dbb507cf7705ced859f25b18a",
+      "size": 2631
+    },
+    "artifact_manifest": {
+      "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/artifacts.json",
+      "sha256": "81f76333d8930ee7e05b0bc511c5a1a60149760ebad55b1eb9df1f9dca571038",
+      "size": 606941
+    },
+    "collector": {
+      "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/collect.py",
+      "sha256": "a4c112f9a2d2c099f74ad99822a87ef9c878899c6bac742c9da996df99e4be16",
+      "size": 11983
+    },
+    "test_runner": {
+      "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/run_suite.py",
+      "sha256": "db863fb3de0ffd2ae86ad65bd983a8e5bbe42fb9b91cbde2558697b9a878f92e",
+      "size": 3883
+    },
+    "source_inputs_verified": 164,
+    "artifact_hashes_verified": 2568,
+    "guard_controls": 8,
+    "runner_controls": 5,
+    "mutant_mode_detections": 26,
+    "restored_target_runs": 26,
+    "modes": [
+      "normal",
+      "optimized"
+    ],
+    "source_unchanged": true,
+    "owned_copy_restored": true,
+    "failed_harness_attempts": 0,
+    "current_inputs": {
+      "deploy/tests/test_membership_verifier.py": "59327d013640f2dd3ed92c5f0dded6a1424b53c833c415dbc822971c85631fa2",
+      "deploy/tests/test_vault_fixture_boundary.py": "1a640a230624ed91ae7622d37ddcbd726b8edf3f2d2a47c3b05adbba64f501ea",
+      "scripts/verify-boundaries.py": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+      "scripts/verify-membership-controls.py": "7fbcd04db511793f65876da6c672159c72bc83db11c60eba2989d88a8af678e3",
+      "scripts/verify-membership.py": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+      "scripts/verify-portable-vault.py": "9e6f9dbe430a661feb602d8e7ff55812ac0d369a87d579c2f5b0037afbd86adf",
+      "scripts/verify-webhost-link-mutations.py": "dac31914837ba341fa5b31f8ee3081a34f460d28654309f2ee1e3cb4029f74ba"
+    },
+    "controls": [
+      {
+        "name": "h1-merged-output",
+        "kind": "guard",
+        "path": "scripts/verify-boundaries.py",
+        "tests": [
+          "test_actual_cold_pinned_graph_uses_json_file_despite_diagnostics"
+        ],
+        "original_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "mutated_sha256": "da48609e44ce66085b9711bd23b251487a08b64a30f880a33e3e6cbef297bb25",
+        "restored_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "expected_reason": "fixture_graph_invalid",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output.patch",
+          "sha256": "4a66de71c647a6001af57a99adc3a6d2051251e1a363fe7edd4e50829012da98",
+          "size": 952
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output-mutant-normal-result.json",
+                "sha256": "9b3bef2f896aaee9137d6b944967b8c50dda589f53cb727eed65d0f828749e82",
+                "size": 1574
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output-mutant-normal.log",
+                "sha256": "d3c847af599c96fd0bb55c5dc91fa31328ad005251558efab7e2df1df9f4f377",
+                "size": 1535
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 0,
+              "errors": 1,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output-restored-normal-result.json",
+                "sha256": "2b5072f5757943d2be01c9d6f5851b7a11e5e98d607023a512f17b41ebed4c12",
+                "size": 345
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output-restored-normal.log",
+                "sha256": "208bb46f610ecc0943e4e7e5dce79a2a8e4010b29513be867762fbf5241fb355",
+                "size": 207
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output-mutant-optimized-result.json",
+                "sha256": "739cd3804561562dc74c0ed99d47fb9eb76fc063745f461dab1be3861fc2976a",
+                "size": 1574
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output-mutant-optimized.log",
+                "sha256": "42df33a1aee9adc1c4499af75b33b9cf52903773bf6bedea84c18ea7f520aea3",
+                "size": 1535
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 0,
+              "errors": 1,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output-restored-optimized-result.json",
+                "sha256": "02d3b9cb4e6604d9850b20d489a6d363b9a3978059c45b278d15d1d4a8d4f523",
+                "size": 345
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-h1-merged-output-restored-optimized.log",
+                "sha256": "db118bf9696d038454f0c0bdfe0a0541c09702d1cb659ec93962f76c96edd5c4",
+                "size": 207
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "m1-unpinned-query",
+        "kind": "guard",
+        "path": "scripts/verify-boundaries.py",
+        "tests": [
+          "test_actual_stale_pin_graph_refuses_without_rewriting_lock"
+        ],
+        "original_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "mutated_sha256": "7adb6c1df8c3e273eb0d6960ece90f90a076d69db99ee6659cc07d34f03e5765",
+        "restored_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "expected_reason": "FixtureBoundaryError not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query.patch",
+          "sha256": "85568619d3e4c07a04336a5df0635fc7615d9aa94389cfd8cf2b1fbf4c81ac2b",
+          "size": 350
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query-mutant-normal-result.json",
+                "sha256": "3191dcef2d2993945127944135798f3b55dbf3211b5835cbe971dbf382f66616",
+                "size": 927
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query-mutant-normal.log",
+                "sha256": "c4ed6e294b59445ba0345614a0c36087cc2141c0ead12e4a421ba22cdfff3d3d",
+                "size": 892
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query-restored-normal-result.json",
+                "sha256": "97842b1daa3a1a5e450fca074e1a7cf86e7746d695d1b33b7f4c7bca801a64cd",
+                "size": 345
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query-restored-normal.log",
+                "sha256": "27804f08a6a8d1e404231019a71e82f5b17e68d41b950889fed83e862b02ac7a",
+                "size": 201
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query-mutant-optimized-result.json",
+                "sha256": "847d8bfb11dcb487428bc34719aa4d104f760b4e8c0c4e2e24e47556480b7b92",
+                "size": 927
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query-mutant-optimized.log",
+                "sha256": "12de9b7235cd076c06bb1b6dc407d1b176b18b97d648e054ae85f388841a3889",
+                "size": 892
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query-restored-optimized-result.json",
+                "sha256": "47c367e54a473e3d7d48393dda9f65071ef6408f8129fa84b64050635543fe54",
+                "size": 345
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m1-unpinned-query-restored-optimized.log",
+                "sha256": "80b05020affa774ef70806c89fe6e5412b569c88fa21b76eea8b0c5ec3fb3e60",
+                "size": 201
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "m2-no-dependency-input-check",
+        "kind": "guard",
+        "path": "scripts/verify-boundaries.py",
+        "tests": [
+          "test_actual_ancestor_package_canonical_compiler_input_is_rejected",
+          "test_actual_symlink_target_canonical_compiler_input_is_rejected",
+          "test_actual_symlink_source_canonical_compiler_input_is_rejected"
+        ],
+        "original_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "mutated_sha256": "193c08d77273a1aecce4e9a0ef59177b1dbf55cc6ded9f8a77df2764fb99403c",
+        "restored_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "expected_reason": "FixtureBoundaryError not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check.patch",
+          "sha256": "97f9727d20ddf7131afe650932b764c7c54c9d2aa3af42a5fd20f6b22117d753",
+          "size": 394
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check-mutant-normal-result.json",
+                "sha256": "e4206aca81fa226a1ad8aece4a9f3c151357f4c6251a1f7cd9390fb9a9bd9410",
+                "size": 2899
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check-mutant-normal.log",
+                "sha256": "65d46ea724ffb462d1db14f02383d276707fd79c59fd50318aef60c13e4a998f",
+                "size": 3262
+              },
+              "exit_code": 1,
+              "tests": 3,
+              "failures": 3,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check-restored-normal-result.json",
+                "sha256": "5dbac842653cb60b1c5011021a327b30a2d58dd2348aa40affcd85b207fe5afa",
+                "size": 345
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check-restored-normal.log",
+                "sha256": "31e131c128858eedc811cb9dcac5c0ff7c1d612e220675950e7b0c6b87ad8b8b",
+                "size": 427
+              },
+              "exit_code": 0,
+              "tests": 3,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check-mutant-optimized-result.json",
+                "sha256": "f43783c14fa90586a2a1d6e9f659d1a6ebdda9ea5b7b74e97af18f0e3ce9bd95",
+                "size": 2899
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check-mutant-optimized.log",
+                "sha256": "f5728fcff8c18a3c2a7236d65f62820871d827cddfaf8a78845317a0053207d3",
+                "size": 3262
+              },
+              "exit_code": 1,
+              "tests": 3,
+              "failures": 3,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check-restored-optimized-result.json",
+                "sha256": "45cf2c0aa95616b37f0349d0c758ce065a12f484d3f3137dfae1912fedad9370",
+                "size": 345
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-m2-no-dependency-input-check-restored-optimized.log",
+                "sha256": "af6c682d95f8446193fb18cbf32acda3d00345e03c20500d990202dd1bca5ca5",
+                "size": 427
+              },
+              "exit_code": 0,
+              "tests": 3,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "l1-lexical-ancestry",
+        "kind": "guard",
+        "path": "scripts/verify-boundaries.py",
+        "tests": [
+          "test_actual_case_alias_compiler_input_is_rejected_when_samefile"
+        ],
+        "original_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "mutated_sha256": "61a9f67ea105b52606bb9b86a356b3f4e60bd25ad18bfa9d825a1980a5cc0214",
+        "restored_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "expected_reason": "FixtureBoundaryError not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry.patch",
+          "sha256": "0d1502992c06b967a2689d62a8ad82406e8f0b50625142a2a810f5f1235009f9",
+          "size": 400
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry-mutant-normal-result.json",
+                "sha256": "abe92da3fe417da082313385498cdbdbe58ebfe6725896e5d89648e06a4fbb49",
+                "size": 1196
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry-mutant-normal.log",
+                "sha256": "e8af70e59aca1d06b3c36b5aa9c9eb6b4cf1e927090084c15d6e8be7f663513e",
+                "size": 1161
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry-restored-normal-result.json",
+                "sha256": "f1a786e77f131f75cf0c2437365517e220b2ba27ab2f6c457a5dc2edf243e412",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry-restored-normal.log",
+                "sha256": "98de17dae69b3f0bfdd3ed8dacec9836a46a4fd139ff0d3855b48f333192ade0",
+                "size": 206
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry-mutant-optimized-result.json",
+                "sha256": "2efa3003e3c9eb2e882e2a84afbd4aa8413f9f1e0d3ff83c3b7f1ecc448958de",
+                "size": 1196
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry-mutant-optimized.log",
+                "sha256": "645cf681e0bb6bfe2cafa9f06395a9052b51db32bc9213ee36b5710da029907d",
+                "size": 1161
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry-restored-optimized-result.json",
+                "sha256": "0fa569962d269891d885e2a74c40478104ecb8c842b601b4e471512a5c7c5d55",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-l1-lexical-ancestry-restored-optimized.log",
+                "sha256": "5df74699d9d314c7c67a94b23792af2069ee1620956cc96cca06fe087783cf4e",
+                "size": 206
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "import-bypass",
+        "kind": "guard",
+        "path": "scripts/verify-boundaries.py",
+        "tests": [
+          "test_direct_and_attributed_imports_in_sources_and_tests"
+        ],
+        "original_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "mutated_sha256": "90214af9e1afe7ea36e910eb669ce4e20dc46c96d901368931dd1f77df2f827b",
+        "restored_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "expected_reason": "FixtureBoundaryError not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass.patch",
+          "sha256": "d03ebd56c0d8d763d5735c72243364ea95a867a6cad86f0d22df1d290c5b65a9",
+          "size": 516
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass-mutant-normal-result.json",
+                "sha256": "c176c88c6773e45a3c6bd80e30f489dc126123c6da039c50f8b6efaf3554d088",
+                "size": 9371
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass-mutant-normal.log",
+                "sha256": "e33d351818c951c99d08dc87fe721d1105ba7a09fda43f14416c5ecb7767c8cd",
+                "size": 10106
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 10,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass-restored-normal-result.json",
+                "sha256": "bc02dc52a9da8d98d2f41a0cd0793c4b17258600e5b2ebf3a21cf98738aa0a10",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass-restored-normal.log",
+                "sha256": "014945c55bbc10e0488e95579471b5bb87a62828f2294dc12f05efc8b4c20f75",
+                "size": 198
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass-mutant-optimized-result.json",
+                "sha256": "da4a281364ee5e221c0f2df53041f79563577c965521964b9b29c0c5dc1bc651",
+                "size": 9371
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass-mutant-optimized.log",
+                "sha256": "224a4e82af6a524e40981670fef9e8f8d6c80e0ea23b68eb16fd568997833a52",
+                "size": 10106
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 10,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass-restored-optimized-result.json",
+                "sha256": "19243ea7d09af8b339de71d82815f5c29342b8cdd41cf57e079c1d810a1c1579",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-import-bypass-restored-optimized.log",
+                "sha256": "014945c55bbc10e0488e95579471b5bb87a62828f2294dc12f05efc8b4c20f75",
+                "size": 198
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "transitive-bypass",
+        "kind": "guard",
+        "path": "scripts/verify-boundaries.py",
+        "tests": [
+          "test_actual_transitive_wrapper_is_rejected"
+        ],
+        "original_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "mutated_sha256": "27c93b6e74e07471f0b34fcb94a05d49bdbf024dc83ae5cecd43dc64426c7c75",
+        "restored_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "expected_reason": "FixtureBoundaryError not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass.patch",
+          "sha256": "5a8ba70abdd7dc58ff029720f60c84912c86e636e62fa4d16a935b249a01bdb6",
+          "size": 537
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass-mutant-normal-result.json",
+                "sha256": "772f170ba6c56cd62cea33e69935d06726b026cafcabece60986b2d626e2cf95",
+                "size": 1153
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass-mutant-normal.log",
+                "sha256": "f5f4291474bcc6b6ad87423f9386df9fdb9acfd52ccdf9dbe427ca5e82f9a84f",
+                "size": 1097
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass-restored-normal-result.json",
+                "sha256": "f1a786e77f131f75cf0c2437365517e220b2ba27ab2f6c457a5dc2edf243e412",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass-restored-normal.log",
+                "sha256": "b24d0af3f8a6fd632730dbf17ebe4d48c9793ae75c239f1e736c1d3f9a6f487a",
+                "size": 185
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass-mutant-optimized-result.json",
+                "sha256": "6303becad5e595b42fdfb555d5548d9c6f782bed7bfaef4c7786e9ec65d2eb36",
+                "size": 1153
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass-mutant-optimized.log",
+                "sha256": "130d263a6047ebdfa7e808e644c37430fe9e4a3da8016d79c4fef3175e8b57c1",
+                "size": 1097
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass-restored-optimized-result.json",
+                "sha256": "0fa569962d269891d885e2a74c40478104ecb8c842b601b4e471512a5c7c5d55",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-transitive-bypass-restored-optimized.log",
+                "sha256": "d5b07cea141534fbfdc16825ba8284d3099f3c13b2cb08e041f439075adb35c5",
+                "size": 185
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "output-command-refusal-bypass",
+        "kind": "guard",
+        "path": "scripts/verify-boundaries.py",
+        "tests": [
+          "test_output_file_valid_json_cannot_override_command_refusal"
+        ],
+        "original_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "mutated_sha256": "5dd86dad986682672f11f00b87dc4ff4b9392e78191b55ef368dc716427fef57",
+        "restored_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "expected_reason": "FixtureBoundaryError not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass.patch",
+          "sha256": "a1fc97064e162d061d7f87c4b10e162fe8bb0165ee87a6f3319fd926742b3e59",
+          "size": 553
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass-mutant-normal-result.json",
+                "sha256": "0b8f82f898910e613388d4946588693e14f4ce9f9618ed56e94590e3fe17b1d3",
+                "size": 928
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass-mutant-normal.log",
+                "sha256": "41fe5fd9851f7d432a29845e0d502578f7501201c4d02294789845d96603a42a",
+                "size": 895
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass-restored-normal-result.json",
+                "sha256": "bc02dc52a9da8d98d2f41a0cd0793c4b17258600e5b2ebf3a21cf98738aa0a10",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass-restored-normal.log",
+                "sha256": "7ec7684af64f4ce124bf8584875e900d9e0bae00a403ffba48bcf6010f93f923",
+                "size": 202
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass-mutant-optimized-result.json",
+                "sha256": "cfd8e7b3bacee13c50a8647212f5bf9d8a02bbaacd952defa5caa0c49cb30a61",
+                "size": 928
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass-mutant-optimized.log",
+                "sha256": "41fe5fd9851f7d432a29845e0d502578f7501201c4d02294789845d96603a42a",
+                "size": 895
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass-restored-optimized-result.json",
+                "sha256": "19243ea7d09af8b339de71d82815f5c29342b8cdd41cf57e079c1d810a1c1579",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-output-command-refusal-bypass-restored-optimized.log",
+                "sha256": "7ec7684af64f4ce124bf8584875e900d9e0bae00a403ffba48bcf6010f93f923",
+                "size": 202
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "missing-nondirectory-anchor",
+        "kind": "guard",
+        "path": "scripts/verify-boundaries.py",
+        "tests": [
+          "test_missing_fixture_anchor_fails_closed",
+          "test_fixture_anchor_must_be_directory"
+        ],
+        "original_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "mutated_sha256": "4bc6bd9a1c67b0095e57150894ee9000145f0450cbf028c20ab49435b19581dd",
+        "restored_sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+        "expected_reason": "FixtureBoundaryError not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor.patch",
+          "sha256": "ef45eee8b173d646c034766f935a2facc0e2bd1a65455250bfa8cfa3a4b3b13c",
+          "size": 561
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor-mutant-normal-result.json",
+                "sha256": "8537f800a920857226b3673650b4e690dff604c0b7be826455665ce524783851",
+                "size": 1958
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor-mutant-normal.log",
+                "sha256": "b3b31cb68570fa3e38079a9c3d7fd25167741e432ba72afcb8c7f2176051fc94",
+                "size": 2073
+              },
+              "exit_code": 1,
+              "tests": 2,
+              "failures": 2,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor-restored-normal-result.json",
+                "sha256": "4d802fc52a85993bb018a3df4f489f745931b5a7e4941d8565149c80e5088e41",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor-restored-normal.log",
+                "sha256": "aa8d402ad828df9deb538cdd7d8515bd068cdd9e4398ededa56b00e05b44388d",
+                "size": 267
+              },
+              "exit_code": 0,
+              "tests": 2,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor-mutant-optimized-result.json",
+                "sha256": "cbc932fbc319d76635876908213368f454cf1f0ea66815d3f6b758db672d650f",
+                "size": 1958
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor-mutant-optimized.log",
+                "sha256": "faba602ad6c20b230f079c5986292fa77bc91d1fe30a122bace0bf58f74a5b27",
+                "size": 2073
+              },
+              "exit_code": 1,
+              "tests": 2,
+              "failures": 2,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor-restored-optimized-result.json",
+                "sha256": "5d7765c71c6106fdc49ddd651f15805e23db4502f8962481fe15cc2cb2fba3ed",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-missing-nondirectory-anchor-restored-optimized.log",
+                "sha256": "aa8d402ad828df9deb538cdd7d8515bd068cdd9e4398ededa56b00e05b44388d",
+                "size": 267
+              },
+              "exit_code": 0,
+              "tests": 2,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "n1-detector",
+        "kind": "runner",
+        "path": "scripts/verify-membership.py",
+        "tests": [
+          "DetectorTests.test_n1_wrong_missing_test_and_unrelated_failure_are_not_detected"
+        ],
+        "original_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "mutated_sha256": "b50c8dbe9866b472edcc8ed99e16f2e22c9cb39f8c85336af0a04245e7e100f6",
+        "restored_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "expected_reason": "True is not false",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector.patch",
+          "sha256": "192ab93ec62127a9b404a156d71b3ed177cd98cdf50aa90c7b2c4d39d7148cd5",
+          "size": 315
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector-mutant-normal-result.json",
+                "sha256": "bfae53286ecd8441494ee6b01e1939229dd611eb708184d1f1f4ca79e790ea9d",
+                "size": 10441
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector-mutant-normal.log",
+                "sha256": "d2f01e56997cbc0ed8ed6a2c55b10e13b6493de425ec7dec99339b73d55bb636",
+                "size": 11611
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 15,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector-restored-normal-result.json",
+                "sha256": "bc02dc52a9da8d98d2f41a0cd0793c4b17258600e5b2ebf3a21cf98738aa0a10",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector-restored-normal.log",
+                "sha256": "fc136d6abfa173ca8d1afaba9b274886f9e53091680cae412dca7a9a47827384",
+                "size": 199
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector-mutant-optimized-result.json",
+                "sha256": "6f0617109d852ed84c8933f32484a58a19a98f078029c5ffc3dee404562ca793",
+                "size": 10441
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector-mutant-optimized.log",
+                "sha256": "d2f01e56997cbc0ed8ed6a2c55b10e13b6493de425ec7dec99339b73d55bb636",
+                "size": 11611
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 15,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector-restored-optimized-result.json",
+                "sha256": "19243ea7d09af8b339de71d82815f5c29342b8cdd41cf57e079c1d810a1c1579",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-n1-detector-restored-optimized.log",
+                "sha256": "fc136d6abfa173ca8d1afaba9b274886f9e53091680cae412dca7a9a47827384",
+                "size": 199
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "hash-binding",
+        "kind": "runner",
+        "path": "scripts/verify-membership.py",
+        "tests": [
+          "DriverTests.test_changed_log_hash_is_rejected"
+        ],
+        "original_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "mutated_sha256": "128e3b4679ee378c643b9712e2edbe5e1c73a414cf6334e44a3bcd61b9644d28",
+        "restored_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "expected_reason": "VerificationFailure not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding.patch",
+          "sha256": "67d9cfd9c1d285b6f52d7b3424fc2bf4629ded91a30d3e3fd8539af82bc94d20",
+          "size": 217
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding-mutant-normal-result.json",
+                "sha256": "7200d6adcc5f1f9d0398ae4a6f9e6039695f8973ad23e0691e5b6755055d39bb",
+                "size": 855
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding-mutant-normal.log",
+                "sha256": "6de0b9345764d6bff69dc5b5b520dd8a3527c93b64e41a15fcaad8754bb840e9",
+                "size": 785
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding-restored-normal-result.json",
+                "sha256": "bc02dc52a9da8d98d2f41a0cd0793c4b17258600e5b2ebf3a21cf98738aa0a10",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding-restored-normal.log",
+                "sha256": "960318b9d80c4fbb9e4e14cde68ac30f2a3249d16b896beb806c88135f2b15b6",
+                "size": 165
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding-mutant-optimized-result.json",
+                "sha256": "b000957bd05532fcbd68a14622a48b2a2142ba66f0977eeca1adbd1c8e9384e3",
+                "size": 855
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding-mutant-optimized.log",
+                "sha256": "8369cc7c5d919ea461f642efaa43c2dc4c517190b81f1159c8ff1ed9b40d97c2",
+                "size": 785
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding-restored-optimized-result.json",
+                "sha256": "19243ea7d09af8b339de71d82815f5c29342b8cdd41cf57e079c1d810a1c1579",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-hash-binding-restored-optimized.log",
+                "sha256": "c056e0130df80f26f9c810ad309ef5816572abe343a3c136a4a8d9ad99a5c4f0",
+                "size": 165
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "cleanup-scan",
+        "kind": "runner",
+        "path": "scripts/verify-membership.py",
+        "tests": [
+          "DriverTests.test_cleanup_inspection_honors_disabled_scan_and_removes_owned_container"
+        ],
+        "original_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "mutated_sha256": "8e292652a447520b93ea2a2ee2162dd618bbdc46adf2f6298cc857be558dbe3b",
+        "restored_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "expected_reason": "VerificationFailure: synthetic_secret_output",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan.patch",
+          "sha256": "35619da7345e1c4567f0bc699caec1b172a72a1f0cb5fd08972cd6ecb2d6d56b",
+          "size": 606
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan-mutant-normal-result.json",
+                "sha256": "8056ed211330b771e071bfdcbc0ac72575d503f9420bdebf866126609f4ff218",
+                "size": 1857
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan-mutant-normal.log",
+                "sha256": "85e3016aa8e529cb1d77bc96d58c3fdc7032123e386fccfae6cde92b4c8553a6",
+                "size": 1806
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 0,
+              "errors": 1,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan-restored-normal-result.json",
+                "sha256": "bc02dc52a9da8d98d2f41a0cd0793c4b17258600e5b2ebf3a21cf98738aa0a10",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan-restored-normal.log",
+                "sha256": "284769bbeffc91e81d5e51dd3bfffea7611f3650c73d98bbc29b40e4d8138e56",
+                "size": 204
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan-mutant-optimized-result.json",
+                "sha256": "e99ea6bbbfc12c9c15ce0ce832148932d1ac1cbe1b384b2d754609a20e871949",
+                "size": 1857
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan-mutant-optimized.log",
+                "sha256": "85e3016aa8e529cb1d77bc96d58c3fdc7032123e386fccfae6cde92b4c8553a6",
+                "size": 1806
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 0,
+              "errors": 1,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan-restored-optimized-result.json",
+                "sha256": "19243ea7d09af8b339de71d82815f5c29342b8cdd41cf57e079c1d810a1c1579",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-cleanup-scan-restored-optimized.log",
+                "sha256": "284769bbeffc91e81d5e51dd3bfffea7611f3650c73d98bbc29b40e4d8138e56",
+                "size": 204
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "scan-policy-verification-removal",
+        "kind": "runner",
+        "path": "scripts/verify-membership.py",
+        "tests": [
+          "DriverTests.test_recorded_scan_policy_is_explicit_and_checked"
+        ],
+        "original_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "mutated_sha256": "c92018f561ee1e15d9bd0fdb365ec8190e03530bcc74290ed8471775eef2e66f",
+        "restored_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "expected_reason": "VerificationFailure not raised",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal.patch",
+          "sha256": "72b1ae0de883c5ef062d4bb0aefbe762fe9616fb18177fd4d80e27aaf5537551",
+          "size": 673
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal-mutant-normal-result.json",
+                "sha256": "4f8a93946d90ba87e043cc902fe60eb27105261244321e883a0d94a7e630521e",
+                "size": 887
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal-mutant-normal.log",
+                "sha256": "a2505e16209ce7f0b8967fe99082fe369844a7f1ed9f4e4c6e41494e63bd194d",
+                "size": 833
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal-restored-normal-result.json",
+                "sha256": "bc02dc52a9da8d98d2f41a0cd0793c4b17258600e5b2ebf3a21cf98738aa0a10",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal-restored-normal.log",
+                "sha256": "432b131fe0ac1116a5427fbd91e1c2ec3de0c092205e6d4049b8122ca1c8b704",
+                "size": 181
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal-mutant-optimized-result.json",
+                "sha256": "2b18b8ce82825ea64607b34c53375509f06db119fb188ed3138f853b5c605491",
+                "size": 887
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal-mutant-optimized.log",
+                "sha256": "a2505e16209ce7f0b8967fe99082fe369844a7f1ed9f4e4c6e41494e63bd194d",
+                "size": 833
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal-restored-optimized-result.json",
+                "sha256": "19243ea7d09af8b339de71d82815f5c29342b8cdd41cf57e079c1d810a1c1579",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-policy-verification-removal-restored-optimized.log",
+                "sha256": "9c1186640e98504ff1c2063dbb2396ac560a2ed0bd001876bf2bfe9a998deb3f",
+                "size": 181
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "scan-record-falsely-true",
+        "kind": "runner",
+        "path": "scripts/verify-membership.py",
+        "tests": [
+          "DriverTests.test_recorded_scan_policy_is_explicit_and_checked"
+        ],
+        "original_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "mutated_sha256": "83e961ab56c71c8fa8645879cc6bea457146c9b62eb9de8f3973d07e234b6e9f",
+        "restored_sha256": "7d77279bd77e8989dd4ccff0cf2cd8c0be31eb06c14429fd9f44ec98aee94e00",
+        "expected_reason": "True is not False",
+        "patch": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true.patch",
+          "sha256": "00e632b71dea64f62061a99df8f173f17e005d1f458b1736800d949cbc1a1a70",
+          "size": 642
+        },
+        "modes": {
+          "normal": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true-mutant-normal-result.json",
+                "sha256": "ab352de2398b480427edf06552ac30866deb32199d3c9f02db658632375b93b3",
+                "size": 924
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true-mutant-normal.log",
+                "sha256": "c16ec5926f5f9b2ac6fe936a1dd35c965291f627c305235155628c06f88c2240",
+                "size": 864
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true-restored-normal-result.json",
+                "sha256": "bc02dc52a9da8d98d2f41a0cd0793c4b17258600e5b2ebf3a21cf98738aa0a10",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true-restored-normal.log",
+                "sha256": "200f0a66177b2822a3b36d8dac55638fc67766b581fb2d6a0524caf68813725c",
+                "size": 181
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          },
+          "optimized": {
+            "mutant": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true-mutant-optimized-result.json",
+                "sha256": "8e4206ca96f609770f9066aa8fb9b75fd5208d723119d7e4d51a36a8b13d14b3",
+                "size": 924
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true-mutant-optimized.log",
+                "sha256": "07356620ab5d39eb81314532154c14515d3aa02e37f608826fd5ad2ec90720d8",
+                "size": 864
+              },
+              "exit_code": 1,
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0
+            },
+            "restored": {
+              "result": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true-restored-optimized-result.json",
+                "sha256": "19243ea7d09af8b339de71d82815f5c29342b8cdd41cf57e079c1d810a1c1579",
+                "size": 344
+              },
+              "log": {
+                "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-scan-record-falsely-true-restored-optimized.log",
+                "sha256": "4528e3e46ff31ce39444fe8a3417962ff26aa3d3e42ae2614ce0adc15bde2cff",
+                "size": 181
+              },
+              "exit_code": 0,
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0
+            }
+          }
+        }
+      }
+    ],
+    "full_suites": [
+      {
+        "label": "guard-before-normal",
+        "result": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-before-normal-result.json",
+          "sha256": "9946981741851bfd73672226b99043931de6beda77fdc5b1e326db13a0bb9a49",
+          "size": 346
+        },
+        "log": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-before-normal.log",
+          "sha256": "f5251b6990d7f4639d0d7817a8fe4e875fee564f2181c0c9c59a4ea05b7d3f1d",
+          "size": 5098
+        },
+        "tests": 50,
+        "skips": 0
+      },
+      {
+        "label": "guard-before-optimized",
+        "result": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-before-optimized-result.json",
+          "sha256": "5c77165c414802be261266f23c764a46da62895a7443ce4c1eaff5def2ca3c86",
+          "size": 346
+        },
+        "log": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-before-optimized.log",
+          "sha256": "fe3156973209e3b01e4168d40f65afd69d9df03efea97948d0da04a4ac6b3eed",
+          "size": 5098
+        },
+        "tests": 50,
+        "skips": 0
+      },
+      {
+        "label": "guard-final-normal",
+        "result": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-final-normal-result.json",
+          "sha256": "9946981741851bfd73672226b99043931de6beda77fdc5b1e326db13a0bb9a49",
+          "size": 346
+        },
+        "log": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-final-normal.log",
+          "sha256": "934eee8eb84061668091650c7455223cf95ef7c6ab0772038cd3123f7baff67a",
+          "size": 5098
+        },
+        "tests": 50,
+        "skips": 0
+      },
+      {
+        "label": "guard-final-optimized",
+        "result": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-final-optimized-result.json",
+          "sha256": "5c77165c414802be261266f23c764a46da62895a7443ce4c1eaff5def2ca3c86",
+          "size": 346
+        },
+        "log": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/guard-final-optimized.log",
+          "sha256": "75b4bc31feac7a62be2d81719e9cb1b647e3d9cb7cfed0ca1d3be3e6985f562a",
+          "size": 5098
+        },
+        "tests": 50,
+        "skips": 0
+      },
+      {
+        "label": "runner-before-normal",
+        "result": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-before-normal-result.json",
+          "sha256": "b6f8933bdf5f2b54dedf607dd1300e82cbcd60bba46e91b3508d0cc419884c4a",
+          "size": 345
+        },
+        "log": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-before-normal.log",
+          "sha256": "ace994ff488baf8d6f88cee1b6e0b6ffbb18c4d928512ebe83f5f6b1bc673256",
+          "size": 1970
+        },
+        "tests": 22,
+        "skips": 0
+      },
+      {
+        "label": "runner-before-optimized",
+        "result": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-before-optimized-result.json",
+          "sha256": "91396c8986ca7d47889ab807258be622db1384e707015fbbdf7a1aacb45b6ad2",
+          "size": 345
+        },
+        "log": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-before-optimized.log",
+          "sha256": "8693e0f5d95a186adbc1ae5aadaada16d83f748bbbfff940356a8c6f25dfbb51",
+          "size": 1970
+        },
+        "tests": 22,
+        "skips": 0
+      },
+      {
+        "label": "runner-final-normal",
+        "result": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-final-normal-result.json",
+          "sha256": "b6f8933bdf5f2b54dedf607dd1300e82cbcd60bba46e91b3508d0cc419884c4a",
+          "size": 345
+        },
+        "log": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-final-normal.log",
+          "sha256": "557cf7a92aee01b01f14a99632e46c5a6f3577741bc8db73c57c367f57dab57c",
+          "size": 1970
+        },
+        "tests": 22,
+        "skips": 0
+      },
+      {
+        "label": "runner-final-optimized",
+        "result": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-final-optimized-result.json",
+          "sha256": "91396c8986ca7d47889ab807258be622db1384e707015fbbdf7a1aacb45b6ad2",
+          "size": 345
+        },
+        "log": {
+          "path": "verification-logs/membership-u0-root/final-controls-88f48e24bc5a4074b0515ecdb6ac7249/runner-final-optimized.log",
+          "sha256": "cece04f46aaed321858d2c62b6c90bfb9a3df8660361820a20003fed21ed8b4b",
+          "size": 1970
+        },
+        "tests": 22,
+        "skips": 0
+      }
+    ],
+    "assertion_tail": {
+      "assertions": 12,
+      "byte_identical_to_HEAD": true,
+      "sha256": "e938e48dd902816149061f821798119cbffbbf40097d36f70ede0cb3e8abeb7e"
+    },
+    "limits": [
+      "No native/Linux codec proof in this collector.",
+      "No full-product readiness claim.",
+      "Source invariant excludes independently editable docs and evidence.",
+      "Git init/commit/tag only inside the existing guard tests synthetic temporary fixtures; main repository Git is read-only.",
+      "Command hashes bind canonical helper UTF-8 replacement output."
+    ]
+  },
+  "limits": [
+    "Fixture-only package remains unlinked to root products.",
+    "No real credentials, enrollment, cloud sync, native Linux service or production readiness demonstrated.",
+    "No exchange rerun; earlier 12 codec controls are separate evidence.",
+    "Native CryptoKit masking is not counted as defense-removal detection.",
+    "Trusted SwiftPM metadata and declared compiler paths; no copied/renamed-code, arbitrary-plugin or hostile-maintainer protection.",
+    "Describe metadata still strictly parses combined output; unexpected diagnostics fail closed.",
+    "Graph output size is checked after collection.",
+    "Pinned dependency downloads permitted; not a hermetic build.",
+    "Log hashes bind UTF-8 replacement text; finite known synthetic ASCII/hex/base64 scans are not an information-flow proof.",
+    "Private raw evidence is ignored and is not shipped in this repository.",
+    "Fixture directory presence does not authenticate contents; local ignored build leftovers can hide relocation through a renamed wrapper. Fresh CI refuses an absent anchor.",
+    "Token/symlink manifest scanning covers default Package.swift; selected version-specific manifests are covered by SwiftPM semantic graph metadata.",
+    "Unscanned container inspection is explicitly recorded as secret_output_scanned=false, not a clean scan."
+  ],
+  "history": [
+    {
+      "scope": "initial snapshot before review corrections",
+      "baseline": {
+        "path": "verification-logs/membership-u0-worker/baseline-2acc45439e3c4cae84b3ebafed6e01f7/result.json",
+        "sha256": "ff2f70ffab262547aeb50c676d4ed9486aed496feb49ebaeb5babedad03ba8be",
+        "size": 68400
+      },
+      "control": {
+        "path": "verification-logs/membership-u0-worker/controls-1e895ee3cc6a4a46aab73ce3a66c510b/result.json",
+        "sha256": "054d9f7c34d5253502d824e890ef9ebb42261a1b0c84144c132f7a0f521ffbb4",
+        "size": 90695
+      },
+      "harness_sources": {
+        "scripts/verify-membership.py": {
+          "sha256": "e5348f547ac4d816d6a1c3023ed6206d8d49ee0b9d496b4523c5ac36c0b359ca",
+          "size": 20281
+        },
+        "scripts/verify-membership-controls.py": {
+          "sha256": "7fbcd04db511793f65876da6c672159c72bc83db11c60eba2989d88a8af678e3",
+          "size": 6577
+        },
+        "deploy/tests/test_membership_verifier.py": {
+          "sha256": "02e7e38ffbf9a1c78a648cf499fbc9b4c24f449979a13ce74431f48e9d1d569b",
+          "size": 22792
+        },
+        "scripts/verify-portable-vault.py": {
+          "sha256": "9e6f9dbe430a661feb602d8e7ff55812ac0d369a87d579c2f5b0037afbd86adf",
+          "size": 9700
+        },
+        "scripts/verify-webhost-link-mutations.py": {
+          "sha256": "dac31914837ba341fa5b31f8ee3081a34f460d28654309f2ee1e3cb4029f74ba",
+          "size": 16896
+        },
+        "scripts/verify-boundaries.py": {
+          "sha256": "2dcd033c9a57b42631c3070e3c1ed71f048249b88d54e9d36c31c02ff4fa7a9a",
+          "size": 12703
+        },
+        "deploy/tests/test_vault_fixture_boundary.py": {
+          "sha256": "f0a60de08ad8f349bfc84404e548bfb51974c20b6441db3f406f554d5d89a317",
+          "size": 26754
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "2d099f3c81a0eab786f72522b7caf686d8a1e823de42cc0b84c48719ff073d09",
+          "size": 1946
+        }
+      },
+      "input_snapshot_sha256": "6991465d5974bc2d22c19418b2417f99e1440ef5f4b97595b11c75f2039ffc9c",
+      "reviews": [
+        {
+          "reviewer": "Opus 5.5",
+          "verdict": "changes_required",
+          "evidence_integrity": "confirmed",
+          "report_sha256": "a5c5b451c9d5353985e3fd66e553bc4df4ad05131c78875c58b902f0070620f4"
+        },
+        {
+          "reviewer": "Grok 4.7",
+          "verdict": "accept_bounded_initial_snapshot",
+          "evidence_integrity": "confirmed",
+          "report_sha256": "7cc1ae5c915066bb88fb47b82ce35bbd896b7f7bde0b697e19fdacdb285114d7"
+        }
+      ]
+    },
+    {
+      "scope": "accepted corrected snapshot before narrow follow-up",
+      "baseline": {
+        "path": "verification-logs/membership-u0-worker/baseline-9fd1eb68555b4360a1fb0c836d4c79ac/result.json",
+        "sha256": "4efe855cfa43ad96caff3ba751475de3288be2b48c262db2278ba9307a718ea5",
+        "size": 68400
+      },
+      "control": {
+        "path": "verification-logs/membership-u0-worker/controls-58aaa39519e74044ac8ee4e7c3320b37/result.json",
+        "sha256": "eadf1722f24faf37e5526af779d29cb4b8d291673fe008422df0f68c23eeedd3",
+        "size": 90695
+      },
+      "harness_sources": {
+        "scripts/verify-membership.py": {
+          "sha256": "9ab30e574e224500243f4a2d5e6c9117b3d991a4ffff8c31bc26f8b97d51a5c0",
+          "size": 20290
+        },
+        "scripts/verify-membership-controls.py": {
+          "sha256": "7fbcd04db511793f65876da6c672159c72bc83db11c60eba2989d88a8af678e3",
+          "size": 6577
+        },
+        "deploy/tests/test_membership_verifier.py": {
+          "sha256": "d2ab878b06d80eb34876c1f52efa9fde3d7d17df9a2b16aa0793cdb09598837a",
+          "size": 23754
+        },
+        "scripts/verify-portable-vault.py": {
+          "sha256": "9e6f9dbe430a661feb602d8e7ff55812ac0d369a87d579c2f5b0037afbd86adf",
+          "size": 9700
+        },
+        "scripts/verify-webhost-link-mutations.py": {
+          "sha256": "dac31914837ba341fa5b31f8ee3081a34f460d28654309f2ee1e3cb4029f74ba",
+          "size": 16896
+        },
+        "scripts/verify-boundaries.py": {
+          "sha256": "4bc6bd9a1c67b0095e57150894ee9000145f0450cbf028c20ab49435b19581dd",
+          "size": 15496
+        },
+        "deploy/tests/test_vault_fixture_boundary.py": {
+          "sha256": "a0e4fc78263a234e9d5496003d04531a01990f16261fb5e02255e4940c865ca3",
+          "size": 40933
+        },
+        ".github/workflows/ci.yml": {
+          "sha256": "a2d7c28fb1a3ae97d0620ddf52159f7966cf66d8be8a26c990ecf5c9feb32735",
+          "size": 2207
+        }
+      },
+      "input_snapshot_sha256": "03bef7b259277ef68858a703be5cb574d6cfa7c55d4ad4f561fb5472a2d800a2",
+      "reviews": [
+        {
+          "report": {
+            "path": "verification-logs/membership-u0-root/opus-round2.md",
+            "sha256": "540ad83f1109f1d116d38d34e11ec5b94dbd28ecd0090236ea8a990130bbff59",
+            "size": 9004
+          },
+          "verdict": "accept",
+          "scope": "corrected main U0 snapshot before narrow follow-up"
+        },
+        {
+          "report": {
+            "path": "verification-logs/membership-u0-root/grok-round2.md",
+            "sha256": "f99d4005f1d2d92ac291db43d7314946fc67de8110eef92dc5649b029d2d6087",
+            "size": 5692
+          },
+          "verdict": "accept",
+          "scope": "corrected main U0 snapshot before narrow follow-up"
+        }
+      ]
+    }
+  ],
+  "independent_reviews": [
+    {
+      "report": {
+        "path": "verification-logs/membership-u0-root/opus-round2.md",
+        "sha256": "540ad83f1109f1d116d38d34e11ec5b94dbd28ecd0090236ea8a990130bbff59",
+        "size": 9004
+      },
+      "verdict": "accept",
+      "scope": "corrected main U0 snapshot before narrow follow-up"
+    },
+    {
+      "report": {
+        "path": "verification-logs/membership-u0-root/grok-round2.md",
+        "sha256": "f99d4005f1d2d92ac291db43d7314946fc67de8110eef92dc5649b029d2d6087",
+        "size": 5692
+      },
+      "verdict": "accept",
+      "scope": "corrected main U0 snapshot before narrow follow-up"
+    },
+    {
+      "report": {
+        "path": "verification-logs/membership-u0-root/opus-hardening-round3.md",
+        "sha256": "23b60a26b11e254998eabbc083555ab1ec2ecf442271b76c5eafd024ce8e232e",
+        "size": 6789
+      },
+      "verdict": "accept_exact_candidate_subject_to_final_root_execution",
+      "scope": "narrow applied follow-up; exact bytes and final execution checked by root"
+    }
+  ]
+}

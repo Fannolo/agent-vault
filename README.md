@@ -58,6 +58,20 @@ python3 -I scripts/verify-portable-vault-controls.py PATH_TO_RESULT_JSON
 These checks prove bounded codec behavior, not account signup, live cloud sync, installed
 OS isolation or a production password manager.
 
+The root build now has a fixture-only integration guard covering direct and transitive
+dependencies, aliases and controlled source paths. The next [membership design](docs/design/multiplatform/MEMBERSHIP.md)
+is accepted; membership itself is not implemented. To repeat U0's unchanged codec baseline
+and open-side validation control, using the baseline result path printed by the first command:
+
+```sh
+python3 -I scripts/verify-membership.py
+python3 -I scripts/verify-membership-controls.py PATH_TO_U0_BASELINE_RESULT_JSON
+```
+
+The Linux control must detect the removed check. Native backend masking is recorded
+separately. U0 performs no ciphertext exchange; [its evidence](docs/verification/membership-u0.json)
+does not replace the earlier interoperability record.
+
 ## Try the synthetic demo
 
 Requires macOS 14 or newer and Swift 6.2 or newer. The official Swift MCP SDK is

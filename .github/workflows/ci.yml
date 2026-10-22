@@ -14,12 +14,22 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Check toolchain
         run: swift --version
+      - name: Resolve pinned dependencies
+        run: swift package resolve --force-resolved-versions
+      - name: Verify module boundaries
+        run: python3 scripts/verify-boundaries.py
+      - name: Verify fixture-only boundary guard
+        run: python3 -I deploy/tests/test_vault_fixture_boundary.py
+      - name: Verify fixture-only guard with Python assertions disabled
+        run: python3 -I -O deploy/tests/test_vault_fixture_boundary.py
+      - name: Verify membership evidence runner
+        run: python3 -I deploy/tests/test_membership_verifier.py
+      - name: Verify membership evidence runner with Python assertions disabled
+        run: python3 -I -O deploy/tests/test_membership_verifier.py
       - name: Build and test pinned dependencies
         run: swift test --force-resolved-versions
       - name: Verify stdio MCP with synthetic data
         run: python3 scripts/verify-mcp.py
-      - name: Verify module boundaries
-        run: python3 scripts/verify-boundaries.py
       - name: Verify installer guards without root
         run: python3 scripts/verify-installer.py
       - name: Verify signed release entitlement checks
