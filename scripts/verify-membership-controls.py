@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("membership_verifier", ROOT / "scripts/verify-membership.py")
 verifier = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verifier)
-RELATIVE = "Sources/VaultCore/RevisionCodec.swift"
-REMOVED = b"        try validateX25519PublicKey(encapsulatedKey)\n"
+RELATIVE = verifier.MUTATIONS["N1"]["file"]
+REMOVED = verifier.MUTATIONS["N1"]["old"]
 
 
 def copy_package(evidence):
@@ -33,19 +33,11 @@ def copy_package(evidence):
     return package
 
 
-def mutation_bytes(package, evidence):
-    path = package / RELATIVE
-    original = verifier.read_regular(path)
-    verifier.require(original.count(REMOVED) == 1, "n1_mutation_anchor_changed")
-    mutated = original.replace(REMOVED, b"")
-    patch = "".join(difflib.unified_diff(original.decode().splitlines(True), mutated.decode().splitlines(True),
-                                       fromfile=RELATIVE, tofile=RELATIVE)).encode()
-    verifier.private_write(evidence / "n1.patch", patch)
-    return path, original, mutated, {"target": RELATIVE, "removed_sites": 1,
-        "original_sha256": verifier.sha(original), "mutated_sha256": verifier.sha(mutated),
-        "patch": "n1.patch", "patch_record": {"sha256": verifier.sha(patch), "size": len(patch)},
-        "test": verifier.TARGET, "expected_error": "Expected fixed codec error",
-        "assertion": "badAuthentication", "source_location": verifier.n1_location(package)}
+
+def mutation_bytes(package, evidence, identifier="N1"):
+    path, original, changed, record, patch, _ = verifier.mutation_source(identifier, package)
+    verifier.private_write(evidence / record["patch"], patch)
+    return path, original, changed, record
 
 
 def platform_control(run, state, platform, path, original, mutated, *, control_id=None, unit="u0"):
@@ -131,20 +123,7 @@ def main():
     print(state["evidence"] / "result.json")
 
 
-def u1_mutation_bytes(package, evidence, identifier):
-    spec = verifier.U1_MUTATIONS[identifier]
-    path = package / spec["file"]
-    original = verifier.read_regular(path)
-    verifier.require(original.count(spec["old"]) == 1, "u1_mutation_anchor_changed")
-    mutated = original.replace(spec["old"], spec["new"])
-    patch = "".join(difflib.unified_diff(original.decode().splitlines(True), mutated.decode().splitlines(True),
-                                      fromfile=spec["file"], tofile=spec["file"])).encode()
-    name = identifier.lower() + ".patch"
-    verifier.private_write(evidence / name, patch)
-    return path, original, mutated, {"id": identifier, "target": spec["file"], "changed_sites": 1,
-        "original_sha256": verifier.sha(original), "mutated_sha256": verifier.sha(mutated),
-        "patch": name, "patch_record": {"sha256": verifier.sha(patch), "size": len(patch)},
-        "detector": verifier.U1_DETECTORS[identifier]}
+
 
 
 def u1_main(args):
@@ -164,7 +143,7 @@ def u1_main(args):
         baseline_runtime = verifier.strict_document(verifier.read_regular(args.baseline, 4 * 1024 * 1024))["runtime"]
         verifier.require(state["runtime"] == baseline_runtime, "controls_baseline_runtime_changed")
         for identifier in verifier.U1_MUTATIONS:
-            path, original, mutated, record = u1_mutation_bytes(state["package"], state["evidence"], identifier)
+            path, original, mutated, record = mutation_bytes(state["package"], state["evidence"], identifier)
             report["mutations"][identifier] = record
             name = record["patch"]
             report["artifacts"][name] = verifier.evidence_ref(state["evidence"], name)
@@ -214,5 +193,5 @@ if __name__ == "__main__":
         with verifier.owned.interrupt_on_termination():
             main()
     except verifier.VerificationFailure as error:
-        print("membership U0 controls: " + str(error), file=sys.stderr)
+        print("membership controls: " + str(error), file=sys.stderr)
         raise SystemExit(1)
