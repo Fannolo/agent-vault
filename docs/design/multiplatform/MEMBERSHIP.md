@@ -5,8 +5,10 @@ review. Corrected U0 source passes its native/Linux and guard/runner checks afte
 fixes. Opus 5.5 and Grok 4.7 accept the bounded unit. Opus also accepts the applied small
 hardening follow-up. Its final current-source runtime checks pass.
 The [U0 evidence](../../verification/membership-u0.json) records current and initial results.
-This document does not claim membership code,
-cloud synchronization, durable rollback protection or product readiness.
+The synthetic U1 implementation is now present in the separate package. Early checks pass
+55 tests on macOS and Linux, with agreement on all 150 pinned signature cases. Complete U1
+exchange, controls and final review remain pending. Cloud synchronization, durable rollback
+protection and product readiness remain later work.
 
 The reviewed design is candidate A v2, SHA256
 `ec01875ba9fa13fd762f150004fa39d66e107a7511b37bd214ca79649895c539`, with the text-only
