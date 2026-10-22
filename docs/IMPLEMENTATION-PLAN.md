@@ -1,5 +1,60 @@
 # Implementation plan
 
+## Membership implementation checkpoint: 22 October 2026
+
+Synthetic U1 membership lineage and stateless revision authorization are verified in the
+separate package. All 13 original codec files remain unchanged. The combined 55-test suite
+passes on macOS and Linux, with matching outcomes for all 150 pinned Ed25519 cases.
+Both producer directions, four independent A/B readers, two rejected signature flips and
+two restored reads pass. All 20 M1–M10 policy controls are detected, with passing targets
+before and after each mutation. Separate N1 reports native backend masking and exactly
+14 intended Linux failures. Every control phase reruns the build command; phases share
+scratch directories and use incremental rebuilds. Native N1's actual compilation is
+manually confirmed in its retained build log.
+
+The verifier passes 61 tests in normal and optimized Python. Root Swift reports 352 tests;
+existing Chromium/Keychain opt-ins remain inactive. Boundary and MCP checks pass. Opus 5.5,
+Grok 4.7 and Codex accept the corrected source and actual runtime evidence. Two recorder
+defects were fixed: temporary-path aliases and Swift Testing's exact failure remarks.
+Failed attempts remain failed; source restoration and owned-container removal are recorded.
+See the [U1 evidence](verification/membership-u1.json).
+
+`MEMBERSHIP.md` and `AGENTS.md` remain byte-identical to the measured epoch. The membership
+document's pre-verification introduction is historical. The documentation-only status update
+preserves the measured `7972b59` epoch. The CI test correction below creates a later input
+epoch. The bounded synthetic checkpoint permits neither app linkage, real-password storage
+nor U2.
+
+### CI JSON test portability correction
+
+CI exposed a test that incorrectly treated a balanced 2,000-level JSON array as malformed.
+Local Python rejected it at its recursion limit, while CI's decoder accepted the valid JSON.
+The test now uses an unclosed array and directly checks the existing `RecursionError`
+mapping with a mock. With local Xcode Python 3.9.6, all 61 tests pass in normal and optimized
+modes, under both the default recursion limit and an increased limit. These local runs do
+not establish CI's interpreter behavior. Parser, verifier and Swift code remain unchanged.
+
+The test file is a bound input, so this correction changes the input epoch. The earlier
+Mac/Linux receipts remain evidence for `7972b59`; they are not a new recording of the
+corrected test epoch. The current control command requires a fresh matching baseline.
+The [U1 record](verification/membership-u1.json) includes the exact test-only transition.
+The old-baseline refusal policy is supported by source and a unit test; this transition
+does not include a logged CLI invocation against the historical baseline.
+
+### Harness cleanup gate before further feature growth
+
+The verifier and its test module have grown beyond 1,000 lines. Before another harness
+feature unit, extract the fixed tables, use one exchange-step table for the live run and
+receipt replay, and use one mutation specification for M1–M10 and N1. Preserve canonical
+process ownership, exact restoration, strict error attribution and the original codec files.
+The cleanup must include fresh Mac/Linux baselines, bidirectional exchange, all controls
+and independent review under a new source epoch. Existing receipts cannot prove a refactor.
+
+Also strengthen native masking evidence so compilation is checked mechanically, exercise
+the U1 snapshot directly through a directory alias, and bind outer receipts explicitly.
+Retain the finite-scan, lexical-custody and writable-controls-alias limitations until their
+respective boundaries are actually strengthened. These are open tasks, not completed fixes.
+
 ## Multi-platform checkpoint: 21 October 2026
 
 The confirmed product scope includes independent native Linux and macOS hosts, account

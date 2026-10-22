@@ -1,0 +1,458 @@
+{
+  "unit": "membership-U1-synthetic-lineage-and-revision-policy",
+  "status": "accepted_bounded_synthetic_runtime_at_recorded_epoch",
+  "date": "2026-10-22",
+  "base_revision": "aab2b7c33a269824ca67aa6c3a8571164cbae361",
+  "scope": "Single immutable controller/writer, session-local membership lineage and stateless current-head authorization; no persistence or product adapter.",
+  "combined_package": {
+    "sha256": "82a8de6cdcc79dacf468dc51b82ee4995beb5f7bd916e70da6428c920f5dbdd9",
+    "files": {
+      "Package.swift": {
+        "sha256": "86418ff81c07f714f3d4e259f81269e13bbeea47089b8b997669ad92624b8721",
+        "size": 547
+      },
+      "Package.resolved": {
+        "sha256": "655e0a19222701d26fbd709837787af9e3d7a867d2c2e44ebbd966c6e86a747a",
+        "size": 656
+      },
+      "Sources/VaultCore/Binary.swift": {
+        "sha256": "98ba8309a66aa91c023094ddaebf0f19c2d154635b30d9376b42fbc565a3b6b9",
+        "size": 3666
+      },
+      "Sources/VaultCore/FixtureController.swift": {
+        "sha256": "a3740eebd71c11c87bce4a986c21c5ad7ac163bc8cf7cd1f8b804cf16c2126e1",
+        "size": 3173
+      },
+      "Sources/VaultCore/MembershipCodec.swift": {
+        "sha256": "702a09c87a61f5cb076895305f88077233b43770e47118dec12649d6b78bc164",
+        "size": 6792
+      },
+      "Sources/VaultCore/MembershipSession.swift": {
+        "sha256": "3e84164a8e9df77e6f3da1cb2a2e35e6132816fda773da5a8b947e60fc2778e0",
+        "size": 5399
+      },
+      "Sources/VaultCore/MembershipTypes.swift": {
+        "sha256": "7ce2724ad176b861a374d91b789a902a85ea21b312bd6e25802b2cbd204971b0",
+        "size": 7189
+      },
+      "Sources/VaultCore/Model.swift": {
+        "sha256": "699579e13c8ddf7ce6d5415439de7906e74466440e163aeb5a994efa3c698625",
+        "size": 3260
+      },
+      "Sources/VaultCore/Record.swift": {
+        "sha256": "5f44daaf42b2654932402d44f1a7d43ca516c33b4267ec70400495a847f82f3a",
+        "size": 4204
+      },
+      "Sources/VaultCore/RevisionAuthorization.swift": {
+        "sha256": "552f72c1b260747e1eaf678f423eb46cebb0f8938c5bbc55608413bc1d1d7707",
+        "size": 2712
+      },
+      "Sources/VaultCore/RevisionCodec.swift": {
+        "sha256": "fb7cbec6b8697ee90b7ed071aa694aefc8f6db2ad44905b2974dbbe5ee29cdef",
+        "size": 4192
+      },
+      "Sources/VaultCore/RevisionLog.swift": {
+        "sha256": "624cb1d64808dc2bce55aeb300d0d9eab32366ebeed2c98dd38ff8c67bfdc047",
+        "size": 1774
+      },
+      "Tests/VaultCoreTests/AssociatedDataTests.swift": {
+        "sha256": "fe19fc069c713208d6638ae466273b172040cb4ab9d83ed7bcecfb8d1eb84687",
+        "size": 5467
+      },
+      "Tests/VaultCoreTests/Fixtures.swift": {
+        "sha256": "94824c3350cb6173511d7e5864fa3cc9d2557630ba4e0d936dbfdf9151c6de0e",
+        "size": 4874
+      },
+      "Tests/VaultCoreTests/FreezeRegressionTests.swift": {
+        "sha256": "61fdf53ce13502cb6ce4eb50516bdae027f8ca3e3ef82c0f4e5415dcbd5e4b70",
+        "size": 3172
+      },
+      "Tests/VaultCoreTests/LowOrderTests.swift": {
+        "sha256": "3bd8bf550430e5ee673c94e3a58b4d1c053db18e7fcf2ea5ecca782736078b4b",
+        "size": 9110
+      },
+      "Tests/VaultCoreTests/MembershipExchangeTests.swift": {
+        "sha256": "c27efc6c263fe899b58ed2fd764be2e75d63d0bb0ef3b558b234472a31e16955",
+        "size": 9398
+      },
+      "Tests/VaultCoreTests/MembershipFixtures.swift": {
+        "sha256": "16ec17672fec1f27c19634716c28f611f511f5324eb9e1e3c8795a38772813bb",
+        "size": 14676
+      },
+      "Tests/VaultCoreTests/MembershipReaderFixtures.swift": {
+        "sha256": "3540cd23c04488734056bcec0716566986063e8fa88c87ca1f9f1e4d28b91c73",
+        "size": 21928
+      },
+      "Tests/VaultCoreTests/MembershipTests.swift": {
+        "sha256": "3afefd77da54c3b810011767ad03f29dfe45c628501ba23135ddd49710d61ce0",
+        "size": 32570
+      },
+      "Tests/VaultCoreTests/ParserTests.swift": {
+        "sha256": "cd71fb500928d1b20cbac75574dd29f7eeafc7081fac61964dee9a5225cf6659",
+        "size": 7097
+      },
+      "Tests/VaultCoreTests/RevisionAuthorizationTests.swift": {
+        "sha256": "2e61b45b9afa9ec54851f5bbe5082c0db4a0b8234b36799dfc8b422d054147ca",
+        "size": 19384
+      },
+      "Tests/VaultCoreTests/RevisionTests.swift": {
+        "sha256": "07028ee96b22a8c88477fcfc0ef71f600c8269229ffc6ecaf1bb309cf0f801f0",
+        "size": 8381
+      },
+      "Tests/VaultCoreTests/SignatureCompatibilityTests.swift": {
+        "sha256": "53ec6399ff738b9596e0f418494f3d2fa555f1e910251114eed9e4c83ec9c370",
+        "size": 3991
+      },
+      "Tests/VaultCoreTests/SignatureCorpus.swift": {
+        "sha256": "9bedd0d081b524f8d32427c73f4a03ae7c053197467ebfa8d7be01517df1479c",
+        "size": 40660
+      }
+    }
+  },
+  "original_codec": {
+    "sha256": "8d2470defaadd67e255535186c35d876fc80f932a647e4eb83a449f8cf29f076",
+    "files": {
+      "Package.swift": {
+        "size": 547,
+        "sha256": "86418ff81c07f714f3d4e259f81269e13bbeea47089b8b997669ad92624b8721"
+      },
+      "Package.resolved": {
+        "size": 656,
+        "sha256": "655e0a19222701d26fbd709837787af9e3d7a867d2c2e44ebbd966c6e86a747a"
+      },
+      "Sources/VaultCore/Binary.swift": {
+        "size": 3666,
+        "sha256": "98ba8309a66aa91c023094ddaebf0f19c2d154635b30d9376b42fbc565a3b6b9"
+      },
+      "Sources/VaultCore/Model.swift": {
+        "size": 3260,
+        "sha256": "699579e13c8ddf7ce6d5415439de7906e74466440e163aeb5a994efa3c698625"
+      },
+      "Sources/VaultCore/Record.swift": {
+        "size": 4204,
+        "sha256": "5f44daaf42b2654932402d44f1a7d43ca516c33b4267ec70400495a847f82f3a"
+      },
+      "Sources/VaultCore/RevisionCodec.swift": {
+        "size": 4192,
+        "sha256": "fb7cbec6b8697ee90b7ed071aa694aefc8f6db2ad44905b2974dbbe5ee29cdef"
+      },
+      "Sources/VaultCore/RevisionLog.swift": {
+        "size": 1774,
+        "sha256": "624cb1d64808dc2bce55aeb300d0d9eab32366ebeed2c98dd38ff8c67bfdc047"
+      },
+      "Tests/VaultCoreTests/AssociatedDataTests.swift": {
+        "size": 5467,
+        "sha256": "fe19fc069c713208d6638ae466273b172040cb4ab9d83ed7bcecfb8d1eb84687"
+      },
+      "Tests/VaultCoreTests/Fixtures.swift": {
+        "size": 4874,
+        "sha256": "94824c3350cb6173511d7e5864fa3cc9d2557630ba4e0d936dbfdf9151c6de0e"
+      },
+      "Tests/VaultCoreTests/FreezeRegressionTests.swift": {
+        "size": 3172,
+        "sha256": "61fdf53ce13502cb6ce4eb50516bdae027f8ca3e3ef82c0f4e5415dcbd5e4b70"
+      },
+      "Tests/VaultCoreTests/LowOrderTests.swift": {
+        "size": 9110,
+        "sha256": "3bd8bf550430e5ee673c94e3a58b4d1c053db18e7fcf2ea5ecca782736078b4b"
+      },
+      "Tests/VaultCoreTests/ParserTests.swift": {
+        "size": 7097,
+        "sha256": "cd71fb500928d1b20cbac75574dd29f7eeafc7081fac61964dee9a5225cf6659"
+      },
+      "Tests/VaultCoreTests/RevisionTests.swift": {
+        "size": 8381,
+        "sha256": "07028ee96b22a8c88477fcfc0ef71f600c8269229ffc6ecaf1bb309cf0f801f0"
+      }
+    }
+  },
+  "source_epoch_sha256": "27e7298dfd6699a42b4550600b4321dd890844cce3b1ac26f6c5b539dd243a6a",
+  "harness_sources": {
+    "scripts/verify-membership.py": {
+      "sha256": "7ae80d1c4286beb97a1ab20d18527e12b36f2576e01d93fe9fd8af65eeb7f605",
+      "size": 97690
+    },
+    "scripts/verify-membership-controls.py": {
+      "sha256": "1d75c2dfe8f6197bf5a7057c0f323075ded7fceabeff29e4e07b626c0af179ec",
+      "size": 11517
+    },
+    "deploy/tests/test_membership_verifier.py": {
+      "sha256": "6c171af2d16e93fa180a950e5dd89caa0fdedf74b9e7e95baa6ecb2f9d957f00",
+      "size": 107023
+    },
+    "scripts/verify-portable-vault.py": {
+      "sha256": "9e6f9dbe430a661feb602d8e7ff55812ac0d369a87d579c2f5b0037afbd86adf",
+      "size": 9700
+    },
+    "scripts/verify-webhost-link-mutations.py": {
+      "sha256": "dac31914837ba341fa5b31f8ee3081a34f460d28654309f2ee1e3cb4029f74ba",
+      "size": 16896
+    },
+    "scripts/verify-boundaries.py": {
+      "sha256": "03154e033709339b167ecd9cb1880bbfe11ae102cc38c7e876662f19cae1f1c3",
+      "size": 15539
+    },
+    "deploy/tests/test_vault_fixture_boundary.py": {
+      "sha256": "1a640a230624ed91ae7622d37ddcbd726b8edf3f2d2a47c3b05adbba64f501ea",
+      "size": 41405
+    },
+    ".github/workflows/ci.yml": {
+      "sha256": "b4a28bf6daf7455ae3e91fd92de9f7b4c4031c56c3be661f014682ac34d9054f",
+      "size": 2310
+    }
+  },
+  "frozen_contract": {
+    "path": "docs/design/multiplatform/MEMBERSHIP.md",
+    "sha256": "3141cbb5370d58722ccdfac2ec779ac83083093c1b97a375e9819fe8253fb271",
+    "size": 11690
+  },
+  "baseline": {
+    "record": {
+      "path": "verification-logs/membership-u1/baseline-37439d3d0c3c4e7a809358b36a8dd0e5/result.json",
+      "sha256": "fd1392502629102ccde11b8cfdd353547cb2ce051d00be930aee26cacec0b808",
+      "size": 169268
+    },
+    "steps": 35,
+    "tests_each_platform": 55,
+    "signature_cases_each_platform": 150,
+    "valid": 88,
+    "invalid": 62,
+    "groups": 77,
+    "malleability_cases": 8,
+    "producer_directions": 2,
+    "independent_reader_roles_each_direction": [
+      "A",
+      "B"
+    ],
+    "ordered_cases_each_reader": 29,
+    "artifacts_each_direction": 13,
+    "rejected_signature_flips": 2,
+    "restored_reader_A_passes": 2,
+    "summary": {
+      "path": "verification-logs/membership-u1/baseline-37439d3d0c3c4e7a809358b36a8dd0e5/exchange-summary.json",
+      "size": 36046,
+      "sha256": "10e721d211541ffcd14cce389d4e7c97051dbd6563fb481ba8d9a78c8a264012"
+    },
+    "source_unchanged": true,
+    "owned_container_removed": true
+  },
+  "controls": {
+    "record": {
+      "path": "verification-logs/membership-u1/controls-628e89688b8942418dd0f943e55f21af/result.json",
+      "sha256": "cf1ee1c1ed473fed2c248d7705688845cbb54aa56beb5640bf1c7d5720b7be87",
+      "size": 460220
+    },
+    "steps": 146,
+    "policy_rows_detected": 20,
+    "ids": [
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5",
+      "M6",
+      "M7",
+      "M8",
+      "M9",
+      "M10"
+    ],
+    "platforms": [
+      "native",
+      "linux"
+    ],
+    "builds": "Each before/mutant/restored phase reruns the pinned build command; scratch directories are reused for incremental rebuilds.",
+    "raw_N1": {
+      "native": "backend_masked",
+      "linux": "detected_exactly_14_intended_issues",
+      "separate_from_policy_rows": true
+    },
+    "native_N1_compilation": {
+      "record": {
+        "path": "verification-logs/membership-u1/controls-628e89688b8942418dd0f943e55f21af/native-n1-mutant-build.log",
+        "sha256": "78e5af5aec78ef245724ce1de2e504db64527c7848f843cd61f5454152345daa",
+        "size": 1198
+      },
+      "compiled_source_lines": [
+        5
+      ],
+      "linked_test_binary_lines": [
+        15
+      ]
+    },
+    "native_N1_check_limit": "The published record separately inspects compilation/link lines; the executable harness requires Build complete but does not enforce this additional check.",
+    "whole_copy_restored": true,
+    "source_unchanged": true,
+    "owned_container_removed": true
+  },
+  "python": {
+    "tests_each_mode": 61,
+    "modes": [
+      "normal",
+      "optimized"
+    ],
+    "interpreter": {
+      "executable": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
+      "version": "3.9.6 (default, Jan  9 2026, 11:03:41) \n[Clang 17.0.0 (clang-1700.6.4.2)]",
+      "optimized": false
+    },
+    "record": {
+      "path": "verification-logs/membership-u1-root/remarks-fix-6a120c24f5814d328903c3abd100cea9/result.json",
+      "sha256": "b02b54116f3f3d4dfcdbaeffb06cd19860fb0c90affd126f756bdb8cdac34667",
+      "size": 70400
+    }
+  },
+  "root_preflight": {
+    "reported_swift_tests": 352,
+    "existing_opt_in_tests_skipped": 24,
+    "guard": "pass",
+    "mcp": "pass",
+    "record": {
+      "path": "verification-logs/membership-u1-root/applied-preflight-root-audit-v2.json",
+      "sha256": "b9c6b2ea5d5ed0437d606d171885233643449f9d5ece68bdc00099fe108df743",
+      "size": 1980
+    },
+    "scanner_note": "Original preflight remains failed for a generic username sentinel in three known public AccountProfile events; separate exact-event audit passes. Portable scans unchanged."
+  },
+  "root_audits": [
+    {
+      "path": "verification-logs/membership-u1-root/baseline-audit-a02bed7bc3aa452a83a0e0d092a38568/result.json",
+      "sha256": "49eb390fb461bd505646cc8610d5e84dd8232b494885b83629443bb67c5e81e4",
+      "size": 17988
+    },
+    {
+      "path": "verification-logs/membership-u1-root/controls-audit-359b2ccd65cc47448138047424bb92ee/result.json",
+      "sha256": "6b7bcfd8b313b3dd03a1dc35ca1369a94ef02a4e9ef35c03c60ae4408d108a7d",
+      "size": 3723
+    }
+  ],
+  "independent_membership_signature_checks": 12,
+  "reviews": {
+    "kind": "independent_AI_model_reviews_not_human_certification",
+    "results": [
+      {
+        "model": "Claude Opus 5.5",
+        "verdict": "accept_bounded_synthetic_checkpoint",
+        "record": {
+          "path": "verification-logs/membership-u1-root/current-evidence-opus-round2.json",
+          "sha256": "ce14fdce42e7a570a82bf93e51d0b460d77e7adcee538d48394f111abd2082ac",
+          "size": 10728
+        }
+      },
+      {
+        "model": "Grok 4.7",
+        "verdict": "accept_bounded_synthetic_checkpoint",
+        "record": {
+          "path": "verification-logs/membership-u1-root/current-evidence-grok-round2.json",
+          "sha256": "0a2c73f01806db340cb257e56fb0a05da371ae3cda1c5b900a3943e7f8e2236a",
+          "size": 7732
+        }
+      },
+      {
+        "model": "Codex gpt-6.1-sol",
+        "verdict": "accept_bounded_synthetic_checkpoint",
+        "record": {
+          "path": "verification-logs/membership-u1-root/current-evidence-codex-round2.json",
+          "sha256": "a79a9d80375452144f8a87b6c8a0e2929bec590b77924765803bccea47735822",
+          "size": 2160
+        }
+      }
+    ],
+    "snapshot": {
+      "path": "verification-logs/membership-u1-root/final-review-snapshot-v2.json",
+      "sha256": "321e6a57417d948766a6b0f8cde1abcd3ce5665836d13028f93ee4c0d76017b0",
+      "size": 106183
+    },
+    "snapshot_file_count": 520
+  },
+  "post_review_supplement": {
+    "path": "verification-logs/membership-u1-root/post-review-documentation-and-receipts.json",
+    "sha256": "228aa1c764aba35dd6e5e757b271f6780d9ae530b3a00447f26f39a7994130ea",
+    "size": 3294
+  },
+  "failed_runs_not_counted": [
+    {
+      "record": {
+        "path": "verification-logs/membership-u1/baseline-01bf9d67c2214c6b84877a7711aec1bb/result.json",
+        "sha256": "9c7eb6a848e223dadf00ad550bedf93205936fe968d6995df2f3f96f57c43bcd",
+        "size": 125275
+      },
+      "failure": "negative_transfer_not_detected",
+      "disposition": "Corrected exact framework remarks; failed run retained, owned container removed."
+    },
+    {
+      "record": {
+        "path": "verification-logs/membership-u1/baseline-6e007525ebb04432927d0dd77b0a8916/result.json",
+        "sha256": "03107663a74112effd0d0ae4d1426b0d0cc8944b2ab06c7ab2f043acb4777344",
+        "size": 86847
+      },
+      "failure": "failed_linux-baseline-build",
+      "disposition": "Duplicate SwiftShims/module-cache compiler diagnostic before tests; cause unmeasured. Fresh unchanged-source run passed; no retry added. Owned container removed."
+    }
+  ],
+  "cleanup_gate_before_further_harness_growth": {
+    "status": "open",
+    "plan": "docs/IMPLEMENTATION-PLAN.md",
+    "exit_criteria": [
+      "Extract fixed tables outside verifier.",
+      "One live/replay exchange-step table.",
+      "One mutation specification for M1-M10 and N1.",
+      "Fresh Mac/Linux recording, controls and independent review after refactor."
+    ]
+  },
+  "limits": [
+    "Synthetic fixture-only package; root app and MCP do not link it.",
+    "No durable rollback protection, global freshness, retained revisions or production credential storage.",
+    "Padding/key commitment successor, custody, platform isolation, enrollment/cloud sync and product adapters remain open.",
+    "Cofactor matrix remains unmeasured before independent multiwriter authority.",
+    "Controls owned copy also has a writable evidence-mount alias; read-only package mount is not hostile-container isolation.",
+    "Scans cover finite synthetic forms and hashes bind UTF-8 replacement log text, not arbitrary byte noninterference.",
+    "Reader custody check is lexical over separately pinned/reviewed source.",
+    "M10 scanner is step-scoped; actual current sentinel placement inside named tests is measured separately.",
+    "Alias regression directly checks canonical fixture paths/U0 receipt; whole default-TMPDIR suite covers the U1 snapshot path.",
+    "CI interpreter/job behavior is not established by this local record.",
+    "No production readiness, 1Password parity, memory-erasure or security-certification claim."
+  ],
+  "recorded_revision": "7972b596eb015c1b73c724d45758b8b413573af2",
+  "ci_test_followup": {
+    "scope": "Test-only correction after the recorded runtime/review checkpoint. Existing receipt fields remain historical for 7972b59.",
+    "failure": "The test called valid balanced deep JSON invalid, depending on a decoder recursion limit. Both initial macos jobs failed that assertion.",
+    "change": "Use genuinely unclosed JSON and mock decoder RecursionError to check existing error mapping. No executable verifier, parser, control-driver, Swift or app change.",
+    "failed_jobs": [
+      "https://github.com/Fannolo/agent-vault/actions/runs/39697697402/job/119559000739",
+      "https://github.com/Fannolo/agent-vault/actions/runs/39697657863/job/119558870119"
+    ],
+    "changed_epoch_inputs": [
+      "deploy/tests/test_membership_verifier.py"
+    ],
+    "test_file_before": {
+      "sha256": "6c171af2d16e93fa180a950e5dd89caa0fdedf74b9e7e95baa6ecb2f9d957f00",
+      "size": 107023
+    },
+    "test_file_after": {
+      "sha256": "04f5324b1595a171168b0b76b91396209bd7e2187c8a6c7ac0bad6733548c3fa",
+      "size": 107401
+    },
+    "old_epoch_sha256": "27e7298dfd6699a42b4550600b4321dd890844cce3b1ac26f6c5b539dd243a6a",
+    "new_epoch_sha256": "7ff81e3aca9c8f187cadee16eccd043401fd4b8f175e509f8b54bc92acf5329a",
+    "proof": {
+      "path": "verification-logs/ci-pr9-json-fixture-5e4667dcf76b443e880c71b415238873/result.json",
+      "sha256": "7ab082c67cfcd78be838a127c9f4a3e656ecf35843efba82d01df019c573aa7b",
+      "size": 70739
+    },
+    "reproduction": {
+      "path": "verification-logs/ci-pr9-json-fixture-5e4667dcf76b443e880c71b415238873/before.json",
+      "sha256": "7fb7255d0f9bcf9876e29501bb17e7d696086eb85fc5bdc38d529d19df466be7",
+      "size": 34727
+    },
+    "tests_each_run": 61,
+    "runs": [
+      "normal_default_recursion",
+      "optimized_default_recursion",
+      "normal_increased_recursion",
+      "optimized_increased_recursion"
+    ],
+    "local_test_interpreter": "Xcode Python 3.9.6",
+    "runtime_receipt_policy": "Old receipts remain historical; current CLI refuses the old baseline after the bound test hash changes. No fresh Mac/Linux recording or CI success is claimed by this followup.",
+    "runtime_receipt_policy_basis": "Source and unit-test supported policy; no CLI invocation against the historical baseline is logged in this transition."
+  }
+}

@@ -47,30 +47,39 @@ cloud access, Keychain access or executable product:
 swift test --package-path Packages/VaultCore --force-resolved-versions
 ```
 
-On a macOS development host with Docker, run the Linux interoperability checks and the
-deliberate-defect checks using the result path printed by the first command:
+On an arm64 macOS development host with Docker and OpenSSL at
+`/opt/homebrew/bin/openssl`, run the current membership interoperability and deliberate-defect
+checks. Use the result path printed by the first command:
 
 ```sh
-python3 -I scripts/verify-portable-vault.py
-python3 -I scripts/verify-portable-vault-controls.py PATH_TO_RESULT_JSON
+python3 -I scripts/verify-membership.py --unit u1
+python3 -I scripts/verify-membership-controls.py --unit u1 PATH_TO_RESULT_JSON
 ```
 
 These checks prove bounded codec behavior, not account signup, live cloud sync, installed
 OS isolation or a production password manager.
 
-The root build now has a fixture-only integration guard covering direct and transitive
-dependencies, aliases and controlled source paths. The next [membership design](docs/design/multiplatform/MEMBERSHIP.md)
-is accepted; membership itself is not implemented. To repeat U0's unchanged codec baseline
-and open-side validation control, using the baseline result path printed by the first command:
+The root build has a fixture-only integration guard covering direct and transitive
+dependencies, aliases and controlled source paths. The synthetic membership extension passes
+55 tests on each platform and agrees on all 150 pinned Ed25519 cases. Both producer directions,
+independent A/B readers, rejected signature flips and restored reads pass. All 20 policy
+controls are detected; the separate low-order-key removal is detected on Linux and masked
+by the native backend. The Python verifier passes 61 tests in normal and optimized modes.
+Opus 5.5, Grok 4.7 and Codex accept this bounded source and measured evidence.
 
-```sh
-python3 -I scripts/verify-membership.py
-python3 -I scripts/verify-membership-controls.py PATH_TO_U0_BASELINE_RESULT_JSON
-```
+The [U1 record](docs/verification/membership-u1.json) describes the actual results and limits.
+Its runtime receipts describe the measured `7972b59` checkpoint. A later CI test-only
+correction changes the bound test-file hash; the record keeps those epochs separate.
+The [membership document](docs/design/multiplatform/MEMBERSHIP.md) retains its frozen
+pre-verification introduction because the receipts bind its bytes. Current status is recorded
+here and in the [implementation plan](docs/IMPLEMENTATION-PLAN.md). The harness must be
+decomposed and re-recorded before further feature growth. This package remains fixture-only
+and is not linked to the app.
 
-The Linux control must detect the removed check. Native backend masking is recorded
-separately. U0 performs no ciphertext exchange; [its evidence](docs/verification/membership-u0.json)
-does not replace the earlier interoperability record.
+[U0's evidence](docs/verification/membership-u0.json) applies to the unchanged 21-test codec
+checkpoint at `aab2b7c`. Its default verifier pins that historical source; it does not accept
+the larger U1 package. Its Linux validation-removal result and native backend masking remain
+separate from the earlier interoperability record.
 
 ## Try the synthetic demo
 
