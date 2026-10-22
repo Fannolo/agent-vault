@@ -53,16 +53,25 @@ jobs:
   portable-linux:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
-    container:
-      image: swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
-      options: --cap-drop ALL --security-opt no-new-privileges
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: Record Linux toolchain
+        with:
+          persist-credentials: false
+      - name: Verify portable packages in isolated Linux container
+        env:
+          SWIFT_IMAGE: swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
         run: |
-          swift --version
-          uname -m
-      - name: Verify portable codec and membership
-        run: swift test --package-path Packages/VaultCore --force-resolved-versions --no-parallel --jobs 4
-      - name: Verify scoped secret buffer on Linux
-        run: swift test --package-path Packages/VaultSecret --no-parallel --jobs 4
+          mkdir -p "$RUNNER_TEMP/agent-vault-build"
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp:rw,mode=1777 \
+            --env HOME=/tmp \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/source,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/agent-vault-build,dst=/build" \
+            --workdir /source "$SWIFT_IMAGE" /bin/bash -euc '
+              swift --version
+              uname -m
+              swift test --package-path Packages/VaultCore --scratch-path /build/core \
+                --force-resolved-versions --no-parallel --jobs 4
+              swift test --package-path Packages/VaultSecret --scratch-path /build/secret \
+                --no-parallel --jobs 4
+            '
