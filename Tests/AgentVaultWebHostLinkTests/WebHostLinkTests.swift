@@ -291,9 +291,10 @@ import Testing
 
     @Test func excessControlRequestsFailFastAndFramesNeverBlockTeardown() async {
         let hold = Latch()
+        let slow = (0..<2).map { BrowserRunID(UUID(uuidString: "0000000\($0)-0000-4000-8000-000000000000")!) }
         let host = TestHost { command in
             switch command {
-            case .start(let run, _, _, _) where run.uuidString.hasPrefix("0"): await hold.wait(); return .humanStep(.mfa)
+            case .start(let run, _, _, _) where slow.contains { $0.uuid == run }: await hold.wait(); return .humanStep(.mfa)
             case .frame: await hold.wait(); return .noFrame(step: 1)
             case .end: return .ended
             default: return .humanStep(.mfa)
@@ -301,9 +302,9 @@ import Testing
         }
         let limits = WebHostLink.Limits(control: 2, frame: 1, teardown: 4)
         let link = link({ host.endpoint }, budgets: .standard, limits: limits)
-        let paused = BrowserRunID()
-        #expect(await link.start(paused, workflow: .githubWebProfile, credential: credential, authority: authority(60)) == .humanStep(.mfa))
-        let slow = (0..<2).map { BrowserRunID(UUID(uuidString: "0000000\($0)-0000-4000-8000-000000000000")!) }
+        let paused = BrowserRunID(UUID(uuidString: "00000002-0000-4000-8000-000000000000")!)
+        let initialResult = await link.start(paused, workflow: .githubWebProfile, credential: credential, authority: authority(60))
+        #expect(initialResult == .humanStep(.mfa))
         let calls = slow.map { run in Task { await link.start(run, workflow: .githubWebProfile, credential: credential, authority: authority(60)) } }
         let frame = Task { await link.frame(step(paused), after: 0) }
         #expect(await eventually { host.count(where: isStart) == 3 && host.commands.all.contains { if case .frame = $0 { true } else { false } } })
