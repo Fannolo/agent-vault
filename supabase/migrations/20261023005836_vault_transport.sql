@@ -143,7 +143,7 @@ begin
     select head, revision into current_head, current_revision from vault.heads where vault_id = p_vault;
     if current_head = p_new then return current_revision; end if;
     if current_head is distinct from p_expected then
-        raise exception using errcode = '40001', message = 'head_conflict';
+        raise exception using errcode = 'PT409', message = 'head_conflict';
     end if;
     current_revision := coalesce(current_revision, 0) + 1;
     insert into vault.heads(vault_id, head, revision) values (p_vault, p_new, current_revision)

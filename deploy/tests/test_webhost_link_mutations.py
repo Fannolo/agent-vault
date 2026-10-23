@@ -124,6 +124,23 @@ class OwnedProcessTests(unittest.TestCase):
         record(12, "S", 10)
         self.assertTrue(harness.linux_group_has_live_members(10, self.work))
 
+    def test_pidfd_open_failure_preserves_error_without_using_kqueue(self):
+        failure = OSError("synthetic_pidfd_unavailable")
+        with mock.patch.object(harness.sys, "platform", "linux"), \
+                mock.patch.object(harness.os, "pidfd_open", create=True, side_effect=failure), \
+                mock.patch.object(harness.select, "kqueue", create=True) as kqueue:
+            with self.assertRaises(OSError) as caught:
+                harness.wait_for_exit_without_reaping(12345, 1)
+        self.assertIs(caught.exception, failure)
+        kqueue.assert_not_called()
+
+    def test_unreadable_linux_membership_is_conservative_and_does_not_signal(self):
+        path = self.work / "99"
+        path.mkdir()
+        (path / "stat").write_bytes(b"99 (invalid-\xff-name) S 1 99 0 0\n")
+        self.assertTrue(harness.linux_group_has_live_members(10, self.work))
+        self.assertEqual(self.signalled, [])
+
     def test_interrupted_wait_cleans_the_owned_group_before_returning(self):
         children = []
         spawn = subprocess.Popen

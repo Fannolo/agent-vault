@@ -23,7 +23,8 @@ no administrative key belongs in a client, app bundle, MCP process or CI.
   quota. The unique `(vault_id, seq)` index supports the cursor query.
 - Read the current `heads` row. Call `POST /rest/v1/rpc/cas_head` with `p_vault`,
   `p_expected` (null for first head) and `p_new` (an existing object's 32-byte digest).
-  A conflicting expected head fails; an exact current-head retry returns its revision.
+  A conflicting expected head raises `PT409` (`head_conflict`), mapped by PostgREST to
+  HTTP 409; an exact current-head retry returns its revision.
   The private implementation checks owner and non-anonymous identity explicitly and
   locks the vault row. Clients have no direct head insert/update/delete privilege.
 - Objects cannot be updated or deleted by client roles. Tombstones must be signed
@@ -53,14 +54,20 @@ It tests owner and cross-user reads, editable-metadata spoofing, anonymous and m
 subjects, immutable writes, field privileges, size/quota boundaries, retry at quota,
 conditional-head races and commit-ordered cursors. It stops only its own server and
 records exit confirmation, input hashes and logs under ignored `verification-logs/`.
-The local baseline used PostgreSQL 17.11. CI selects the runner's PostgreSQL 16 binaries;
-its exact version is recorded at runtime. CI execution remains pending until measured.
+The local baseline used PostgreSQL 17.11. Hosted Linux CI at `b277e4a` passed with
+PostgreSQL 16.15 in [run 39884513327](https://github.com/Fannolo/agent-vault/actions/runs/39884513327).
+Both receipts record unchanged SQL/runner inputs and confirmed owned-server exit.
 
 The canonical process owner now observes Linux exits through pidfds and reads `/proc`
 membership only for the unreaped leader's pinned process group. It never signals a PID
 discovered by that scan. macOS retains kqueue. Shared ownership tests check timeout,
 descendant cleanup, unrelated-process survival, stopped-child behavior and retention of
-the unreaped leader. Both platforms still require actual runtime results.
+the unreaped leader. That run passed all 16 ownership tests on Linux; the native run
+passed with one Linux-only test skipped. An unreadable or undecodable `/proc` record
+conservatively counts as possible live membership, even for an unrelated process.
+This can cause unnecessary signals to the pinned owned group and two cleanup grace
+periods; it never authorizes signalling the discovered process. A pidfd-open error
+propagates directly and does not fall through to the macOS kqueue path.
 
 `cloud_transport_bootstrap.sql` supplies synthetic `auth.users`, `auth.uid()` and
 `auth.jwt()` in that fresh cluster only. Claims are injected by the tests. These checks
