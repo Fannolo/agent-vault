@@ -35,6 +35,13 @@ make each compare-and-set atomic and durable before returning. The store cannot 
 that promise or make the adapter non-rollback. There are no keys or raw-secret getters.
 Paths are trusted installation inputs, never agent-supplied destinations.
 
+`StateID` remains SHA-256 of the exact opaque frame. The pin identity is the full kernel
+`Head(generation, state)`, not that hash alone. Every adapter must store and compare both
+fields. Reusing an earlier frame creates a distinct commit identity and cannot make an old
+DB match a current stable or pending pin. This is a local commit identity, not signed
+history or crypto authority. The test-only pin format is `AVTPIN02`; old hash-only
+`AVTPIN01` records are rejected. No deployed-format migration is implemented.
+
 ## Transaction and recovery
 
 A commit checks the expected generation, begins `IMMEDIATE`, verifies lease identity and
@@ -43,6 +50,8 @@ persists pending `(old,new)`, commits SQLite, finishes stable `new`, then return
 object duplicates are idempotent; conflicting stored bytes and digest substitution fail
 closed. Deterministic limit/stale-head refusals preserve state. SQLite write, commit or
 custody uncertainty blocks the current instance until reopen; no success is guessed.
+SQLite object-read corruption also latches integrity failure before propagating the error;
+catching that error cannot enable later state/object reads or state-only acknowledgment.
 
 | Retained pin | Database state | Ordinary open |
 | --- | --- | --- |
@@ -71,8 +80,19 @@ the evidence for extensions being unavailable; that build rejects the extension 
 opcode itself. Other unsupported configuration is an error.
 
 Roots require canonical paths, effective-UID ownership and mode 0700, with protected
-ancestry. Database, lease and existing journal require owner, regular-file, single-link,
-0600 checks. The lease path must continue to name the locked inode. SQLite journals inherit
+ancestry. Root, database, lease and existing journal must be ACL-free; files also require
+owner, regular-file, single-link, 0600 checks. Inspection uses no-follow descriptors and
+checks the named inode against the inspected inode. Lease admission and rechecks apply
+the same descriptor/path policy. The lease path must continue to name the locked inode.
+
+On Darwin, extended ACLs can grant access beyond mode bits. Any ACL entry on the private
+boundary is refused. Ancestor ACL allow entries with mutation rights are conservatively
+refused, without inferring principal membership or deny ordering; ordinary ancestor
+`deny delete` entries are allowed. On Linux, POSIX ACL named access is capped by the group
+mode mask, so the Darwin bypass is not claimed there. The Linux path still refuses POSIX
+access/default ACLs and fails closed when native xattr inspection is unsupported or fails.
+This assumes a local filesystem with native POSIX ACL semantics, not NFSv4/rich ACL custody.
+No Linux execution or installed custody is established by native macOS results. SQLite journals inherit
 the private database mode. A cold unfinished journal can remain after a read-only reopen;
 the next successful write removes it. No journal is manually discarded. No plaintext
 search index, plaintext bound to SQL, backup API or disk-backed temp-store is introduced.
@@ -110,13 +130,19 @@ and inventory tamper, duplicate/digest conflicts, capacity refusal and custody f
 Separate processes cover a four-way lease race and five cuts: before pending, after
 pending, after DB commit, after stable pin, after return. The runner decodes actual pin
 artifacts and compares every recovered state/object byte and inventory total to exact old
-or new fixtures. Synthetic bytes are **not encrypted** and contain no real credentials.
+or new fixtures. Before recovery it freezes raw DB, journal (when present) and pin bytes
+under private permissions. The evidence manifest hashes these frozen bytes, retained
+fixture images, test/probe executables and logs; subsequent commits cannot erase the
+archived death-time image. Synthetic bytes are **not encrypted** and contain no real credentials.
 
 RLIMIT_FSIZE induces a real EFBIG write failure during commit. Pin adapter tests include before/after persistence failures and a real failing
 `fsync(-1)` (EBADF) seam. The latter is deliberately test-only, not a disk-fsync failure.
-Three compiled controls omit flock, create a missing DB on ordinary open, and acknowledge
-without finishing the stable pin. Each must fail its named assertion, restore exact source
-bytes, build again and pass its target. Full tests run again after controls.
+Compiled controls omit flock, create a missing DB on ordinary open, and acknowledge
+without finishing the stable pin. Focused controls compare only frame hashes on stable,
+pending-finish and pending-abort recovery, omit the read-corruption latch, skip private
+ACL checks, and skip ancestor ACL checks (the native ACL controls run on Darwin).
+Each builds successfully, fails its named assertion, restores exact source bytes, builds
+again and passes its target. Full tests run again after controls.
 
 `VaultPersistenceTestSupport` and `VaultPersistenceProbe` are test-only targets, not library
 products or installed custody. The separate file pin uses write/fsync/rename/directory

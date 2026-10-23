@@ -75,7 +75,7 @@ public enum FileRole: String, Sendable {
 }
 
 public enum FileProblem: String, Sendable {
-    case notCanonical, symlink, wrongType, owner, mode, linkCount, writableByOthers, replaced
+    case notCanonical, symlink, wrongType, owner, mode, linkCount, writableByOthers, replaced, acl, aclUnavailable
 }
 
 public enum Refusal: String, Sendable {

@@ -67,7 +67,8 @@ public final class VaultKernel {
             _ = database.rollbackIfOpen()
             throw error
         }
-        do { try custody.beginEnrollment(initial.id) } catch {
+        let first = Head(generation: 0, state: initial.id)
+        do { try custody.beginEnrollment(first) } catch {
             _ = database.rollbackIfOpen()
             throw .recoveryRequired(.custodyPrepare)
         }
@@ -75,8 +76,8 @@ public final class VaultKernel {
             _ = database.rollbackIfOpen()
             throw .recoveryRequired(.databaseCommit)
         }
-        do { try custody.finish(initial.id) } catch { throw .recoveryRequired(.custodyFinish) }
-        let row = HeadRow(head: Head(generation: 0, state: initial.id), objectCount: 0, objectBytes: 0)
+        do { try custody.finish(first) } catch { throw .recoveryRequired(.custodyFinish) }
+        let row = HeadRow(head: first, objectCount: 0, objectBytes: 0)
         return VaultKernel(limits: limits, settings: settings, row: row, current: initial,
                            lease: lease, database: database, custody: custody)
     }
@@ -98,7 +99,7 @@ public final class VaultKernel {
         let database = try SQLiteConnection.open(path: paths.database, mode: .existing)
         let settings = try database.configure(limits: limits)
         let (row, state) = try database.loadImage(limits: limits)
-        let found = row.head.state
+        let found = row.head
         switch record {
         case .stable(let pinned) where pinned == found:
             break
@@ -124,7 +125,16 @@ public final class VaultKernel {
     /// The stored bytes for `digest`, rehashed on every read.
     public func object(_ digest: ObjectDigest) throws(PersistenceError) -> SignedObject? {
         if let blocked { throw .recoveryRequired(blocked) }
-        guard let bytes = try database.storedObject(digest) else { return nil }
+        let stored: [UInt8]?
+        do throws(PersistenceError) {
+            stored = try database.storedObject(digest)
+        } catch {
+            // SQLite can report physical corruption before there are bytes to hash.
+            // Once observed, cached state cannot authorize a later acknowledgment.
+            if case .locked = error { blocked = .integrity }
+            throw error
+        }
+        guard let bytes = stored else { return nil }
         let object = SignedObject(bytes: bytes)
         guard object.digest == digest else {
             blocked = .integrity
@@ -183,7 +193,7 @@ public final class VaultKernel {
             if let blocked, blocked != .integrity { throw .recoveryRequired(blocked) }
             throw error
         }
-        do { try custody.prepare(from: head.state, to: next.id) } catch {
+        do { try custody.prepare(from: head, to: staged.head) } catch {
             blocked = .custodyPrepare
             _ = database.rollbackIfOpen()
             throw .recoveryRequired(.custodyPrepare)
@@ -193,7 +203,7 @@ public final class VaultKernel {
             _ = database.rollbackIfOpen()
             throw .recoveryRequired(.databaseCommit)
         }
-        do { try custody.finish(next.id) } catch {
+        do { try custody.finish(staged.head) } catch {
             blocked = .custodyFinish
             throw .recoveryRequired(.custodyFinish)
         }

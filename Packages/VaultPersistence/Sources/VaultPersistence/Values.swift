@@ -57,10 +57,16 @@ public struct SignedObject: Sendable, Equatable {
     }
 }
 
-/// The last acknowledged commit: what a caller must name to replace it.
+/// A kernel commit identity: generation plus opaque frame hash. A caller must name the
+/// last acknowledged head to replace it; custody also uses this type for pending commits.
 public struct Head: Hashable, Sendable {
     public let generation: UInt64
     public let state: StateID
+
+    public init(generation: UInt64, state: StateID) {
+        self.generation = generation
+        self.state = state
+    }
 }
 
 /// Kernel bounds. `standard` mirrors the current transport cap and is a test/kernel budget,

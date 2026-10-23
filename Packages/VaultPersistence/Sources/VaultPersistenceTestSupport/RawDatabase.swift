@@ -36,6 +36,16 @@ public enum RawDatabase {
         }
     }
 
+    /// Page offset for deliberate physical B-tree corruption in read-path tests.
+    public static func objectPageOffset(_ path: String) throws -> Int {
+        try withConnection(path, flags: SQLITE_OPEN_READONLY) { handle in
+            let page = try rows(handle, "SELECT rootpage FROM sqlite_schema WHERE name = 'objects'")[0][0].integer
+            let size = try rows(handle, "PRAGMA page_size")[0][0].integer
+            guard page > 1, size >= 512 else { throw Failure(code: -1) }
+            return Int((page - 1) * size)
+        }
+    }
+
     public static func execute(_ path: String, _ sql: String, blobs: [[UInt8]] = []) throws {
         try withConnection(path, flags: SQLITE_OPEN_READWRITE) { handle in
             _ = try rows(handle, sql, blobs: blobs)

@@ -28,7 +28,7 @@ func pinFailuresNeverAcknowledge(fault: TestOnlyFileCustodyPin.Fault) throws {
     let expected = reachedDatabase ? next : old
     let kernel = try box.open()
     #expect(kernel.head.state == expected.id, "NAMED: restart resolves the pin")
-    #expect(try box.pinRecord() == .stable(expected.id), "NAMED: restart leaves a stable pin")
+    #expect(try box.pinRecord() == .stable(Head(generation: reachedDatabase ? 1 : 0, state: expected.id)), "NAMED: restart leaves a stable pin")
     #expect(try RawDatabase.read(box.database).objects.count == (reachedDatabase ? 1 : 0), "NAMED: objects follow the state")
 }
 
@@ -138,7 +138,7 @@ func pinFailuresNeverAcknowledge(fault: TestOnlyFileCustodyPin.Fault) throws {
         try VaultKernel.create(root: box.root, initial: Synthetic.state(seed: 1),
                                custody: box.pin(fault: .finishBeforeWrite))
     } == .recoveryRequired(.custodyFinish), "NAMED: incomplete enrollment never acknowledged")
-    #expect(try box.pinRecord() == .enrolling(Synthetic.state(seed: 1).id))
+    #expect(try box.pinRecord() == .enrolling(Head(generation: 0, state: Synthetic.state(seed: 1).id)))
     #expect(failure { try box.open() } == .locked(.incompleteEnrollment),
             "NAMED: ordinary open cannot complete enrollment")
     #expect(try RawDatabase.read(box.database).state == Synthetic.state(seed: 1).frame)

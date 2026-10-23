@@ -1,3 +1,5 @@
+import CPrivateFiles
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -14,7 +16,7 @@ struct FileIdentity: Equatable {
     }
 }
 
-/// Owner, mode, type and link checks for the private root and its files. These checks
+/// Owner, mode, type, ACL and link checks for the private root and its files. These checks
 /// protect against other UIDs; a same-UID process can always defeat them.
 enum PrivateFiles {
     static let typeMask: UInt32 = 0o170000
@@ -23,7 +25,8 @@ enum PrivateFiles {
     static let symlinkType: UInt32 = 0o120000
 
     /// The root must be canonical, a directory owned by this effective UID with mode 0700,
-    /// and every ancestor root- or self-owned and not writable by others unless sticky.
+    /// ACL-free; ancestors must be root- or self-owned, with no ACL write grants and no
+    /// mode write access for others unless sticky. Unsupported ACL inspection locks.
     static func validateRoot(_ path: String) throws(PersistenceError) {
         var status = stat()
         guard lstat(path, &status) == 0 else { throw .system(.root, errno: errno) }
@@ -33,6 +36,7 @@ enum PrivateFiles {
         guard canonical(path) == path else { throw .locked(.unsafeFile(.root, .notCanonical)) }
         guard status.st_uid == geteuid() else { throw .locked(.unsafeFile(.root, .owner)) }
         guard mode & 0o7777 == 0o700 else { throw .locked(.unsafeFile(.root, .mode)) }
+        try validateDirectoryACL(path, status: status, role: .root)
         var ancestor = parent(of: path)
         while true {
             guard lstat(ancestor, &status) == 0 else { throw .system(.root, errno: errno) }
@@ -44,6 +48,7 @@ enum PrivateFiles {
             guard mode & 0o022 == 0 || mode & 0o1000 != 0 else {
                 throw .locked(.unsafeFile(.ancestor, .writableByOthers))
             }
+            try validateDirectoryACL(ancestor, status: status, role: .ancestor)
             if ancestor == "/" { return }
             ancestor = parent(of: ancestor)
         }
@@ -57,10 +62,47 @@ enum PrivateFiles {
             throw .system(.root, errno: errno)
         }
         try validate(status, role: role)
+        let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { throw .locked(.unsafeFile(role, .aclUnavailable)) }
+        defer { close(descriptor) }
+        let identity = try validateDescriptor(descriptor, role: role)
+        var named = stat()
+        guard identity == FileIdentity(status), lstat(path, &named) == 0,
+              FileIdentity(named) == identity else { throw .locked(.unsafeFile(role, .replaced)) }
+        return identity
+    }
+
+    static func validateDescriptor(_ descriptor: Int32, role: FileRole) throws(PersistenceError) -> FileIdentity {
+        var status = stat()
+        guard fstat(descriptor, &status) == 0 else { throw .locked(.unsafeFile(role, .replaced)) }
+        try validate(status, role: role)
+        try validateACL(descriptor, role: role)
         return FileIdentity(status)
     }
 
-    static func validate(_ status: stat, role: FileRole) throws(PersistenceError) {
+    private static func validateDirectoryACL(_ path: String, status: stat, role: FileRole) throws(PersistenceError) {
+        let descriptor = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { throw .locked(.unsafeFile(role, .aclUnavailable)) }
+        defer { close(descriptor) }
+        var opened = stat(), named = stat()
+        guard fstat(descriptor, &opened) == 0, FileIdentity(opened) == FileIdentity(status),
+              opened.st_mode == status.st_mode, opened.st_uid == status.st_uid,
+              lstat(path, &named) == 0, FileIdentity(named) == FileIdentity(opened), named.st_mode == opened.st_mode,
+              named.st_uid == opened.st_uid else {
+            throw .locked(.unsafeFile(role, .replaced))
+        }
+        try validateACL(descriptor, role: role)
+    }
+
+    private static func validateACL(_ descriptor: Int32, role: FileRole) throws(PersistenceError) {
+        switch av_check_acl(descriptor, role == .ancestor ? 1 : 0) {
+        case 0: return
+        case 1: throw .locked(.unsafeFile(role, .acl))
+        default: throw .locked(.unsafeFile(role, .aclUnavailable))
+        }
+    }
+
+    private static func validate(_ status: stat, role: FileRole) throws(PersistenceError) {
         let mode = UInt32(status.st_mode)
         if mode & typeMask == symlinkType { throw .locked(.unsafeFile(role, .symlink)) }
         guard mode & typeMask == regularType else { throw .locked(.unsafeFile(role, .wrongType)) }
@@ -141,18 +183,16 @@ final class ProcessLease {
                 guard fchmod(descriptor, 0o600) == 0 else { throw .system(.lease, errno: errno) }
                 guard PrivateFiles.fullSync(descriptor) else { throw .system(.sync, errno: errno) }
             }
-            var status = stat()
-            guard fstat(descriptor, &status) == 0 else { throw .system(.lease, errno: errno) }
-            try PrivateFiles.validate(status, role: .lease)
+            let identity = try PrivateFiles.validateDescriptor(descriptor, role: .lease)
             guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
                 if errno == EWOULDBLOCK { throw .busy }
                 throw .system(.lease, errno: errno)
             }
             var named = stat()
-            guard lstat(path, &named) == 0, FileIdentity(named) == FileIdentity(status) else {
+            guard lstat(path, &named) == 0, FileIdentity(named) == identity else {
                 throw .locked(.leaseReplaced)
             }
-            return ProcessLease(descriptor: descriptor, path: path, identity: FileIdentity(status))
+            return ProcessLease(descriptor: descriptor, path: path, identity: identity)
         } catch {
             close(descriptor)
             throw error
@@ -161,10 +201,8 @@ final class ProcessLease {
 
     /// True while the lease path still names the locked inode as a valid lease file.
     func stillNamesLockedInode() -> Bool {
-        var status = stat()
-        guard lstat(path, &status) == 0, (try? PrivateFiles.validate(status, role: .lease)) != nil else {
-            return false
-        }
-        return FileIdentity(status) == identity
+        guard (try? PrivateFiles.validateDescriptor(descriptor, role: .lease)) == identity,
+              (try? PrivateFiles.validateFile(path, role: .lease)) == identity else { return false }
+        return true
     }
 }
