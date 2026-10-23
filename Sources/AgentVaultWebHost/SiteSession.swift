@@ -16,7 +16,7 @@ final class DocumentEpochs: @unchecked Sendable {
 ///
 /// The credential is used only on a page the host itself observes on a credential origin, and
 /// exists only inside `login`. Targets are rechecked against the live document, the control epoch
-/// and the agent's control immediately before input is sent. Operation IDs are remembered for the
+/// and the agent's control, and the element is rechecked and acted on in one recipe call. Operation IDs are remembered for the
 /// session's life (in host memory only): a retry gets the first reply, never a second dispatch.
 actor SiteSession {
     /// What an operation ID was first used for. A credential is never recorded.
@@ -171,7 +171,7 @@ actor SiteSession {
             fields["username"] = String(decoding: username, as: UTF8.self)
             fields["password"] = String(decoding: password, as: UTF8.self)
         }
-        let filled = await run(.loginFill, origins: policy.credential, fields)
+        let filled = await run(.loginFill, origins: policy.credential, fields).value
         fields = [:]
         switch filled {
         case .string("ok")?: break
@@ -187,9 +187,10 @@ actor SiteSession {
         if let failure = network?.takeFailure() { return .failed(failure) }
         let before = network?.loads ?? 0
         switch await run(.loginSubmit, origins: policy.credential, [:]) {
-        case .string("ok")?: break
-        case .string?: return .rejected(.unsupportedLogin)
-        default: return .siteUnknown
+        case .sent(.string("ok")?): break
+        case .sent(.string?): return .rejected(.unsupportedLogin)
+        case .notRun: return .rejected(.staleTarget)
+        case .sent: return .siteUnknown
         }
         await pause(.dispatched)
         await settle(loadedAfter: before)
@@ -233,7 +234,7 @@ actor SiteSession {
     /// person must enter: after a login the session then passes to them.
     private func judgeLogin(handOver: Bool) async {
         guard await currentDocument() != nil,
-              case .object(let state)? = await run(.authState, origins: policy.navigation + policy.credential, [:]) else {
+              case .object(let state)? = await run(.authState, origins: policy.navigation + policy.credential, [:]).value else {
             auth = .rejected
             return
         }
@@ -271,44 +272,40 @@ actor SiteSession {
     }
 
     private func click(_ target: SiteTarget) async -> HostReply {
-        guard await current(target) else { return .rejected(.staleTarget) }
         let roles: [SiteRole] = [.link, .button, .submit, .checkbox, .radio]
-        let found = await run(.target, origins: policy.navigation, ["index": target.element, "roles": roles.map(\.rawValue)])
-        guard case .object(let point)? = found, let x = point["x"]?.double, let y = point["y"]?.double else {
-            return refusal(found)
-        }
-        await pause(.beforeInput)
-        let at: [String: Any] = ["x": x, "y": y, "button": "left", "clickCount": 1]
-        return await dispatch(target, [(.inputDispatchMouseEvent, CDPParameters(at.merging(["type": "mousePressed"]) { $1 })),
-                                       (.inputDispatchMouseEvent, CDPParameters(at.merging(["type": "mouseReleased"]) { $1 }))])
+        return await act(.activate, target, ["roles": roles.map(\.rawValue)])
     }
 
+    /// Replaces the field's value; an empty text clears it.
     private func type(_ target: SiteTarget, _ text: String) async -> HostReply {
-        guard await current(target) else { return .rejected(.staleTarget) }
-        let focused = await run(.focusText, origins: policy.navigation, ["index": target.element, "roles": [SiteRole.textField.rawValue]])
-        guard case .string("ok")? = focused else { return refusal(focused) }
-        await pause(.beforeInput)
-        // The field's text is selected, so typing replaces it; an empty text deletes it.
-        return await dispatch(target, text.isEmpty ? Self.key(.delete) : [(.inputInsertText, ["text": text])])
+        await act(.enterText, target, ["roles": [SiteRole.textField.rawValue], "text": text])
     }
 
     private func choose(_ target: SiteTarget, _ option: Int) async -> HostReply {
+        await act(.choose, target, ["roles": [SiteRole.select.rawValue], "option": option])
+    }
+
+    /// Runs an effect recipe on `target`'s element. A reason it returns means it did not act; a call
+    /// that was sent but gave no answer may have acted, so its effect is unknown.
+    private func act(_ recipe: SiteRecipe, _ target: SiteTarget, _ values: [String: Any]) async -> HostReply {
+        await pause(.beforeInput)
         guard await current(target) else { return .rejected(.staleTarget) }
-        let chosen = await run(.choose, origins: policy.navigation,
-                               ["index": target.element, "roles": [SiteRole.select.rawValue], "option": option])
-        switch chosen {
-        case .string("ok")?: break
-        case nil: return .siteUnknown
-        default: return refusal(chosen)
+        switch await run(recipe, origins: policy.navigation, values.merging(["index": target.element]) { $1 }) {
+        case .notRun: return .rejected(.staleTarget)
+        case .sent(.string("ok")?): break
+        case .sent(.string("kind")?): return .rejected(.notPermitted)
+        case .sent(.string?): return .rejected(.staleTarget)
+        case .sent: return .siteUnknown
         }
+        await pause(.dispatched)
         await settle(loadedAfter: nil)
         return await outcome()
     }
 
-    private func press(_ key: NamedKey) async -> HostReply { await dispatch(nil, Self.key(key)) }
+    private func press(_ key: NamedKey) async -> HostReply { await dispatch(Self.key(key)) }
 
     private func scroll(_ dy: Int) async -> HostReply {
-        await dispatch(nil, [(.inputDispatchMouseEvent, ["type": "mouseWheel", "x": WebRun.viewport.width / 2,
+        await dispatch([(.inputDispatchMouseEvent, ["type": "mouseWheel", "x": WebRun.viewport.width / 2,
                                                          "y": WebRun.viewport.height / 2, "deltaX": 0, "deltaY": dy])])
     }
 
@@ -320,15 +317,9 @@ actor SiteSession {
                 (.inputDispatchKeyEvent, ["type": "keyUp", "key": name, "code": code, "windowsVirtualKeyCode": keyCode])]
     }
 
-    private func refusal(_ value: JSONValue?) -> HostReply {
-        if case .string("kind")? = value { return .rejected(.notPermitted) }
-        return .rejected(.staleTarget)
-    }
-
-    /// Sends input only while the agent holds control of the same document. Input the browser may
+    /// Sends untargeted input (keys, wheel) only while the agent holds control. Input the browser may
     /// have received without confirming makes the effect unknown; it is never sent again.
-    private func dispatch(_ target: SiteTarget?, _ events: [(CDPMethod, CDPParameters)]) async -> HostReply {
-        if let target { guard await current(target) else { return .rejected(.staleTarget) } }
+    private func dispatch(_ events: [(CDPMethod, CDPParameters)]) async -> HostReply {
         guard let session, mode == .agent, !ended else { return .rejected(.humanControl) }
         for (method, params) in events {
             guard !ended, mode == .agent else { return .siteUnknown }
@@ -361,7 +352,7 @@ actor SiteSession {
             guard mode == .agent, let origin = WebOrigin(url: url), policy.navigation.contains(origin) else {
                 return .site(summary(page.epoch))
             }
-            let value = await run(.observe, origins: policy.navigation, [:])
+            let value = await run(.observe, origins: policy.navigation, [:]).value
             await pause(.observed)
             guard await currentDocument()?.document.epoch == page.epoch else { continue }
             guard case .object(let fields)? = value, let title = fields["title"]?.string,
@@ -428,19 +419,33 @@ actor SiteSession {
         return Int(world)
     }
 
+    /// Whether a recipe call was never sent, or was sent (with its value, if it answered).
+    private enum Ran {
+        case notRun
+        case sent(JSONValue?)
+        var value: JSONValue? { if case .sent(let value) = self { value } else { nil } }
+    }
+
     /// Runs a fixed site recipe in the current document's world, which a page script cannot reach.
-    private func run(_ recipe: SiteRecipe, origins: [WebOrigin], _ values: [String: Any]) async -> JSONValue? {
-        guard !ended, let session, let world = await world() else { return nil }
+    /// The world belongs to one document: if that document is gone, the call fails without running.
+    private func run(_ recipe: SiteRecipe, origins: [WebOrigin], _ values: [String: Any]) async -> Ran {
+        guard !ended, let session, let world = await world() else { return .notRun }
         var arguments = values
         arguments["origins"] = origins.map(\.serialized)
-        guard Set(arguments.keys) == Set(recipe.parameters) else { return nil }
+        guard Set(arguments.keys) == Set(recipe.parameters), !ended else { return .notRun }
         let call: CDPParameters = [
             "functionDeclaration": recipe.declaration, "executionContextId": world,
             "arguments": recipe.parameters.map { ["value": arguments[$0]!] }, "returnByValue": true, "awaitPromise": false,
         ]
-        guard let result = try? await pipe.call(.runtimeCallFunctionOn, call, session: session),
-              result["exceptionDetails"] == nil else { return nil }
-        return result["result"]?["value"]
+        let result: JSONValue
+        do {
+            result = try await pipe.call(.runtimeCallFunctionOn, call, session: session)
+        } catch {
+            // An error answer (for example, the document's world is gone) means it never ran; a
+            // timeout or a lost browser may come after it ran.
+            return error == .protocolError ? .notRun : .sent(nil)
+        }
+        return .sent(result["exceptionDetails"] == nil ? result["result"]?["value"] : nil)
     }
 
     private func load(_ url: URL) async -> HostFailure? {

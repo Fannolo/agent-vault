@@ -92,7 +92,7 @@ enum Recipe: CaseIterable, Sendable {
 /// observed or typed into, even if the page changes its type. Every recipe first checks that the
 /// document is on one of `origins`, which the host passes from the site policy.
 enum SiteRecipe: CaseIterable, Sendable {
-    case observe, target, focusText, choose, loginFill, loginSubmit, loginClear, authState
+    case observe, activate, enterText, choose, loginFill, loginSubmit, loginClear, authState
 
     private static let common = """
         if (!Array.prototype.includes.call(origins, window.location.origin)) return "origin";
@@ -176,8 +176,8 @@ enum SiteRecipe: CaseIterable, Sendable {
     var parameters: [String] {
         switch self {
         case .observe: ["origins"]
-        case .target: ["origins", "index", "roles"]
-        case .focusText: ["origins", "index", "roles"]
+        case .activate: ["origins", "index", "roles"]
+        case .enterText: ["origins", "index", "roles", "text"]
         case .choose: ["origins", "index", "roles", "option"]
         case .loginFill: ["origins", "username", "password"]
         case .loginSubmit: ["origins"]
@@ -223,19 +223,27 @@ enum SiteRecipe: CaseIterable, Sendable {
             }
             return { title: clip(document.title, 256), elements, text };
             """
-        case .target: Self.common + Self.resolve + """
+        // The effect recipes resolve the element and act on that same element in one synchronous call:
+        // no page timer, focus change or replacement can come between the check and the action. They
+        // act through the DOM (`click()`, the value setter and input/change events), so the page sees
+        // untrusted events (`isTrusted === false`); a site that requires trusted input will not react.
+        case .activate: Self.common + Self.resolve + """
+            if (!(e instanceof HTMLElement)) return "kind";
             Element.prototype.scrollIntoView.call(e, { block: "center", inline: "center" });
             const r = rectOf.call(e);
             const x = r.x + r.width / 2, y = r.y + r.height / 2;
             if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return "stale";
             const hit = Document.prototype.elementFromPoint.call(document, x, y);
             if (hit !== e && !Node.prototype.contains.call(e, hit)) return "covered";
-            return { x, y };
+            HTMLElement.prototype.click.call(e);
+            return "ok";
             """
-        case .focusText: Self.common + Self.resolve + """
-            HTMLElement.prototype.focus.call(e);
-            if (document.activeElement !== e) return "stale";
-            e.select();
+        case .enterText: Self.common + Self.resolve + """
+            if (e.readOnly === true || (e.maxLength >= 0 && text.length > e.maxLength)) return "kind";
+            const proto = e.localName === "textarea" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            Object.getOwnPropertyDescriptor(proto, "value").set.call(e, text);
+            e.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertReplacementText", data: text }));
+            e.dispatchEvent(new Event("change", { bubbles: true }));
             return "ok";
             """
         case .choose: Self.common + Self.resolve + """

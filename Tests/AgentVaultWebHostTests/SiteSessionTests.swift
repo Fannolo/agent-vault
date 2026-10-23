@@ -297,4 +297,27 @@ extension RealBrowserTests {
             #expect(h.passwordSightings.count == 1 && h.passwordSightings.allSatisfy { $0.path == "/session" && $0.method == "POST" })
         }
     }
+
+    /// Finding 2: the element that was checked is the element that receives the input, even if
+    /// the page moves focus to a password field or swaps the button between check and action.
+    @Test func inputReachesTheValidatedElementEvenWhenThePageMovesFocusOrReplacesIt() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            let (session, _) = await h.open()
+            let page = try #require(observed(await h.operate(session, .navigate(h.url("/focus-trap")))))
+            // A slow browser: 300 ms before the host acts, long after the page's own 50 ms timers.
+            SiteSession.hooks.hook = { id, point in
+                if id == session && point == .beforeInput { try? await Task.sleep(for: .milliseconds(300)) }
+            }
+            let typed = try #require(observed(await h.operate(session, .typePublic(try page.need(.textField, "Search"), "public words"))))
+            #expect(typed.element(.textField, "Search")?.value == "public words")
+            #expect(!typed.text.contains("secret field received input"), "the text went to the password field")
+            let clicked = try #require(observed(await h.operate(session, .click(try typed.need(.button, "Save")))))
+            #expect(!clicked.text.contains("delete clicked"), "the click hit the replacement button")
+            #expect(clicked.text.contains("save clicked"))
+            // The swapped-in button is a new element: the old target cannot reach it.
+            #expect(await h.operate(session, .click(try typed.need(.button, "Save"))) == .rejected(.staleTarget))
+            #expect(observed(await h.observe(session))?.text.contains("delete clicked") == false)
+        }
+    }
 }
