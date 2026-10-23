@@ -19,12 +19,12 @@ private final class Fixture: @unchecked Sendable {
     let host = UUID().uuidString.lowercased() + ".invalid"
     let handler: Handler
     private let lock = NSLock()
-    private var continuation: (@Sendable () -> Void)?
+    private var continuation: Delivery?
     private var started = false
     init(_ handler: @escaping Handler) { self.handler = handler; Stub.add(self) }
     func close() { Stub.remove(host) }
-    func hold(_ work: @escaping @Sendable () -> Void) { lock.withLock { started = true; continuation = work } }
-    func release() { let work = lock.withLock { let value = continuation; continuation = nil; return value }; work?() }
+    func hold(_ work: Delivery) { lock.withLock { started = true; continuation = work } }
+    func release() { let work = lock.withLock { let value = continuation; continuation = nil; return value }; work?.finish() }
     func waitUntilStarted() async throws {
         for _ in 0..<200 {
             if lock.withLock({ started }) { return }
@@ -40,10 +40,23 @@ private final class Fixture: @unchecked Sendable {
     }
 }
 
-private final class Stub: URLProtocol, @unchecked Sendable {
+/// Transfers only a one-shot response capability. URLProtocol itself is non-Sendable on
+/// Linux; this private holder serializes access and never exposes the underlying instance.
+private final class Delivery: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instance: Stub?
+    private let response: Fixture.Response
+    init(_ instance: Stub, _ response: Fixture.Response) { self.instance = instance; self.response = response }
+    func finish() {
+        let target = lock.withLock { let value = instance; instance = nil; return value }
+        target?.complete(response)
+    }
+}
+
+private final class Stub: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var fixtures: [String: Fixture] = [:]
-    private let state = NSLock()
+    private let state = NSRecursiveLock()
     private var stopped = false
     static func add(_ fixture: Fixture) { lock.withLock { fixtures[fixture.host] = fixture } }
     static func remove(_ host: String) { _ = lock.withLock { fixtures.removeValue(forKey: host) } }
@@ -54,15 +67,17 @@ private final class Stub: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
         }
         let response = fixture.handler(request)
-        let finish: @Sendable () -> Void = { [self] in
-            guard !state.withLock({ stopped }) else { return }
+        if response.held { fixture.hold(Delivery(self, response)) } else { complete(response) }
+    }
+    func complete(_ response: Fixture.Response) {
+        state.withLock {
+            guard !stopped else { return }
             if response.error { client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost)); return }
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: response.status,
                 httpVersion: "HTTP/1.1", headerFields: response.headers)!, cacheStoragePolicy: .notAllowed)
             for data in response.chunks ?? [response.data] { client?.urlProtocol(self, didLoad: data) }
             client?.urlProtocolDidFinishLoading(self)
         }
-        if response.held { fixture.hold(finish) } else { finish() }
     }
     override func stopLoading() { state.withLock { stopped = true } }
 }
