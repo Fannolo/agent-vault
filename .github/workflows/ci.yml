@@ -63,7 +63,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/agent-vault-build"
           docker run --rm --cap-drop ALL --security-opt no-new-privileges \
-            --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp:rw,mode=1777 \
+            --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777 \
             --env HOME=/tmp \
             --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/source,readonly" \
             --mount "type=bind,src=$RUNNER_TEMP/agent-vault-build,dst=/build" \
