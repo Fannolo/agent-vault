@@ -39,6 +39,37 @@ custody, cross-process durability, network containment or installed-host behavio
 The Linux manifest omits Keychain implementations rather than substituting weaker storage.
 OrbStack remains stopped.
 
+The native socket transport (commit `2571da2`) carries the fixed read and signed admin
+calls over separate Unix sockets into the real broker, using the daemon's own handler
+composition. Peer UIDs come from `SO_PEERCRED` on Linux and `getpeereid` on macOS; see
+[IPC](IPC.md#unix-socket-transport). A source review of `4d84080` found five defects, each
+reproduced by a regression that failed on that code before its fix: an unbounded reply queue,
+stop and deadline checks that a busy peer could skip, concurrent starts that could unlink
+each other's sockets, admin slots released before broker cleanup, and a test peer that could
+close a reused descriptor. A follow-up found that a request ID left flight when its handler
+returned, so a duplicate could run again while the reply was unwritten; that is fixed the same
+way. Commit `be621d9`, on macOS 15 with Swift 6.2.4, through
+`scripts/verify-socket-transport.py --full --stress 5 --mutations`: 32 socket tests pass,
+the same suite passes 5 more times in the same run, the root suite reports 394 passing tests
+with existing opt-ins skipped, and `verify-mcp.py` and `verify-boundaries.py` pass. All 19
+transport mutations fail every named test, and after each one the restored file rebuilds and
+the same tests pass. The synthetic canary scan of 86 logs is clean, and `MANIFEST.txt` records
+each log's SHA-256 with the source hashes. Tests run every role under one UID; denied UIDs are
+simulated by configuration. Linux CI run 39884964104 of `4d84080` showed that Linux resets a
+refused peer that had already written; the test now accepts that and still requires that no
+reply is sent. The integrated source at `f3d3b4f` received bounded source acceptance. Its
+macOS and cloud-database CI jobs passed; Linux compiled the broker and MCP bridge but failed
+one of 192 tests: `unwrittenRepliesKeepTheirServiceCapacity` failed its recovery assertion after 48 rapid attempts. Suspected cause: retries outran
+asynchronous writer cleanup. A private macOS experiment with a one-second writer-cleanup
+delay reproduces this failure mode. A bounded recovery wait passes with the delay
+and still fails when reply completion never releases capacity. Production socket code is
+unchanged by this test correction; the corrected Linux CI run remains pending.
+
+The Linux MCP bridge now builds with portable bounded stdio and the kernel-authenticated
+read socket client. It retains the same four tools and fixed installed configuration. The
+broker exits `custody_unavailable` until vault key custody exists. Dedicated accounts,
+systemd units and an installed host remain unproven.
+
 The user authorized completion of private website login and continuing browser operation,
 native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
 The end-to-end acceptance criteria are in [DELIVERY-PLAN.md](DELIVERY-PLAN.md). This is active
@@ -439,6 +470,25 @@ or session state, navigate to arbitrary destinations or perform unapproved actio
 - CI builds, package validation, signed artifacts and release provenance.
 - Compatibility checks in target MCP hosts, without broad permission bypasses.
 - Publish documented security guarantees only after their verification.
+
+## Native Linux MCP bridge (development)
+
+The bridge now selects the kernel-peer-authenticated Unix read socket on Linux and XPC
+on macOS. Linux uses only `/etc/agent-vault/sockets.json`, refuses development policy,
+and validates its configured agent UID and the broker peer UID before sending requests.
+It exposes the same four narrow tools; it has no credential store or admin client.
+
+The bounded stdio transport uses nonblocking descriptors on both platforms. Darwin keeps
+`F_SETNOSIGPIPE`; Linux blocks SIGPIPE only around each write on the writer thread,
+consumes a newly generated broken-pipe signal, and restores the thread mask. It does not
+change the process-wide signal disposition or consume an earlier pending SIGPIPE.
+
+Native macOS checks: 15 transport/bridge tests and all 381 root tests pass (existing
+opt-ins skipped); boundary and synthetic MCP verifiers pass. A standalone C broken-pipe
+check passes with the default signal disposition. Linux compilation, the Linux-specific
+pending-signal case and installed end-to-end MCP/socket identity remain pending CI and
+installed-host checks. The Linux broker still refuses to serve without real key custody.
+This change does not provide cloud login, browser site dispatch, an installer or a GUI.
 
 ## Verification record
 

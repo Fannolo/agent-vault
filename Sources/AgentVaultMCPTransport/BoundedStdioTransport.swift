@@ -1,4 +1,9 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+import CAgentVaultStdio
+#endif
 import Dispatch
 import Foundation
 import Logging
@@ -126,9 +131,11 @@ private final class StdioChannel: @unchecked Sendable {
             do {
                 guard output >= 0 else { throw StdioTransportError.ioFailure }
                 try nonblocking(input); try nonblocking(output)
+                #if canImport(Darwin)
                 guard fcntl(output, F_SETNOSIGPIPE, 1) == 0 else { throw StdioTransportError.ioFailure }
+                #endif
             } catch {
-                Darwin.close(input); if output >= 0 { Darwin.close(output) }
+                close(input); if output >= 0 { close(output) }
                 input = -1; output = -1
                 throw error
             }
@@ -136,7 +143,7 @@ private final class StdioChannel: @unchecked Sendable {
             closure.enter(); closure.enter()
             let descriptor = input
             readQueue.async { [self] in
-                defer { Darwin.close(descriptor); closure.leave() }
+                defer { close(descriptor); closure.leave() }
                 readLoop(descriptor)
             }
         }
@@ -157,7 +164,7 @@ private final class StdioChannel: @unchecked Sendable {
         guard let descriptor else { return }
         if let error { continuation.finish(throwing: error) } else { continuation.finish() }
         if descriptor >= 0 {
-            writeQueue.async { [self] in Darwin.close(descriptor); closure.leave() }
+            writeQueue.async { [self] in close(descriptor); closure.leave() }
         }
     }
 
@@ -176,7 +183,7 @@ private final class StdioChannel: @unchecked Sendable {
             if ready < 0 { if errno == EINTR { continue }; stop(error: .ioFailure); return }
             if ready == 0 { continue }
             if event.revents & Int16(POLLERR | POLLNVAL) != 0 { stop(error: .ioFailure); return }
-            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            let count = read(descriptor, &buffer, buffer.count)
             if count < 0 { if errno == EINTR || errno == EAGAIN { continue }; stop(error: .ioFailure); return }
             if count == 0 { stop(error: pending.isEmpty ? nil : .truncatedInput); return }
             for byte in buffer.prefix(count) {
@@ -253,7 +260,11 @@ private final class StdioChannel: @unchecked Sendable {
                 if ready < 0 { if errno == EINTR { continue }; throw StdioTransportError.ioFailure }
                 if ready == 0 { continue }
                 guard event.revents & Int16(POLLERR | POLLHUP | POLLNVAL) == 0 else { throw StdioTransportError.ioFailure }
+                #if canImport(Darwin)
                 let count = Darwin.write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                #else
+                let count = av_stdio_write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                #endif
                 if count < 0 { if errno == EINTR || errno == EAGAIN { continue }; throw StdioTransportError.ioFailure }
                 guard count > 0 else { throw StdioTransportError.ioFailure }
                 offset += count

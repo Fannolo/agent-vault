@@ -1,31 +1,20 @@
 import AgentVaultContracts
 import Foundation
 
+#if os(macOS)
 /// Broker-side listeners for the read (bridge) and admin (human app) services.
 ///
 /// Each service has its own exact code requirement, set on the listener and on every accepted
 /// connection before activation. A connection is accepted only from the configured kernel
 /// effective UID, and that UID is bound to the connection and passed to every handler.
 public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
-    public typealias ReadHandler = @Sendable (UInt32, ReadRequest) async throws -> ReadReply
-    public typealias SnapshotHandler = @Sendable (UInt32) async throws -> AdminSnapshot
-    public typealias BeginHandler = @Sendable (AdminConnection, AdminRequest) async throws -> AdminChallenge
-    public typealias AuthorizeHandler = @Sendable (AdminConnection, UUID, Data) async throws -> AdminReply
-    public typealias ContinuationHandler = @Sendable (AdminConnection, ContinuationRequest) async -> ContinuationReply
-    public typealias ClosedHandler = @Sendable (AdminConnection) async -> Void
-
-    struct Handlers: Sendable {
-        let read: ReadHandler
-        let snapshot: SnapshotHandler
-        let begin: BeginHandler
-        let authorize: AuthorizeHandler
-        var continuation: ContinuationHandler = { _, _ in .failure(.upstreamUnavailable) }
-        var closed: ClosedHandler = { _ in }
-    }
-
-    /// Continuation work runs on its own lanes, so frame polling cannot occupy admin capacity.
-    static let continuationPerConnection = 2
-    static let continuationTotal = 4
+    public typealias ReadHandler = BrokerHandlers.Read
+    public typealias SnapshotHandler = BrokerHandlers.Snapshot
+    public typealias BeginHandler = BrokerHandlers.Begin
+    public typealias AuthorizeHandler = BrokerHandlers.Authorize
+    public typealias ContinuationHandler = BrokerHandlers.Continuation
+    public typealias ClosedHandler = BrokerHandlers.Closed
+    typealias Handlers = BrokerHandlers
 
     private let configuration: IPCConfiguration
     private let limits: IPCLimits
@@ -36,19 +25,25 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
     private let adminInFlight: Gate
     private let readConnections: Gate
     private let adminConnections: Gate
-    private let continuationInFlight = Gate(limit: VaultXPCServer.continuationTotal)
+    private let continuationInFlight = Gate(limit: ServiceLanes.continuationTotal)
 
     public convenience init(configuration: IPCConfiguration, limits: IPCLimits = .standard,
                             read: @escaping ReadHandler, snapshot: @escaping SnapshotHandler,
                             begin: @escaping BeginHandler, authorize: @escaping AuthorizeHandler,
                             continuation: @escaping ContinuationHandler,
                             connectionClosed: @escaping ClosedHandler) throws(IPCError) {
+        try self.init(configuration: configuration, limits: limits,
+                      handlers: BrokerHandlers(read: read, snapshot: snapshot, begin: begin, authorize: authorize,
+                                               continuation: continuation, closed: connectionClosed))
+    }
+
+    public convenience init(configuration: IPCConfiguration, limits: IPCLimits = .standard,
+                            handlers: BrokerHandlers) throws(IPCError) {
         try configuration.validate(for: .broker)
         self.init(validated: configuration, limits: limits,
                   readListener: NSXPCListener(machServiceName: configuration.readServiceName),
                   adminListener: NSXPCListener(machServiceName: configuration.adminServiceName),
-                  handlers: Handlers(read: read, snapshot: snapshot, begin: begin, authorize: authorize,
-                                     continuation: continuation, closed: connectionClosed))
+                  handlers: handlers)
     }
 
     init(validated configuration: IPCConfiguration, limits: IPCLimits, readListener: NSXPCListener,
@@ -56,8 +51,7 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
         self.configuration = configuration; self.limits = limits; self.handlers = handlers
         self.readListener = readListener; self.adminListener = adminListener
         readInFlight = Gate(limit: limits.maxInFlightTotal)
-        // Revocation and other human controls retain capacity even when every read slot is occupied.
-        adminInFlight = Gate(limit: 4)
+        adminInFlight = Gate(limit: ServiceLanes.adminTotal)
         readConnections = Gate(limit: limits.maxConnectionsPerService)
         adminConnections = Gate(limit: limits.maxConnectionsPerService)
         super.init()
@@ -99,7 +93,7 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
             let identity = AdminConnection(uid: uid)
             // Like admin work, continuation calls are not cancelled: a finish must reach its own
             // reply deadline. The closed handler ends the connection's leases instead.
-            let lane = Peer(uid: uid, limits: limits, connectionInFlight: Gate(limit: Self.continuationPerConnection),
+            let lane = Peer(uid: uid, limits: limits, connectionInFlight: Gate(limit: ServiceLanes.continuationPerConnection),
                             serviceInFlight: continuationInFlight)
             connection.exportedInterface = NSXPCInterface(with: VaultAdminRPC.self)
             connection.exportedObject = AdminEndpoint(peer: peer, continuation: lane, identity: identity, handlers: handlers)
@@ -121,45 +115,6 @@ public final class VaultXPCServer: NSObject, NSXPCListenerDelegate, @unchecked S
         connection.activate()
         return true
     }
-}
-
-/// One accepted admin connection. `id` is minted by the listener when it accepts the connection
-/// and is the only identity a continuation lease can be bound to.
-public struct AdminConnection: Sendable, Hashable {
-    public let uid: UInt32
-    public let id: UUID
-    private let liveness = Liveness()
-    init(uid: UInt32) { self.uid = uid; id = UUID() }
-    /// Cleared by the invalidation handler before the closed callback is scheduled.
-    public var isOpen: Bool { liveness.isOpen }
-    func close() { liveness.close() }
-    public static func == (a: Self, b: Self) -> Bool { a.id == b.id && a.uid == b.uid }
-    public func hash(into hasher: inout Hasher) { hasher.combine(id) }
-
-    private final class Liveness: @unchecked Sendable {
-        private let lock = NSLock()
-        private var open = true
-        var isOpen: Bool { lock.withLock { open } }
-        func close() { lock.withLock { open = false } }
-    }
-}
-
-final class Gate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-    let limit: Int
-
-    init(limit: Int) { self.limit = limit }
-
-    func acquire() -> Bool {
-        lock.withLock {
-            guard count < limit else { return false }
-            count += 1
-            return true
-        }
-    }
-
-    func release() { lock.withLock { count -= 1 } }
 }
 
 /// Calls an XPC reply block at most once.
@@ -239,6 +194,108 @@ final class Peer: Sendable {
     }
 }
 
+final class ReadEndpoint: NSObject, VaultReadRPC {
+    private let peer: Peer
+    private let handlers: VaultXPCServer.Handlers
+
+    init(peer: Peer, handlers: VaultXPCServer.Handlers) { self.peer = peer; self.handlers = handlers }
+
+    func perform(_ data: Data, reply: @escaping (Data) -> Void) {
+        let limits = peer.limits, handlers = handlers
+        peer.dispatch(size: data.count, reply: reply, parse: { () throws(IPCError) in
+            try WireCodec.decodeRead(data, limits: limits)
+        }, work: { uid, request in await handlers.readReply(uid: uid, request, limits: limits) })
+    }
+}
+
+final class AdminEndpoint: NSObject, VaultAdminRPC {
+    private let peer: Peer
+    private let continuation: Peer
+    private let identity: AdminConnection
+    private let handlers: VaultXPCServer.Handlers
+
+    init(peer: Peer, continuation: Peer, identity: AdminConnection, handlers: VaultXPCServer.Handlers) {
+        self.peer = peer; self.continuation = continuation; self.identity = identity; self.handlers = handlers
+    }
+
+    func snapshot(reply: @escaping (Data) -> Void) {
+        let limits = peer.limits, handlers = handlers
+        peer.dispatch(size: 0, reply: reply, parse: {}, work: { uid, _ in await handlers.snapshotReply(uid: uid, limits: limits) })
+    }
+
+    func begin(_ data: Data, reply: @escaping (Data) -> Void) {
+        let limits = peer.limits, handlers = handlers, identity = identity
+        peer.dispatch(size: data.count, reply: reply, parse: { () throws(IPCError) in
+            try WireCodec.decodeAdmin(data, limits: limits)
+        }, work: { _, request in await handlers.beginReply(identity, request, limits: limits) })
+    }
+
+    func authorize(_ id: String, signature: Data, reply: @escaping (Data) -> Void) {
+        let limits = peer.limits, handlers = handlers, identity = identity
+        peer.dispatch(size: id.utf8.count + signature.count, reply: reply, parse: { () throws(IPCError) in
+            Authorization(id: try WireCodec.decodeAuthorize(id: id, signature: signature), signature: signature)
+        }, work: { _, input in
+            await handlers.authorizeReply(identity, id: input.id, signature: input.signature, limits: limits)
+        })
+    }
+
+    func continueHuman(_ data: Data, reply: @escaping (Data) -> Void) {
+        let limits = continuation.limits, handlers = handlers, identity = identity
+        continuation.dispatch(size: data.count, reply: reply, parse: { () throws(IPCError) in
+            try WireCodec.decodeContinuation(data, limits: limits)
+        }, work: { _, request in await handlers.continuationReply(identity, request, limits: limits) })
+    }
+
+    private struct Authorization: Sendable {
+        let id: UUID
+        let signature: Data
+    }
+}
+#endif
+
+// MARK: Connection state shared with the socket transport
+
+/// One accepted admin connection. `id` is minted by the listener when it accepts the connection
+/// and is the only identity a continuation lease can be bound to.
+public struct AdminConnection: Sendable, Hashable {
+    public let uid: UInt32
+    public let id: UUID
+    private let liveness = Liveness()
+    init(uid: UInt32) { self.uid = uid; id = UUID() }
+    /// Cleared by the transport when the connection ends, before the closed callback is scheduled.
+    public var isOpen: Bool { liveness.isOpen }
+    func close() { liveness.close() }
+    public static func == (a: Self, b: Self) -> Bool { a.id == b.id && a.uid == b.uid }
+    public func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    private final class Liveness: @unchecked Sendable {
+        private let lock = NSLock()
+        private var open = true
+        var isOpen: Bool { lock.withLock { open } }
+        func close() { lock.withLock { open = false } }
+    }
+}
+
+final class Gate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    let limit: Int
+
+    init(limit: Int) { self.limit = limit }
+
+    func acquire() -> Bool {
+        lock.withLock {
+            guard count < limit else { return false }
+            count += 1
+            return true
+        }
+    }
+
+    func release() { lock.withLock { count -= 1 } }
+
+    var current: Int { lock.withLock { count } }
+}
+
 /// Handler tasks of one connection that must be cancelled when it goes away.
 ///
 /// Each task's key is reserved before the task starts. The task completes its key; the dispatcher
@@ -283,83 +340,4 @@ final class CancellableWork: @unchecked Sendable {
     }
 
     var retained: (reserved: Int, tasks: Int) { lock.withLock { (reserved.count, tasks.count) } }
-}
-
-final class ReadEndpoint: NSObject, VaultReadRPC {
-    private let peer: Peer
-    private let handlers: VaultXPCServer.Handlers
-
-    init(peer: Peer, handlers: VaultXPCServer.Handlers) { self.peer = peer; self.handlers = handlers }
-
-    func perform(_ data: Data, reply: @escaping (Data) -> Void) {
-        let limits = peer.limits, handler = handlers.read
-        peer.dispatch(size: data.count, reply: reply, parse: { () throws(IPCError) in
-            try WireCodec.decodeRead(data, limits: limits)
-        }, work: { uid, request in
-            guard let result = try? await handler(uid, request) else { return WireCodec.errorReply(.unavailable) }
-            return WireCodec.reply(result, kind: .readReply, limits: limits) ?? WireCodec.errorReply(.unavailable)
-        })
-    }
-}
-
-final class AdminEndpoint: NSObject, VaultAdminRPC {
-    private let peer: Peer
-    private let continuation: Peer
-    private let identity: AdminConnection
-    private let handlers: VaultXPCServer.Handlers
-
-    init(peer: Peer, continuation: Peer, identity: AdminConnection, handlers: VaultXPCServer.Handlers) {
-        self.peer = peer; self.continuation = continuation; self.identity = identity; self.handlers = handlers
-    }
-
-    func snapshot(reply: @escaping (Data) -> Void) {
-        let limits = peer.limits, handler = handlers.snapshot
-        peer.dispatch(size: 0, reply: reply, parse: {}, work: { uid, _ in
-            guard let result = try? await handler(uid) else { return WireCodec.errorReply(.unavailable) }
-            return WireCodec.reply(result, kind: .snapshot, limits: limits) ?? WireCodec.errorReply(.unavailable)
-        })
-    }
-
-    func begin(_ data: Data, reply: @escaping (Data) -> Void) {
-        let limits = peer.limits, handler = handlers.begin, identity = identity
-        peer.dispatch(size: data.count, reply: reply, parse: { () throws(IPCError) in
-            try WireCodec.decodeAdmin(data, limits: limits)
-        }, work: { _, request in
-            do {
-                let challenge = try await handler(identity, request)
-                return WireCodec.reply(challenge, kind: .challenge, limits: limits) ?? WireCodec.errorReply(.unavailable)
-            } catch let rejection as AdminRejection {
-                return WireCodec.reply(AdminReply(status: rejection.status), kind: .adminReply, limits: limits)
-                    ?? WireCodec.errorReply(.unavailable)
-            } catch {
-                return WireCodec.errorReply(.unavailable)
-            }
-        })
-    }
-
-    func authorize(_ id: String, signature: Data, reply: @escaping (Data) -> Void) {
-        let limits = peer.limits, handler = handlers.authorize, identity = identity
-        peer.dispatch(size: id.utf8.count + signature.count, reply: reply, parse: { () throws(IPCError) in
-            Authorization(id: try WireCodec.decodeAuthorize(id: id, signature: signature), signature: signature)
-        }, work: { _, input in
-            guard let result = try? await handler(identity, input.id, input.signature) else {
-                return WireCodec.errorReply(.unavailable)
-            }
-            return WireCodec.reply(result, kind: .adminReply, limits: limits) ?? WireCodec.errorReply(.unavailable)
-        })
-    }
-
-    func continueHuman(_ data: Data, reply: @escaping (Data) -> Void) {
-        let limits = continuation.limits, handler = handlers.continuation, identity = identity
-        continuation.dispatch(size: data.count, reply: reply, parse: { () throws(IPCError) in
-            try WireCodec.decodeContinuation(data, limits: limits)
-        }, work: { _, request in
-            WireCodec.continuationReply(await handler(identity, request), limits: limits) ?? WireCodec.errorReply(.unavailable)
-        })
-    }
-
-    private struct Authorization: Sendable {
-        let id: UUID
-        let signature: Data
-    }
 }

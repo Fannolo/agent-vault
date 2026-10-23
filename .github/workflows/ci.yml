@@ -95,6 +95,10 @@ jobs:
             --workdir /source "$SWIFT_IMAGE" /bin/bash -euc '
               swift --version
               uname -m
+              clang -Wall -Wextra -Werror -pthread -I Sources/CAgentVaultStdio/include \
+                Sources/CAgentVaultStdio/CAgentVaultStdio.c deploy/tests/stdio_signal_test.c \
+                -o /build/stdio-signal-test
+              /build/stdio-signal-test
               swift test --package-path Packages/VaultCore --scratch-path /build/core \
                 --force-resolved-versions --no-parallel --jobs 4
               swift test --package-path Packages/VaultSecret --scratch-path /build/secret \

@@ -46,6 +46,9 @@ Root/kernel, compromised trusted code and malicious receiving websites remain li
 3. **Native/headless authority.** Add Linux peer-authenticated daemon and installation,
    enrollment/unlock/revocation and a paired trusted approval channel. Preserve separate
    agent and administrative capabilities. Decide restart/unlock policy explicitly.
+   Started: the Unix-socket transport (kernel peer UID, separate read/admin sockets) serves
+   the existing broker composition in tests. Custody, the serving daemon, systemd units,
+   the Linux bridge and installed-host checks remain.
 4. **Cloud accounts and sync.** Use maintained authentication components. Implement an
    authenticated ciphertext-only sync service, transcript-bound device pairing and vault
    recovery. Self-hosted local integration precedes isolated hosted deployment.
