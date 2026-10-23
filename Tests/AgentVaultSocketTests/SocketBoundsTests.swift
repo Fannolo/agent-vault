@@ -183,11 +183,31 @@ import Glibc
         // Once the stalled peer leaves, its replies are dropped and the capacity returns.
         stalledPeer.close()
         var served = false
-        for id in UInt32(2)..<50 where !served {
+        var id: UInt32 = 2
+        let recovery = Deadline.after(5)
+        while !served, recovery.pollTimeout != nil {
             #expect(await otherPeer.request(id: id, .read, read))
-            if case .reply(id, let body) = await otherPeer.read(within: 3), body != errorBody(.busy) { served = true }
+            guard case .reply(let replyID, let body) = await otherPeer.read(within: 3), replyID == id else {
+                Issue.record("capacity recovery request received no matching reply")
+                break
+            }
+            if body == errorBody(.busy) {
+                // Writer cleanup runs independently. Yield rather than exhausting a fixed
+                // number of requests before it has a chance to drop the stalled replies.
+                try await Task.sleep(for: .milliseconds(10))
+            } else {
+                guard case .success(.readReply(let reply)) = WireCodec.decodeReply(body, allowed: [.readReply], limits: limits) else {
+                    Issue.record("capacity recovery received an invalid read reply")
+                    break
+                }
+                #expect(reply.status == ReadReply(.outcome(.completed)).status)
+                #expect(reply.accounts?.map(\.id) == many.map(\.id))
+                #expect(reply.accounts?.allSatisfy { $0.service == .demo && $0.status == "active" } == true)
+                served = true
+            }
+            id += 1
         }
-        #expect(served)
+        #expect(served, "service capacity must return after the stalled peer leaves")
         otherPeer.close()
         await stalled.finished.wait()
         await other.finished.wait()

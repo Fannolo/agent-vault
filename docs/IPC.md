@@ -284,10 +284,14 @@ Capacity and lifetime:
 
 - Connection, per-connection and per-service limits are the `IPCLimits` values used by XPC,
   with the same separate admin and continuation lanes. Excess connections are closed.
-- Every reply, including `busy` and other error replies, counts against a per-connection
-  backlog of `maxInFlightPerConnection` from the moment it is queued until it is written or
-  dropped. A handler keeps its connection and service capacity for the same span. While the
-  backlog is full the server reads no further request from that connection. A peer that
+- Every reply, including `busy` and other error replies, counts against the per-connection
+  backlog from the moment it is queued until it is written or dropped. The
+  `maxInFlightPerConnection` threshold pauses admission; already admitted handlers may still
+  enqueue their replies. A conservative queued-reply bound is `R + H + 1`, where `R` is that
+  threshold, `H` is the bounded per-connection handler capacity, and the extra reply covers
+  terminal oversized-frame rejection. One complete request frame may also be read ahead of
+  admission. A handler keeps its connection and service capacity until its reply is written
+  or dropped. While the backlog meets the threshold the reader waits. A peer that
   stops reading its replies therefore stops being served, and the first reply write that
   misses its deadline closes the connection; requests it had sent but the server had not
   read get no reply, and the client reports `timeout` or `connection_failed` for them.
@@ -322,8 +326,10 @@ Socket files:
 
 The Linux `agent-vault-broker` validates `sockets.json` for the broker role and then exits
 with `custody_unavailable`. Vault key custody through a systemd encrypted credential is the
-next delivery unit. There is no fallback secret store. The Linux MCP bridge is not built:
-its bounded stdio transport still uses macOS-only descriptor options.
+next delivery unit. There is no fallback secret store. The Linux MCP bridge is built with
+portable bounded stdio and the read-only Unix-socket client. It uses fixed installed socket
+configuration and the same four MCP tools as macOS. This does not establish a serving Linux
+daemon, installed UID separation or systemd key custody.
 
 ## Production layout
 

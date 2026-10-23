@@ -57,10 +57,18 @@ the same tests pass. The synthetic canary scan of 86 logs is clean, and `MANIFES
 each log's SHA-256 with the source hashes. Tests run every role under one UID; denied UIDs are
 simulated by configuration. Linux CI run 39884964104 of `4d84080` showed that Linux resets a
 refused peer that had already written; the test now accepts that and still requires that no
-reply is sent. A Linux compile and test result for `be621d9` needs root CI and is not claimed
-here. The Linux broker exits `custody_unavailable` until vault key custody exists, and the
-Linux MCP bridge is not built in this branch. Dedicated accounts, systemd units and an
-installed host remain unproven.
+reply is sent. The integrated source at `f3d3b4f` received bounded source acceptance. Its
+macOS and cloud-database CI jobs passed; Linux compiled the broker and MCP bridge but failed
+one of 192 tests: `unwrittenRepliesKeepTheirServiceCapacity` exhausted 49 rapid retries
+before asynchronous writer cleanup released capacity. In a private copy, a one-second
+writer-cleanup delay reproduces that failure. A bounded recovery wait passes with the delay
+and still fails when reply completion never releases capacity. Production socket code is
+unchanged by this test correction; the corrected Linux CI run remains pending.
+
+The Linux MCP bridge now builds with portable bounded stdio and the kernel-authenticated
+read socket client. It retains the same four tools and fixed installed configuration. The
+broker exits `custody_unavailable` until vault key custody exists. Dedicated accounts,
+systemd units and an installed host remain unproven.
 
 The user authorized completion of private website login and continuing browser operation,
 native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
