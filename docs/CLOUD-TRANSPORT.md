@@ -89,14 +89,33 @@ The 1 MiB object cap is the current transport cap, not a reviewed successor vaul
 
 ## Current verification scope
 
-Nine native URLProtocol-backed tests exercise fixed requests, hostile response data,
-digest/cursor checks, conditional conflicts, uncertain writes, declared/chunked response
-bounds, invalidation and cancellation. They make no real network connections. Native root
-tests report 371 passing tests with existing Chromium/Keychain opt-ins inactive. Twelve
-credential/timeout/graph tests pass in normal and optimized Python; ten actual compiler
-probes check that ordinary imports cannot reveal login fields or cloud token bytes.
+`python3 -I scripts/verify-cloud-client.py --out verification-logs/<new-directory>` runs
+the checks below on a clean commit. Each command runs through the canonical owned process
+group. The script records commit, tree, input-file hashes and log hashes, and requires the
+source to be unchanged at the end.
 
-These fixtures do not establish a live PostgREST/JWT/signup flow, installed token custody,
-Linux runtime behavior, protected approval signing or production readiness. Native database
-checks are a separate component test. Both sides must be exercised together on an approved
-dedicated host before claiming cloud integration complete.
+- Fifteen native URLProtocol-backed client tests. The fixture records each request as
+  the loader delivered it, including the body read from `httpBodyStream`. Assertions run on
+  the test's own task after the call, not inside the URL-loading handler. The tests cover
+  fixed routes, headers and queries; exact request bodies (`\x` hex prefix, JSON `null`
+  expected head, lowercase UUIDs); vault ownership confirmation; hostile change sets;
+  conditional-head status mapping; uncertain writes; declared and chunked response bounds;
+  foreign response URLs; redirects; canonical endpoints; invalidation; and cancellation.
+  No real network connection is made.
+- The native root suite (377 tests on macOS; Chromium and Keychain opt-ins skipped),
+  the package graph check, 15 credential/timeout/graph tests in normal and optimized
+  Python, 13 compiler probes and the MCP checks.
+- Twenty-one source mutants. Each mutant edits one guarded line: a route, header,
+  request body, cursor, ownership check, status mapping, redirect refusal, response-URL
+  check, endpoint canonicalization, token SPI group or cloud graph allowlist. The script
+  counts a mutant as detected only when the named test or probe fails. After the mutants
+  run, the script checks that each file is restored byte for byte and runs the restored
+  checks again.
+
+These checks do not establish a live PostgREST/JWT/signup flow, installed token custody,
+Linux runtime behavior, protected approval signing or production readiness. The Linux CI
+job compiles and runs the same client tests except the macOS-only redirect fixture; its
+result for this revision is pending. Native database checks are a separate component test.
+The `PT409` head-conflict mapping and the plain-insert vault creation have run only against
+fixtures and native SQL statements, not against PostgREST. Both sides must be exercised
+together on an approved dedicated host before claiming cloud integration complete.

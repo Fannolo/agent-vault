@@ -113,7 +113,9 @@ private final class Stub: URLProtocol {
             #if !canImport(FoundationNetworking)
             if let target = response.redirect {
                 // FoundationNetworking traps on protocol-reported redirects; Linux covers the delegate below.
-                client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: HTTPURLResponse(
+                // The followed request keeps the original headers, as a loader would carry them.
+                var next = request; next.url = target
+                client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: HTTPURLResponse(
                     url: request.url!, statusCode: 307, httpVersion: "HTTP/1.1", headerFields: ["Location": target.absoluteString])!)
                 return
             }

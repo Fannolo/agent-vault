@@ -4,12 +4,18 @@
 
 The trusted `AgentVaultCloud` client now implements the fixed ciphertext transport routes,
 bounded streaming replies, digest/cursor validation and explicit unconfirmed-write results.
-A redacted owned access-token type and graph/SPI/API checks keep token use outside agent,
-browser and app roles. Nine native client tests pass; root reports 371 tests with existing
-opt-ins skipped. Twelve boundary/timeout tests pass normally and optimized, and ten real
-compiler probes plus MCP checks pass. Independent review and Linux runtime remain pending.
-This module is not composed into production. Signup, token refresh/custody, pairing and
-durable verified sync remain unfinished; see [CLOUD-TRANSPORT.md](CLOUD-TRANSPORT.md).
+After independent review, the access token's reveal moved to its own `CloudTokenUse` SPI.
+Only the fixed adapter may import that SPI; the browser roles' `CredentialUse` import cannot
+reveal the token (compiler probe). The cloud target graph is now an allowlist: only the
+broker daemon may reach the transport, and the CLI's MCP process, Core and new targets are
+refused. Vault creation confirms ownership of an existing id instead of reporting another
+account's id as created. The endpoint origin is canonical. Fifteen native client tests,
+377 root tests, guard tests, 13 compiler probes, MCP checks and 21 marker-checked mutants
+pass in `scripts/verify-cloud-client.py`. The head-conflict client expects HTTP 409 from a
+`PT409` server raise; that server change is pending integration. Linux runtime and live
+PostgREST remain unmeasured. This module is not composed into production. Signup, token
+refresh/custody, pairing and durable verified sync remain unfinished; see
+[CLOUD-TRANSPORT.md](CLOUD-TRANSPORT.md).
 
 The first opaque cloud transport migration is implemented under `supabase/`. Native
 PostgreSQL 17.11 checks pass in an invocation-owned private cluster with TCP disabled:
