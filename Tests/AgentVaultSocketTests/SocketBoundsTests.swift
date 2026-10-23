@@ -199,14 +199,15 @@ import Glibc
             let raw = try await RawPeer(stack.configuration.read.path)
             defer { raw.close() }
             // Malformed requests of the largest admitted size, whose error replies are never read.
-            let junk = SocketFrame.request(id: 9, opcode: .read,
-                                           body: Data(repeating: UInt8(ascii: "x"), count: IPCLimits.standard.maxRequestBytes))
+            let junk = Data(repeating: UInt8(ascii: "x"), count: IPCLimits.standard.maxRequestBytes)
             let written = try await blocking { () -> Int in
                 let window = Deadline.after(1)
-                var written = 0
-                while written < 64 << 20, window.pollTimeout != nil,
-                      SocketIO.writeAll(raw.fd, wake: -1, junk, deadline: .after(0.2)) {
-                    written += junk.count
+                var written = 0, id: UInt32 = 0
+                while written < 64 << 20, window.pollTimeout != nil {
+                    id += 1   // distinct IDs: a duplicate of an unanswered one would close the connection
+                    let frame = SocketFrame.request(id: id, opcode: .read, body: junk)
+                    guard SocketIO.writeAll(raw.fd, wake: -1, frame, deadline: .after(0.2)) else { break }
+                    written += frame.count
                 }
                 return written
             }
@@ -275,6 +276,38 @@ import Glibc
         let ended = await finishes(within: testTimeouts.write * 0.5) { await stall.connection.finished.wait() }
         #expect(ended, "stop must not wait for a stalled reply write's deadline")
         #expect(events.count("run cancelled") == 1)
+    }
+
+    @Test func anIDStaysInFlightUntilItsReplyIsWritten() async throws {
+        let events = Events()
+        let many = (0..<128).map { _ in AccountSummary(id: UUID(), service: .demo) }
+        let handlers = stubHandlers(events, read: { _, _ in
+            events.record("read")
+            return ReadReply(.outcome(.completed), accounts: many)
+        })
+        let (serverEnd, peerEnd) = try streamPair(), wake = try WakePipe()
+        defer { wake.close() }
+        var small: Int32 = 4096
+        _ = setsockopt(serverEnd, SOL_SOCKET, SO_SNDBUF, &small, socklen_t(MemoryLayout<Int32>.size))
+        let connection = ServerConnection(fd: serverEnd, role: .read, uid: me, limits: .standard, timeouts: testTimeouts,
+                                          lanes: SocketLanes(limits: .standard), handlers: handlers, tracker: WorkTracker(),
+                                          wake: wake.read)
+        connection.run {}
+        let peer = RawPeer(accepted: peerEnd)
+        defer { peer.close() }
+        let read = try WireCodec.encode(ReadRequest(operation: .accounts))
+        #expect(await peer.request(id: 7, .read, read))
+        // The handler is done and its reply is stalled part-way: ID 7 has not been answered.
+        let started = try await blocking {
+            SocketIO.wait(peerEnd, wake: -1, events: Int32(AV_WAIT_READ), deadline: .after(3)) == .ready
+        }
+        #expect(started)
+        #expect(await peer.request(id: 7, .read, read))
+        #expect(!(await events.await("read", times: 2, within: 0.5)), "a duplicate of an unanswered ID ran again")
+        // The duplicate closed the connection: it ends once the stalled write is abandoned.
+        peer.close()
+        #expect(await finishes(within: testTimeouts.write * 0.5) { await connection.finished.wait() })
+        #expect(events.count("read") == 1)
     }
 
     // MARK: Cleanup capacity

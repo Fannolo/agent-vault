@@ -265,7 +265,10 @@ Identity and framing:
 - A request frame is `length:u32be | id:u32be | opcode:u8 | body`; a reply is
   `length:u32be | id:u32be | body`. The ID only matches replies; it carries no authority.
   Read and admin opcodes are disjoint. An opcode from the other role, an unknown opcode or
-  a duplicate in-flight ID closes the connection without a reply.
+  a duplicate in-flight ID closes the connection without a reply. An ID is in flight from
+  the moment its request is read until its reply, error replies included, has been written
+  in full or dropped, not merely until its handler returns. The clients never reuse an ID on
+  a connection; a peer that reuses one at the instant its reply is written can be closed.
 - A body above `maxRequestBytes` is refused from the header with `request_too_large`, and
   the connection is closed. A malformed body gets the same fixed codes as XPC and the
   connection stays usable.

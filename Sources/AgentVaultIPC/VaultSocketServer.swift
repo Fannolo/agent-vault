@@ -277,9 +277,11 @@ final class ServerConnection: @unchecked Sendable {
     }
 
     /// Returns `false` for a protocol violation, which closes the connection without a reply.
+    /// An ID is in flight from here until its reply, error replies included, is written or
+    /// dropped; a duplicate before then is a violation.
     private func dispatch(id: UInt32, opcode: UInt8, body: Data) -> Bool {
         guard let opcode = SocketFrame.Opcode(rawValue: opcode),
-              lock.withLock({ () -> Bool in !inFlight.contains(id) }) else { return false }
+              lock.withLock({ inFlight.insert(id).inserted }) else { return false }
         let limits = limits, handlers = handlers, uid = uid
         switch (role, opcode, identity) {
         case (.read, .read, nil):
@@ -331,7 +333,6 @@ final class ServerConnection: @unchecked Sendable {
             send(id: id, WireCodec.errorReply(.busy))
             return true
         }
-        lock.withLock { _ = inFlight.insert(id) }
         tracker.enter()
         // Reserved before the task exists, so completion and disconnect can each happen first.
         // Admin work always runs to completion: signed mutations keep their journal semantics, and
@@ -340,7 +341,6 @@ final class ServerConnection: @unchecked Sendable {
         let task = Task { [self] in
             let data = await work(input)
             if let key { registry.complete(key) }
-            lock.withLock { _ = inFlight.remove(id) }
             send(id: id, data) { connection.release(); service.release() }
             tracker.leave()
         }
@@ -348,7 +348,8 @@ final class ServerConnection: @unchecked Sendable {
         return true
     }
 
-    /// Queues one reply on the backlog; `then` runs once it is written or dropped.
+    /// Queues one reply on the backlog. Once it is written or dropped its ID leaves `inFlight`,
+    /// then `then` runs.
     private func send(id: UInt32, _ body: Data, then: @escaping @Sendable () -> Void = {}) {
         let frame = SocketFrame.reply(id: id, body: body), deadline = Deadline.after(timeouts.write)
         backlog.withLock { queued += 1 }
@@ -360,6 +361,7 @@ final class ServerConnection: @unchecked Sendable {
                 if !written { writable = false }
                 backlog.broadcast()
             }
+            lock.withLock { _ = inFlight.remove(id) }
             then()
         }
     }
