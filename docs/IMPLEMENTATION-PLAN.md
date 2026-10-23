@@ -13,6 +13,19 @@ custody, cross-process durability, network containment or installed-host behavio
 The Linux manifest omits Keychain implementations rather than substituting weaker storage.
 OrbStack remains stopped.
 
+The native socket transport (commit `2571da2`) carries the fixed read and signed admin
+calls over separate Unix sockets into the real broker, using the daemon's own handler
+composition. Peer UIDs come from `SO_PEERCRED` on Linux and `getpeereid` on macOS; see
+[IPC](IPC.md#unix-socket-transport). On macOS 15 with Swift 6.2.4, run through
+`scripts/verify-socket-transport.py --full --mutations`: 19 socket tests pass, the root suite
+reports 381 passing tests with existing opt-ins skipped, and `verify-mcp.py` and
+`verify-boundaries.py` pass. All 8 transport mutations fail their named test, and the
+synthetic canary scan of 22 logs is clean. Tests run every role under one UID; denied UIDs
+are simulated by configuration. The Linux compile and test result needs root CI and is not
+claimed here. The Linux broker exits `custody_unavailable` until vault key custody exists,
+and the Linux MCP bridge is not built. Dedicated accounts, systemd units and an installed
+host remain unproven.
+
 The user authorized completion of private website login and continuing browser operation,
 native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
 The end-to-end acceptance criteria are in [DELIVERY-PLAN.md](DELIVERY-PLAN.md). This is active
