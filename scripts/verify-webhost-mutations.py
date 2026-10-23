@@ -235,9 +235,13 @@ M = [
  ("site session that abandons a handover stays open", H + "HostService.swift",
   "        if await site.isEnded { await end(id) }\n", "",
   "aTakeoverWaitsForAQueuedAgentCallAndEndsTheSessionIfItsAnswerIsLost"),
+ # Three layers: the takeover joins the handover, and its reply both waits for a handover under way
+ # and refuses to leave while one is.
  ("site takeover joining a handover answers at once", H + "SiteSession.swift",
   "        case .handingOver(let handover): return await handover.value\n", "        case .handingOver: return true\n",
-  "aSecondTakeoverWaitsForTheClearTheFirstStarted"),
+  "aSecondTakeoverWaitsForTheClearTheFirstStarted",
+  ("            if case .handingOver(let handover) = holder, !(await handover.value) { return .rejected(.unknownRun) }\n", ""),
+  ("page.control != control || isHandingOver else { return reply }", "page.control != control else { return reply }")),
  # Review findings on 84ef816 (verification-logs/continuing-site/astra-review-v4.md): a handover is one
  # transition that closes admission, drains, then clears, and fails closed on any lost answer.
  ("site handover counts a lost clear as done", H + "SiteSession.swift",
