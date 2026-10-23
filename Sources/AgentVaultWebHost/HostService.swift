@@ -65,9 +65,9 @@ actor HostService {
         case .siteObserve(let id):
             guard let site = sessions[id] else { return .rejected(.unknownRun) }
             return await site.observe()
-        case .siteLogin(let id, let operation, let credential):
+        case .siteLogin(let id, let operation, let account, let credential):
             guard let site = sessions[id] else { return .rejected(.unknownRun) }
-            return await site.login(operation, credential)
+            return await site.login(operation, account, credential)
         case .siteOperate(let id, let operation, let command):
             guard let site = sessions[id] else { return .rejected(.unknownRun) }
             return await site.operate(operation, command)

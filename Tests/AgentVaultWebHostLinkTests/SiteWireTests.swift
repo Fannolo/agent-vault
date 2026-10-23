@@ -7,6 +7,7 @@ private let session = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
 private let sessionText = session.uuidString
 private let operation = UUID(uuidString: "00000000-0000-4000-8000-000000000003")!
 private let target = SiteTarget(document: 3, control: 2, element: 7)!
+private let account = CredentialVersion(item: UUID(uuidString: "00000000-0000-4000-8000-000000000004")!, version: 3)!
 
 private func rejects(_ json: String) -> Bool { (try? HostWire.decodeRequest(Data(json.utf8))) == nil }
 private func rejectsReply(_ json: String) -> Bool { (try? HostWire.decodeReply(Data(json.utf8))) == nil }
@@ -21,7 +22,7 @@ private let page = SiteObservation(
 @Suite struct SiteWireTests {
     static let commands: [HostCommand] = [
         .openSite(session: session, site: .syntheticFixture, lifetime: 900), .siteObserve(session: session),
-        .siteLogin(session: session, operation: operation, credential: credential),
+        .siteLogin(session: session, operation: operation, account: account, credential: credential),
         .siteOperate(session: session, operation: operation, command: .navigate("https://example.test/a?b=c")),
         .siteOperate(session: session, operation: operation, command: .click(target)),
         .siteOperate(session: session, operation: operation, command: .typePublic(target, "hello")),
@@ -64,6 +65,17 @@ private let page = SiteObservation(
         #expect(rejects(operate(#""action":"select","target":{"document":3,"control":2,"element":7},"option":256"#)))
         #expect(rejects(operate(#""action":"scroll","dy":0"#)))
         #expect(rejects(operate(#""action":"press","key":"F12""#)))
+        // A login names the credential version it uses, exactly, and nothing derived from the secret.
+        let secret = Data("u\np".utf8).base64EncodedString()
+        func login(_ account: String) -> String {
+            #"{"op":"siteLogin","request":1,"run":"\#(sessionText)","operation":"\#(operation.uuidString)",\#(account)"credential":"\#(secret)"}"#
+        }
+        let item = account.item.uuidString
+        #expect(!rejects(login(#""account":{"item":"\#(item)","version":3},"#)))
+        for bad in ["", #""account":{"item":"\#(item)"},"#, #""account":{"item":"\#(item)","version":0},"#,
+                    #""account":{"item":"x","version":3},"#, #""account":{"item":"\#(item)","version":3,"digest":"ab"},"#] {
+            #expect(rejects(login(bad)), "\(bad)")
+        }
         // A site cannot be named as a workflow, nor a workflow as a site.
         #expect(rejects(#"{"op":"openSite","request":1,"run":"\#(sessionText)","site":"githubWebProfile","lifetime":60}"#))
         #expect(rejects(#"{"op":"start","request":1,"run":"\#(sessionText)","workflow":"syntheticFixture","credential":"\#(Data("u\np".utf8).base64EncodedString())","lifetime":60}"#))

@@ -26,6 +26,20 @@ public struct SiteTarget: Sendable, Hashable {
     }
 }
 
+/// Which stored credential, at which version, a login uses: the broker's vault item and its
+/// version counter, never anything derived from the secret. The host keeps it, not the
+/// credential, to tell a retry of a login operation from a reuse of its ID for another credential.
+/// The host cannot check that the bytes match it: the authenticated broker vouches for that.
+public struct CredentialVersion: Sendable, Hashable {
+    public let item: UUID
+    public let version: UInt64
+
+    public init?(item: UUID, version: UInt64) {
+        guard version >= 1 else { return nil }
+        self.item = item; self.version = version
+    }
+}
+
 public enum SiteCommand: Sendable, Equatable {
     /// An absolute URL. A request only: the host's site policy decides whether it may load.
     case navigate(String)

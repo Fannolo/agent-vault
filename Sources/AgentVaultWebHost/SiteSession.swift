@@ -19,8 +19,9 @@ final class DocumentEpochs: @unchecked Sendable {
 /// and the agent's control, and the element is rechecked and acted on in one recipe call. Operation IDs are remembered for the
 /// session's life (in host memory only): a retry gets the first reply, never a second dispatch.
 actor SiteSession {
-    /// What an operation ID was first used for. A credential is never recorded.
-    enum Recorded: Equatable, Sendable { case login, operate(SiteCommand) }
+    /// What an operation ID was first used for. A login records which credential version it used,
+    /// never the credential or anything derived from it.
+    enum Recorded: Equatable, Sendable { case login(CredentialVersion), operate(SiteCommand) }
 
     static let journalCapacity = 1024
 
@@ -151,8 +152,8 @@ actor SiteSession {
 
     /// Fills and submits the page's single login form, only if the page the host observes now is on
     /// a credential origin and the form posts to one. Nothing the caller supplied decides that.
-    func login(_ operation: UUID, _ credential: WebLoginCredential) async -> HostReply {
-        await journaled(operation, .login) {
+    func login(_ operation: UUID, _ account: CredentialVersion, _ credential: WebLoginCredential) async -> HostReply {
+        await journaled(operation, .login(account)) {
             let reply = await attemptLogin(credential)
             // Unless signed in by this login, a password the host filled must not stay in a page the
             // agent operates. On a new document there is nothing to clear.

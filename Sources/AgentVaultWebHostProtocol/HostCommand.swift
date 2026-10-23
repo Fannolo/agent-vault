@@ -39,7 +39,9 @@ public enum HostCommand: Sendable, Equatable {
     case openSite(session: UUID, site: HostSite, lifetime: Int)
     case siteObserve(session: UUID)
     /// Fills and submits the credential only if the page the host observes is eligible for it.
-    case siteLogin(session: UUID, operation: UUID, credential: WebLoginCredential)
+    /// `operation` deduplicates retries of the login with the same `account`; with another
+    /// account or version it is refused.
+    case siteLogin(session: UUID, operation: UUID, account: CredentialVersion, credential: WebLoginCredential)
     /// `operation` deduplicates retries: the same ID with a different command is refused.
     case siteOperate(session: UUID, operation: UUID, command: SiteCommand)
     /// A person takes control: agent observation and input are refused until release. Takeover and
@@ -54,7 +56,7 @@ public enum HostCommand: Sendable, Equatable {
         switch self {
         case .start(let run, _, _, _), .classify(let run), .end(let run), .showHuman(let run, _),
              .frame(let run, _, _), .input(let run, _, _, _): run
-        case .openSite(let session, _, _), .siteObserve(let session), .siteLogin(let session, _, _),
+        case .openSite(let session, _, _), .siteObserve(let session), .siteLogin(let session, _, _, _),
              .siteOperate(let session, _, _), .siteTakeover(let session), .siteRelease(let session): session
         }
     }

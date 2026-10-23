@@ -22,6 +22,8 @@ private extension SiteObservation {
     }
 }
 
+private let fixtureAccount = CredentialVersion(item: UUID(uuidString: "00000000-0000-4000-8000-0000000000a1")!, version: 1)!
+
 private struct Missing: Error, CustomStringConvertible { let description: String }
 
 private extension Host {
@@ -30,9 +32,9 @@ private extension Host {
     }
 
     func login(_ session: UUID, operation: UUID = UUID(), user: String = FixtureSite.loginName,
-               password: String = FixtureSite.password) async -> HostReply {
+               password: String = FixtureSite.password, account: CredentialVersion = fixtureAccount) async -> HostReply {
         let credential = WebLoginCredential(FixtureSite.credential(user: user, password: password))!
-        return await service.perform(.siteLogin(session: session, operation: operation, credential: credential))
+        return await service.perform(.siteLogin(session: session, operation: operation, account: account, credential: credential))
     }
 
     func operate(_ session: UUID, _ command: SiteCommand, operation: UUID = UUID()) async -> HostReply {
@@ -422,6 +424,28 @@ extension RealBrowserTests {
             #expect(huge.path == "/huge" && huge.elements.contains { $0.role == .select && !$0.options.isEmpty })
             let wire = try HostWire.encode(HostResponse(request: HostWire.maximumCounter, run: session, reply: .site(huge)))
             #expect(wire.count <= HostWire.maximumReplyBytes)
+        }
+    }
+
+    /// Finding 6: a login operation ID is bound to the credential version it used. A retry, even
+    /// one that crossed the wire again (a new credential object), gets the first reply; the same ID
+    /// with another credential version, or another item, is refused and nothing is submitted.
+    @Test func reusingALoginOperationForAnotherCredentialIsAConflict() async throws {
+        try await Host.using { h in
+            let (session, _) = await h.open()
+            let operation = UUID()
+            let first = await h.login(session, operation: operation)
+            #expect(observed(first)?.auth == .signedIn)
+            let rotated = CredentialVersion(item: fixtureAccount.item, version: 2)!
+            let other = CredentialVersion(item: UUID(), version: 1)!
+            #expect(await h.login(session, operation: operation, password: "rotated-password", account: rotated) == .rejected(.operationConflict))
+            #expect(await h.login(session, operation: operation, user: "other-user", account: other) == .rejected(.operationConflict))
+            let credential = WebLoginCredential(FixtureSite.credential())!
+            let retry = HostRequest(id: 9, command: .siteLogin(session: session, operation: operation, account: fixtureAccount,
+                                                               credential: credential))
+            let decoded = try HostWire.decodeRequest(try HostWire.encode(retry))
+            #expect(await h.service.perform(decoded.command) == first, "a serialized retry gets the first reply")
+            #expect(h.posts.filter { $0.path == "/session" }.count == 1)
         }
     }
 }

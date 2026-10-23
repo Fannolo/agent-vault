@@ -44,8 +44,9 @@ public enum HostWire {
             object["events"] = batch.events.map(eventObject)
         case .openSite(_, let site, let lifetime): object["op"] = "openSite"; object["site"] = site.rawValue; object["lifetime"] = lifetime
         case .siteObserve: object["op"] = "siteObserve"
-        case .siteLogin(_, let operation, let credential):
+        case .siteLogin(_, let operation, let account, let credential):
             object["op"] = "siteLogin"; object["operation"] = operation.uuidString
+            object["account"] = ["item": account.item.uuidString, "version": account.version]
             object["credential"] = credential.withCanonicalBytes { Data($0).base64EncodedString() }
         case .siteOperate(_, let operation, let site):
             object["op"] = "siteOperate"; object["operation"] = operation.uuidString
@@ -91,9 +92,13 @@ public enum HostWire {
         case "siteObserve": command = .siteObserve(session: run)
         case "siteLogin":
             let operation = try fields.uuid("operation")
-            guard let bytes = Data(base64Encoded: try fields.string("credential")),
+            var account = try Fields(try fields.value("account"), error: .invalidRequest)
+            let item = try account.uuid("item"), version = try account.counter("version", minimum: 1)
+            try account.finish()
+            guard let used = CredentialVersion(item: item, version: version),
+                  let bytes = Data(base64Encoded: try fields.string("credential")),
                   let credential = WebLoginCredential(bytes) else { throw .invalidRequest }
-            command = .siteLogin(session: run, operation: operation, credential: credential)
+            command = .siteLogin(session: run, operation: operation, account: used, credential: credential)
         case "siteOperate":
             command = .siteOperate(session: run, operation: try fields.uuid("operation"), command: try siteCommand(&fields))
         case "siteTakeover": command = .siteTakeover(session: run)
