@@ -191,13 +191,13 @@ M = [
   "        guard holds(held) else { return .siteUnknown }\n", "        guard holds(held) else { return fenced }\n",
   "aLoginWhosePageActsOnTheFillIsNeverReportedAsARefusal"),
  ("site takeover leaves the login's fill in place", H + "SiteSession.swift",
-  "        _ = await run(.loginClear, origins: policy.navigation + policy.credential, [:])\n    }\n", "    }\n",
+  "        if mode == .agent { fence(.human); clearFill(while: nil) }\n", "        if mode == .agent { fence(.human) }\n",
   "loginCleanupNeverTouchesAFieldAfterTakeoverIsAcknowledged"),
- # Two layers: the handover marks the fill cleared, and the login clears only while it holds control.
+ # Two layers: the handover's clear resets `filled`, and the login clears only while it holds control.
  ("site login clears the field after a takeover", H + "SiteSession.swift",
-  "policy.navigation + policy.credential, [:], while: held) }\n", "policy.navigation + policy.credential, [:]) }\n",
+  "await clearFill(while: held).value", "await clearFill(while: nil).value",
   "loginCleanupNeverTouchesAFieldAfterTakeoverIsAcknowledged",
-  ("        guard filled else { return }\n        filled = false\n", "        guard filled else { return }\n")),
+  ("            guard filled else { return }\n", "")),
  ("site recipes read only an element's own disabled", H + "Recipe.swift",
   '        const disabled = (e) => Element.prototype.matches.call(e, ":disabled");\n',
   "        const disabled = (e) => e.disabled === true;\n",

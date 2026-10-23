@@ -90,7 +90,8 @@ against 34ceaa9 behaviour on new hostile fixture pages, then fixed:
 - After a takeover interrupted a login, the login cleared the host-filled password field with
   no control check, erasing what the person typed after the takeover was acknowledged. The
   login now clears only while it holds control. A handover (takeover, or a one-time-code page)
-  clears a pending fill before it answers, and the host does not touch the field after that.
+  clears a pending fill, and waits for any clear already started, before it answers. The host
+  does not touch the field after that.
 - Observation, typing and selection read an element's own `disabled`, which stays false
   inside a disabled fieldset or for an option in a disabled optgroup. They now use the
   effective `:disabled` state, so such controls are not offered and no event fires.
@@ -102,8 +103,9 @@ workflows, not changed here); named keys still go to whatever element the page f
 credential-origin page's own script can read the filled password and send it to a navigation
 origin, except non-read-only requests during the pre-submission window. Control checks run in
 the session actor just before a recipe call is sent. The call then leaves the actor, so a
-takeover can, in principle, answer before an already-checked call reaches the renderer. No
-test reproduces that window. A page timer that submits the filled form between the host's
+takeover can, in principle, answer before an already-checked fill, submit or other effect
+call reaches the renderer; only clears are awaited by the handover. No test reproduces that
+window. A page timer that submits the filled form between the host's
 check and its own submit can produce a second login POST to the credential origin; the login
 still answers with an observation or `siteUnknown`.
 

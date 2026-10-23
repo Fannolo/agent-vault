@@ -52,8 +52,11 @@ actor SiteSession {
     private var operating = false
     private var ended = false
     /// A password the host filled may be in the page: set just before a login sends its fill, and
-    /// cleared once that login, or a handover to a person, has cleared the field.
+    /// reset once a clear of the field was sent.
     private var filled = false
+    /// The clear last started; each runs after the one before. A handover waits for it, so no clear
+    /// lands after a person is told they have control.
+    private var clearing: Task<Void, Never>?
 
     /// Named suspension points. Debug builds await a test hook there, so a test can interleave a
     /// command at exactly that point; release builds do nothing.
@@ -165,8 +168,7 @@ actor SiteSession {
             // person is told they have control, and after that the field may hold what they typed. On a
             // new document there is nothing to clear.
             let signedIn = if case .site = reply { auth == .signedIn } else { false }
-            if filled && !signedIn { _ = await run(.loginClear, origins: policy.navigation + policy.credential, [:], while: held) }
-            filled = false
+            if signedIn { filled = false } else { await clearFill(while: held).value }
             return reply
         }
     }
@@ -218,7 +220,7 @@ actor SiteSession {
         guard !ended else { return .rejected(.unknownRun) }
         // Still opening: there is no page to hand over yet, and nothing changes.
         guard document != nil else { return .rejected(.busy) }
-        if mode == .agent { await handToPerson() }
+        await handToPerson()
         return await controlReply()
     }
 
@@ -251,14 +253,27 @@ actor SiteSession {
         ended ? .rejected(.unknownRun) : mode == .human ? .rejected(.humanControl) : .rejected(.staleTarget)
     }
 
-    /// Control passes to a person. A password the host filled for a login that has not finished is
-    /// cleared first, before anyone is told the person has control: from then on the field may hold
-    /// what they typed, and the host never touches it.
+    /// Control passes to a person, if it has not already. A password the host filled for a login that
+    /// has not finished is cleared first, and any clear already started finishes, before anyone is
+    /// told the person has control: from then on the field may hold what they typed, and the host
+    /// never touches it.
     private func handToPerson() async {
-        fence(.human)
-        guard filled else { return }
-        filled = false
-        _ = await run(.loginClear, origins: policy.navigation + policy.credential, [:])
+        if mode == .agent { fence(.human); clearFill(while: nil) }
+        await clearing?.value
+    }
+
+    /// Starts clearing the password the host filled, after any clear already started, and only while
+    /// `held` lasts if given.
+    @discardableResult
+    private func clearFill(while held: UInt64?) -> Task<Void, Never> {
+        let previous = clearing
+        let clear = Task {
+            await previous?.value
+            guard filled else { return }
+            if case .sent = await run(.loginClear, origins: policy.navigation + policy.credential, [:], while: held) { filled = false }
+        }
+        clearing = clear
+        return clear
     }
 
     private func fence(_ next: SiteMode) {
