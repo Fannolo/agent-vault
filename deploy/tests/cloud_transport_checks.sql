@@ -25,7 +25,7 @@ select public.expect_failure('delete from vault.vaults', '42501');
 select public.expect_failure('select * from vault_private.usage', '42501');
 select public.assert_true(vault.cas_head('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', null, sha256('\x01')) = 1);
 select public.assert_true(vault.cas_head('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', null, sha256('\x01')) = 1);
-select public.expect_failure($q$select vault.cas_head('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', null, sha256('\x02'))$q$, '40001');
+select public.expect_failure($q$select vault.cas_head('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', null, sha256('\x02'))$q$, 'PT409');
 select public.assert_true(vault.cas_head('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', sha256('\x01'), sha256('\x02')) = 2);
 select public.expect_failure($q$select vault.cas_head('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', sha256('\x02'), sha256('\xff'))$q$, '22023');
 select public.expect_failure($q$select vault.cas_head('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', null, sha256('\x02'))$q$, '22023');
