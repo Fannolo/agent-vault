@@ -258,14 +258,20 @@ extension RealBrowserTests {
     }
 }
 
-/// Runs `action` once, the first time `session` reaches `point`, while the session waits there.
-private func at(_ point: SiteSession.Checkpoint, of session: UUID, _ action: @escaping @Sendable () async -> Void) {
-    let once = Flag()
+/// Runs `action` once, when `session` reaches `point` after passing it `skipping` times, while the
+/// session waits there.
+private func at(_ point: SiteSession.Checkpoint, of session: UUID, skipping: Int = 0,
+                _ action: @escaping @Sendable () async -> Void) {
+    let passed = Count()
     SiteSession.hooks.hook = { id, reached in
-        guard id == session, reached == point, !once.isSet else { return }
-        once.set()
+        guard id == session, reached == point, passed.next() == skipping else { return }
         await action()
     }
+}
+
+private final class Count: @unchecked Sendable {
+    private let lock = NSLock(); private var value = -1
+    func next() -> Int { lock.withLock { value += 1; return value } }
 }
 
 // Regressions for the eight source-review findings on c4bdb69 (verification-logs/continuing-site/astra-review-v1.md).
@@ -557,5 +563,151 @@ extension RealBrowserTests {
             #expect(observed(await h.operate(session, .select(try after.need(.select, "Priority"), option: 0)))?
                 .text.contains("change on Priority") == true)
         }
+    }
+}
+
+/// Each kind of agent effect a takeover must stop.
+enum AgentEffect: String, CaseIterable, Sendable { case click, type, select, navigate, key, scroll, loginFill, loginSubmit }
+
+// Regressions for the source-review finding on 49c6d92 (verification-logs/continuing-site/astra-review-v3.md).
+extension RealBrowserTests {
+    /// The finding: an agent call that passed its hold check could still reach the page after takeover
+    /// answered, because the pipe queues it only after the session actor has moved on. Held at its last
+    /// step before the pipe while a takeover completes, no call of any kind is sent afterwards.
+    @Test(arguments: AgentEffect.allCases)
+    func noAgentEffectIsSentAfterATakeoverIsAcknowledged(_ effect: AgentEffect) async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            let login = effect == .loginFill || effect == .loginSubmit
+            if login { h.site.loginPage = .personEditsPassword }
+            let (session, opened) = await h.open()
+            let page = try #require(observed(login ? opened : await h.operate(session, .navigate(h.url("/effects")))))
+            if login { #expect(await eventually { h.site.passwordField == "empty" }) }
+            let acknowledged = Flag()
+            at(.beforeSend, of: session, skipping: effect == .loginSubmit ? 1 : 0) {
+                if observed(await h.service.perform(.siteTakeover(session: session)))?.mode == .human { acknowledged.set() }
+            }
+            let reply = switch effect {
+            case .click: await h.operate(session, .click(try page.need(.submit, "Send")))
+            case .type: await h.operate(session, .typePublic(try page.need(.textField, "Word"), "late words"))
+            case .select: await h.operate(session, .select(try page.need(.select, "Size"), option: 1))
+            case .navigate: await h.operate(session, .navigate(h.url("/effects?navigated")))
+            case .key: await h.operate(session, .press(.escape))
+            case .scroll: await h.operate(session, .scroll(dy: 200))
+            case .loginFill, .loginSubmit: await h.login(session)
+            }
+            #expect(acknowledged.isSet, "the takeover did not answer while the call waited")
+            switch effect {
+            case .loginFill: #expect(reply == .rejected(.humanControl), "\(reply)")
+            // The fill ran before the takeover: the page may have acted on it.
+            case .loginSubmit: #expect(reply == .siteUnknown, "\(reply)")
+            default: #expect(observed(reply) == nil && reply != .siteUnknown, "\(reply)")
+            }
+            // Long enough for a call released after the takeover to reach the page and the site.
+            try await Task.sleep(for: .milliseconds(500))
+            #expect(!h.posts.contains { $0.path == "/effects" || $0.path == "/session" }, "a submission was sent")
+            #expect(!h.site.trusted.requests.contains { $0.query == "navigated" }, "the navigation was sent")
+            if login {
+                #expect(h.site.passwordField == "empty", "the host filled the field after takeover")
+            } else {
+                let back = try #require(observed(await h.service.perform(.siteRelease(session: session))))
+                #expect(back.path == "/effects" && back.text.allSatisfy { !$0.contains(" on ") && !$0.hasPrefix("key") && $0 != "wheel" },
+                        "the page received input after takeover: \(back.text)")
+                #expect(back.element(.textField, "Word")?.value == "" && back.element(.select, "Size")?.value == "small")
+            }
+        }
+    }
+
+    /// An agent call already queued when takeover arrives is answered before takeover answers. One
+    /// whose answer is lost may still act later, so the takeover never claims control: the session ends.
+    @Test func aTakeoverWaitsForAQueuedAgentCallAndEndsTheSessionIfItsAnswerIsLost() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            let (session, _) = await h.open()
+            let page = try #require(observed(await h.operate(session, .navigate(h.url("/effects")))))
+            let taken = Flag()
+            // The click was sent and answered; the session has not yet recorded the answer.
+            at(.afterSend, of: session) {
+                Task { if observed(await h.service.perform(.siteTakeover(session: session)))?.mode == .human { taken.set() } }
+                try? await Task.sleep(for: .milliseconds(400))
+                #expect(!taken.isSet, "takeover answered while an agent call it had not seen answered was in flight")
+            }
+            let clicked = await h.operate(session, .click(try page.need(.submit, "Send")))
+            #expect(await eventually { taken.isSet })
+            #expect(observed(clicked)?.mode == .human, "\(clicked)")
+            #expect(h.posts.filter { $0.path == "/effects" }.count == 1, "the click was sent before the takeover and acted once")
+
+            // The page stays busy past the click call's 10-second deadline, so its answer is lost. One
+            // takeover arrives while the call waits, another after the operation has returned.
+            let (during, _) = await h.open(), (later, _) = await h.open()
+            let hang = try #require(observed(await h.operate(during, .navigate(h.url("/effects"))))).need(.button, "Hang")
+            let hangLater = try #require(observed(await h.operate(later, .navigate(h.url("/effects"))))).need(.button, "Hang")
+            let takeover = Slot<HostReply>()
+            at(.beforeSend, of: during) {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    takeover.value = await h.service.perform(.siteTakeover(session: during))
+                }
+            }
+            let started = Date()
+            async let clickedLater = h.operate(later, .click(hangLater))
+            #expect(await h.operate(during, .click(hang)) == .siteUnknown)
+            #expect(await clickedLater == .siteUnknown)
+            #expect(await eventually { takeover.value != nil })
+            #expect(takeover.value == .rejected(.unknownRun), "\(String(describing: takeover.value))")
+            #expect(Date().timeIntervalSince(started) < 13, "the takeover's wait is bounded by the call's deadline")
+            #expect(await h.service.perform(.siteTakeover(session: later)) == .rejected(.unknownRun), "control claimed after a lost call")
+            for ended in [during, later] {
+                #expect(await h.observe(ended) == .rejected(.unknownRun))
+                #expect(await h.service.perform(.siteTakeover(session: ended)) == .rejected(.unknownRun))
+            }
+            // Past the pages' 11 seconds: their contexts are gone, so the clicks' late requests never come.
+            let remaining = 13 - Date().timeIntervalSince(started)
+            if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
+            #expect(!h.site.trusted.requests.contains { $0.query == "late" }, "a lost call acted after its session ended")
+            #expect(!h.fatal.isSet)
+            #expect(await h.service.liveSessions == 1)
+            #expect(await h.observe(session) == .rejected(.humanControl), "another session was lost")
+        }
+    }
+
+    /// A handover that interrupts a login waits for the clear the login's takeover started, even when
+    /// a second takeover arrives while it runs and finds the person already in control.
+    @Test func aSecondTakeoverWaitsForTheClearTheFirstStarted() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            h.site.loginPage = .personEditsPassword
+            let (session, _) = await h.open()
+            #expect(await eventually { h.site.passwordField == "empty" })
+            let clearing = Flag(), cleared = Flag(), first = Flag(), second = Flag()
+            SiteSession.hooks.hook = { id, point in
+                guard id == session else { return }
+                if point == .clearing {
+                    clearing.set()
+                    _ = await eventually(10) { cleared.isSet }
+                }
+                guard point == .loginFilled else { return }
+                let one = Task { if observed(await h.service.perform(.siteTakeover(session: session)))?.mode == .human { first.set() } }
+                #expect(await eventually { clearing.isSet }, "the takeover started no clear")
+                let two = Task { if observed(await h.service.perform(.siteTakeover(session: session)))?.mode == .human { second.set() } }
+                try? await Task.sleep(for: .milliseconds(400))
+                #expect(!first.isSet && !second.isSet, "a takeover answered before the filled password was cleared")
+                #expect(h.site.passwordField == "other")
+                cleared.set()
+                await one.value; await two.value
+                #expect(first.isSet && second.isSet)
+            }
+            #expect(await h.login(session) == .siteUnknown)
+            #expect(await eventually { h.site.passwordField == "empty" })
+            #expect(h.posts.filter { $0.path == "/session" }.isEmpty)
+        }
+    }
+}
+
+private final class Slot<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock(); private var stored: Value?
+    var value: Value? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
     }
 }

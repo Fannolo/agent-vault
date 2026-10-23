@@ -62,22 +62,22 @@ actor HostService {
             return await web.input(step: step, frame: frame, batch)
         case .openSite(let id, let site, let lifetime):
             return await openSite(id, site: site, lifetime: lifetime)
-        case .siteObserve(let id):
-            guard let site = sessions[id] else { return .rejected(.unknownRun) }
-            return await site.observe()
+        case .siteObserve(let id): return await site(id) { await $0.observe() }
         case .siteLogin(let id, let operation, let account, let credential):
-            guard let site = sessions[id] else { return .rejected(.unknownRun) }
-            return await site.login(operation, account, credential)
-        case .siteOperate(let id, let operation, let command):
-            guard let site = sessions[id] else { return .rejected(.unknownRun) }
-            return await site.operate(operation, command)
-        case .siteTakeover(let id):
-            guard let site = sessions[id] else { return .rejected(.unknownRun) }
-            return await site.takeover()
-        case .siteRelease(let id):
-            guard let site = sessions[id] else { return .rejected(.unknownRun) }
-            return await site.release()
+            return await site(id) { await $0.login(operation, account, credential) }
+        case .siteOperate(let id, let operation, let command): return await site(id) { await $0.operate(operation, command) }
+        case .siteTakeover(let id): return await site(id) { await $0.takeover() }
+        case .siteRelease(let id): return await site(id) { await $0.release() }
         }
+    }
+
+    /// Runs a command on a live session. A session that ended itself, because it could not hand its
+    /// page to a person, is then ended like any other: its context is disposed, or the host fails.
+    private func site(_ id: UUID, _ command: (SiteSession) async -> HostReply) async -> HostReply {
+        guard let site = sessions[id] else { return .rejected(.unknownRun) }
+        let reply = await command(site)
+        if await site.isEnded { await end(id) }
+        return reply
     }
 
     private func start(_ id: UUID, workflow: HostWorkflow, credential: WebLoginCredential, lifetime: Int) async -> HostReply {

@@ -57,10 +57,13 @@ actor SiteSession {
     /// The clear last started; each runs after the one before. A handover waits for it, so no clear
     /// lands after a person is told they have control.
     private var clearing: Task<Void, Never>?
+    /// Every call sent under an agent hold, from the actor step that checked the hold until the browser
+    /// answers it. One whose answer was lost stays: the browser may still act on it.
+    private var admitted: [Admission] = []
 
     /// Named suspension points. Debug builds await a test hook there, so a test can interleave a
     /// command at exactly that point; release builds do nothing.
-    enum Checkpoint: Sendable { case loginDocument, loginFilled, beforeInput, dispatched, observed }
+    enum Checkpoint: Sendable { case loginDocument, loginFilled, beforeInput, dispatched, observed, beforeSend, afterSend, clearing }
 
     #if DEBUG
     typealias Hook = @Sendable (UUID, Checkpoint) async -> Void
@@ -205,7 +208,9 @@ actor SiteSession {
         await pause(.loginFilled)
         // Taken over, ended or replaced since the fill: the host submits nothing.
         guard holds(held) else { return .siteUnknown }
-        // The page sent the filled form itself: the login reports where that led, and never sends it again.
+        // The page already sent the filled form (its POST moved the phase on): the login reports where
+        // that led and does not submit it again. A page that submits only after this check can still
+        // race the host's submit.
         guard network?.phase == .login else { return await dispatched(loadedAfter: nil, judgingLogin: true) }
         guard await currentDocument()?.document.epoch == page.epoch, network?.takeFailure() == nil else { return .siteUnknown }
         let before = network?.loads ?? 0
@@ -220,7 +225,7 @@ actor SiteSession {
         guard !ended else { return .rejected(.unknownRun) }
         // Still opening: there is no page to hand over yet, and nothing changes.
         guard document != nil else { return .rejected(.busy) }
-        await handToPerson()
+        guard await handToPerson() else { return abandon() }
         return await controlReply()
     }
 
@@ -253,14 +258,30 @@ actor SiteSession {
         ended ? .rejected(.unknownRun) : mode == .human ? .rejected(.humanControl) : .rejected(.staleTarget)
     }
 
-    /// Control passes to a person, if it has not already. A password the host filled for a login that
-    /// has not finished is cleared first, and any clear already started finishes, before anyone is
-    /// told the person has control: from then on the field may hold what they typed, and the host
-    /// never touches it.
-    private func handToPerson() async {
+    /// Control passes to a person, if it has not already. Before anyone is told the person has
+    /// control: every agent call not yet queued is withdrawn and never sent, every queued one has been
+    /// answered, a password the host filled for a login that has not finished is cleared, and any clear
+    /// already started has finished. From then on the field may hold what they typed, and the host
+    /// never touches it. False if an agent call's answer was lost: it may still act, so no one can
+    /// be given control of this page.
+    private func handToPerson() async -> Bool {
         if mode == .agent { fence(.human); clearFill(while: nil) }
+        var queued: [Admission] = []
+        for call in admitted where call.withdraw() { queued.append(call) }
+        for call in queued { guard await call.answered() else { return false } }
         await clearing?.value
+        return true
     }
+
+    /// Ends the session, which can no longer hand its page to a person: the host disposes its context.
+    private func abandon() -> HostReply {
+        ended = true
+        network?.phase = .locked
+        return .rejected(.unknownRun)
+    }
+
+    /// Whether the session ended, including by abandoning a handover.
+    var isEnded: Bool { ended }
 
     /// Starts clearing the password the host filled, after any clear already started, and only while
     /// `held` lasts if given.
@@ -270,6 +291,7 @@ actor SiteSession {
         let clear = Task {
             await previous?.value
             guard filled else { return }
+            await pause(.clearing)
             if case .sent = await run(.loginClear, origins: policy.navigation + policy.credential, [:], while: held) { filled = false }
         }
         clearing = clear
@@ -300,7 +322,7 @@ actor SiteSession {
         }
         if state["code"]?.bool == true {
             auth = .humanRequired
-            if handOver && mode == .agent { await handToPerson() }
+            if handOver && mode == .agent, !(await handToPerson()) { _ = abandon() }
         } else if state["password"]?.bool == true {
             auth = .rejected
         } else {
@@ -330,10 +352,12 @@ actor SiteSession {
             return .rejected(.notPermitted)
         }
         await pause(.beforeInput)
-        guard holds(held) else { return fenced }
         let before = network?.loads ?? 0
-        guard await load(url) else { return .siteUnknown }
-        return await dispatched(loadedAfter: before)
+        switch await send(.pageNavigate, ["url": url.absoluteString], timeout: timing.load, while: held) {
+        case nil: return fenced
+        case .success(let result)? where result["errorText"]?.string == nil: return await dispatched(loadedAfter: before)
+        case _?: return .siteUnknown
+        }
     }
 
     private func click(_ target: SiteTarget) async -> HostReply {
@@ -382,10 +406,12 @@ actor SiteSession {
     /// have received without confirming makes the effect unknown; it is never sent again.
     private func dispatch(_ events: [(CDPMethod, CDPParameters)], _ held: UInt64) async -> HostReply {
         await pause(.beforeInput)
-        guard let session, holds(held) else { return fenced }
         for (index, (method, params)) in events.enumerated() {
-            guard holds(held) else { return index == 0 ? fenced : .siteUnknown }
-            guard (try? await pipe.call(method, params, session: session, timeout: 2)) != nil else { return .siteUnknown }
+            switch await send(method, params, timeout: 2, while: held) {
+            case nil: return index == 0 ? fenced : .siteUnknown
+            case .success?: continue
+            case .failure?: return .siteUnknown
+            }
         }
         return await dispatched(loadedAfter: nil)
     }
@@ -501,25 +527,49 @@ actor SiteSession {
 
     /// Runs a fixed site recipe in the current document's world, which a page script cannot reach.
     /// The world belongs to one document: if that document is gone, the call fails without running.
-    /// With `held`, the call is sent only while the agent still holds that control generation.
+    /// With `held`, the call is sent only under the agent's hold on that control generation (`send`).
     private func run(_ recipe: SiteRecipe, origins: [WebOrigin], _ values: [String: Any], while held: UInt64? = nil) async -> Ran {
         guard !ended, let session, let world = await world() else { return .notRun }
         var arguments = values
         arguments["origins"] = origins.map(\.serialized)
-        guard Set(arguments.keys) == Set(recipe.parameters), !ended, held.map(holds) ?? true else { return .notRun }
+        guard Set(arguments.keys) == Set(recipe.parameters), !ended else { return .notRun }
         let call: CDPParameters = [
             "functionDeclaration": recipe.declaration, "executionContextId": world,
             "arguments": recipe.parameters.map { ["value": arguments[$0]!] }, "returnByValue": true, "awaitPromise": false,
         ]
-        let result: JSONValue
-        do {
-            result = try await pipe.call(.runtimeCallFunctionOn, call, session: session)
-        } catch {
-            // An error answer (for example, the document's world is gone) means it never ran; a
-            // timeout or a lost browser may come after it ran.
-            return error == .protocolError ? .notRun : .sent(nil)
+        let answer: Result<JSONValue, CDPError>
+        if let held {
+            guard let sent = await send(.runtimeCallFunctionOn, call, while: held) else { return .notRun }
+            answer = sent
+        } else {
+            do { answer = .success(try await pipe.call(.runtimeCallFunctionOn, call, session: session)) } catch { answer = .failure(error) }
         }
-        return .sent(result["exceptionDetails"] == nil ? result["result"]?["value"] : nil)
+        switch answer {
+        case .success(let result): return .sent(result["exceptionDetails"] == nil ? result["result"]?["value"] : nil)
+        // An error answer (for example, the document's world is gone) means it never ran; a
+        // timeout or a lost browser may come after it ran.
+        case .failure(let error): return error == .protocolError ? .notRun : .sent(nil)
+        }
+    }
+
+    /// Sends a call under the agent's hold on control generation `held`; `nil` if it was never sent.
+    ///
+    /// The call is admitted in the same actor step that checks the hold, before anything suspends, so
+    /// a handover that follows always finds it. Until the pipe queues it, a handover withdraws it and
+    /// it is never sent; once queued, the handover waits for its answer. A call whose answer is lost
+    /// stays admitted, and every later handover fails closed.
+    private func send(_ method: CDPMethod, _ params: CDPParameters, timeout: TimeInterval = 10,
+                      while held: UInt64) async -> Result<JSONValue, CDPError>? {
+        guard let session, holds(held) else { return nil }
+        let admission = Admission()
+        admitted.append(admission)
+        await pause(.beforeSend)
+        let answer: Result<JSONValue, CDPError>
+        do { answer = .success(try await pipe.call(method, params, session: session, timeout: timeout, admission: admission)) }
+        catch { answer = .failure(error) }
+        await pause(.afterSend)
+        if admission.finish(answer) { admitted.removeAll { $0 === admission } }
+        return answer == .failure(.withdrawn) ? nil : answer
     }
 
     /// Asks the main frame to load `url`; whether the browser accepted the navigation.

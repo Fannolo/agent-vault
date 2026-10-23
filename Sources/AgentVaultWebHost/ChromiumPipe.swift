@@ -85,7 +85,65 @@ struct CDPEvent: Sendable {
     let session: String?
 }
 
-enum CDPError: Error, Equatable { case closed, timeout, protocolError, tooLarge }
+/// `withdrawn`: an admitted call its owner withdrew before the pipe queued it; it was never sent.
+enum CDPError: Error, Equatable { case closed, timeout, protocolError, tooLarge, withdrawn }
+
+/// A call its owner admitted before handing it to the pipe. Until the pipe queues it, the owner may
+/// withdraw it, and then it is never sent. Once queued it can only be waited for: the browser answers
+/// it, or its answer is lost, and then the browser may still act on it later.
+final class Admission: @unchecked Sendable {
+    private enum State { case admitted, withdrawn, queued, answered, lost }
+    private let lock = NSLock()
+    private var state = State.admitted
+    private var waiting: [CheckedContinuation<Bool, Never>] = []
+
+    /// The pipe's last step before it queues the message: whether it still may.
+    fileprivate func queue() -> Bool {
+        lock.withLock {
+            guard state == .admitted else { return false }
+            state = .queued
+            return true
+        }
+    }
+
+    /// Withdraws the call if the pipe has not queued it; otherwise whether it still has to be waited for.
+    func withdraw() -> Bool {
+        lock.withLock {
+            if state == .admitted { state = .withdrawn }
+            return state == .queued || state == .lost
+        }
+    }
+
+    /// Records how the call ended. Any answer, even an error, means the browser is done with it; a
+    /// timeout or a closed pipe does not. Returns whether nothing more can come of it.
+    func finish(_ result: Result<JSONValue, CDPError>) -> Bool {
+        let (done, waiters): (Bool, [CheckedContinuation<Bool, Never>]) = lock.withLock {
+            guard state == .queued else { return (state != .lost, []) }
+            switch result {
+            case .success, .failure(.protocolError): state = .answered
+            case .failure: state = .lost
+            }
+            defer { waiting = [] }
+            return (state == .answered, waiting)
+        }
+        for waiter in waiters { waiter.resume(returning: done) }
+        return done
+    }
+
+    /// Waits until a queued call ended; whether the browser answered it.
+    func answered() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let now: Bool? = lock.withLock {
+                switch state {
+                case .admitted, .withdrawn, .answered: return true
+                case .lost: return false
+                case .queued: waiting.append(continuation); return nil
+                }
+            }
+            if let now { continuation.resume(returning: now) }
+        }
+    }
+}
 
 /// Chromium driven over two inherited private pipes: commands on fd 3, replies on fd 4.
 /// No TCP debugging port exists. The child runs in its own process group so teardown can end
@@ -177,10 +235,12 @@ final class ChromiumPipe: @unchecked Sendable {
         if commandsOpen { close(commands) }
     }
 
-    /// Sends one command and waits at most `timeout` for its reply.
+    /// Sends one command and waits at most `timeout` for its reply. With an `admission`, the command is
+    /// queued only if it was not withdrawn first, checked in the same step that queues it.
     func call(_ method: CDPMethod, _ params: CDPParameters = [:], session: String? = nil,
-              timeout: TimeInterval = 10) async throws(CDPError) -> JSONValue {
+              timeout: TimeInterval = 10, admission: Admission? = nil) async throws(CDPError) -> JSONValue {
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<JSONValue, CDPError>, Never>) in
+            guard admission?.queue() ?? true else { return continuation.resume(returning: .failure(.withdrawn)) }
             let id: Int? = lock.withLock {
                 guard !closed else { return nil }
                 nextID += 1
