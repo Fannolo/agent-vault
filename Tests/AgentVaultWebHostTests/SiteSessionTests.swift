@@ -185,7 +185,8 @@ extension RealBrowserTests {
             // Off-policy destinations: refused before loading, or stopped by the gate after a redirect.
             #expect(await h.operate(session, .navigate(h.site.elsewhere.origin + "/x")) == .rejected(.notPermitted))
             #expect(await h.operate(session, .navigate("javascript:alert(1)")) == .rejected(.notPermitted))
-            #expect(await h.operate(session, .navigate(h.url("/to-elsewhere"))) == .failed(.originMismatch))
+            // The site saw the request (and redirected), so the effect is unknown, not a failure.
+            #expect(await h.operate(session, .navigate(h.url("/to-elsewhere"))) == .siteUnknown)
             let stranded = try #require(observed(await h.observe(session)))
             #expect(stranded.origin.isEmpty && stranded.elements.isEmpty, "a refused page shows nothing")
 
@@ -193,13 +194,13 @@ extension RealBrowserTests {
             let home = try #require(observed(await h.login(session)))
             #expect(home.auth == .signedIn)
             let notes = try #require(observed(await h.operate(session, .navigate(h.url("/notes")))))
-            #expect(await h.operate(session, .click(try notes.need(.link, "Leave"))) == .failed(.originMismatch))
+            #expect(await h.operate(session, .click(try notes.need(.link, "Leave"))) == .siteUnknown)
             let back = try #require(observed(await h.operate(session, .navigate(h.url("/notes")))))
             let leak = try back.need(.textField, "Leak")
             let filled = try #require(observed(await h.operate(session, .typePublic(leak, "public words"))))
             // The document's CSP refuses the off-policy form in the renderer, or the gate refuses its request.
             let sent = await h.operate(session, .click(try filled.need(.submit, "Send elsewhere")))
-            #expect(sent == .failed(.originMismatch) || observed(sent)?.path == "/notes", "\(sent)")
+            #expect(sent == .siteUnknown || observed(sent)?.path == "/notes", "\(sent)")
             #expect(h.site.elsewhereRequests.isEmpty, "no request ever reached the off-policy origin")
             // The session survives refusals and carries on.
             #expect(observed(await h.operate(session, .navigate(h.url("/notes"))))?.path == "/notes")
@@ -280,8 +281,9 @@ extension RealBrowserTests {
             if variant == .submitterOverridesToPartner || variant == .submitterTargetsFrame {
                 #expect(reply == .rejected(.credentialOrigin), "refused before anything is filled: \(reply)")
             } else {
-                // The listener runs after the host's checks; the gate refuses what it rewrote.
-                #expect(observed(reply)?.auth != .signedIn, "\(reply)")
+                // The listener runs after the host's checks and the submission; the gate refuses what it
+                // rewrote. The form was submitted, so the result is unknown rather than a refusal.
+                #expect(reply == .siteUnknown, "\(reply)")
             }
             #expect(h.passwordSightings.isEmpty, "the password left the browser: \(h.passwordSightings.map(\.target))")
             #expect(!h.site.partner.requests.contains { $0.path == "/collect" }, "the partner received the login")
@@ -357,6 +359,35 @@ extension RealBrowserTests {
             _ = await h.service.perform(.siteRelease(session: session))
             at(.beforeInput, of: session) { _ = await h.service.perform(.siteTakeover(session: session)) }
             #expect(await h.operate(session, .press(.enter)) == .rejected(.humanControl))
+        }
+    }
+
+    /// Finding 4: once input may have reached the site, later errors leave the effect unknown.
+    @Test func anEffectThatMayHaveCommittedIsNeverReportedAsARefusalOrFailure() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            let (session, _) = await h.open()
+            _ = await h.login(session)
+            let notes = try #require(observed(await h.operate(session, .navigate(h.url("/notes")))))
+            let typed = try #require(observed(await h.operate(session, .typePublic(try notes.need(.textField, "Note"), "committed"))))
+            // The submission reaches the site and commits; the session ends while it settles.
+            let save = SiteCommand.click(try typed.need(.submit, "Save note")), operation = UUID()
+            at(.dispatched, of: session) {
+                _ = await eventually { h.site.notes.count == 1 }
+                await h.service.end(session)
+            }
+            let ended = await h.operate(session, save, operation: operation)
+            #expect(h.site.notes == ["committed (low)"])
+            #expect(ended == .siteUnknown, "\(ended)")
+            // The submission commits, then the page it lands on cannot be observed.
+            let (other, _) = await h.open()
+            let form = try #require(observed(await h.operate(other, .navigate(h.url("/commit-churn")))))
+            let commit = SiteCommand.click(try form.need(.submit, "Save")), committing = UUID()
+            #expect(await h.operate(other, commit, operation: committing) == .siteUnknown)
+            #expect(h.site.notes.count == 2)
+            // The unknown result is what a retry gets; it is never dispatched again.
+            #expect(await h.operate(other, commit, operation: committing) == .siteUnknown)
+            #expect(h.site.notes.count == 2)
         }
     }
 }

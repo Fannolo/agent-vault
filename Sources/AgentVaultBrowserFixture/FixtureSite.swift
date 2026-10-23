@@ -130,12 +130,13 @@ public final class FixtureSite: @unchecked Sendable {
         case ("GET", "/focus-trap"): return focusTrap()
         case ("GET", "/huge"): return huge()
         case ("GET", "/churn"): return page(body: "<script>location.reload()</script><p>churning</p>")
-        case ("GET", "/commit-leave"):
-            return page(body: "<h1>Commit</h1><form action=\"/commit-leave\" method=\"post\"><input type=\"text\" name=\"note\" aria-label=\"Note\" value=\"left\"><button type=\"submit\">Save and leave</button></form>")
-        case ("POST", "/commit-leave"):
+        // Commits, then lands on a page that never holds still long enough to be observed.
+        case ("GET", "/commit-churn"):
+            return page(body: "<h1>Commit</h1><form action=\"/commit-churn\" method=\"post\"><input type=\"text\" name=\"note\" aria-label=\"Note\" value=\"churned\"><button type=\"submit\">Save</button></form>")
+        case ("POST", "/commit-churn"):
             let form = Self.formFields(request.body)
             lock.withLock { _notes.append(form["note"] ?? "") }
-            return .redirect(to: elsewhereOrigin + "/after-commit")
+            return FixtureResponse(status: 303, headers: ["Location": "/churn"])
         default: return FixtureResponse(status: 404)
         }
     }

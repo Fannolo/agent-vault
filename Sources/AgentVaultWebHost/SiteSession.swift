@@ -83,7 +83,10 @@ actor SiteSession {
     /// Creates the context and page and loads the policy's own entry page.
     func open() async -> HostReply {
         do { try await create() } catch { return .failed(.rendererUnavailable) }
-        if let failure = await load(policy.entry) { return .failed(failure) }
+        let before = network?.loads ?? 0
+        guard await load(policy.entry) else { return .failed(network?.takeFailure() ?? .loadFailed) }
+        await settle(loadedAfter: before)
+        if let failure = network?.takeFailure() { return .failed(failure) }
         return await observation()
     }
 
@@ -196,12 +199,7 @@ actor SiteSession {
         case .notRun: return holds(held) ? .rejected(.staleTarget) : fenced
         case .sent: return .siteUnknown
         }
-        await pause(.dispatched)
-        await settle(loadedAfter: before)
-        restorePhase()
-        if let failure = network?.takeFailure() { return .failed(failure) }
-        await judgeLogin(handOver: true)
-        return await observation()
+        return await dispatched(loadedAfter: before, judgingLogin: true)
     }
 
     /// A person takes control: agent observation and input stop, and every earlier target expires.
@@ -282,8 +280,9 @@ actor SiteSession {
         }
         await pause(.beforeInput)
         guard holds(held) else { return fenced }
-        if let failure = await load(url) { return .failed(failure) }
-        return await outcome()
+        let before = network?.loads ?? 0
+        guard await load(url) else { return .siteUnknown }
+        return await dispatched(loadedAfter: before)
     }
 
     private func click(_ target: SiteTarget) async -> HostReply {
@@ -312,9 +311,7 @@ actor SiteSession {
         case .sent(.string?): return .rejected(.staleTarget)
         case .sent: return .siteUnknown
         }
-        await pause(.dispatched)
-        await settle(loadedAfter: nil)
-        return await outcome()
+        return await dispatched(loadedAfter: nil)
     }
 
     private func scroll(_ dy: Int, _ held: UInt64) async -> HostReply {
@@ -339,9 +336,7 @@ actor SiteSession {
             guard holds(held) else { return index == 0 ? fenced : .siteUnknown }
             guard (try? await pipe.call(method, params, session: session, timeout: 2)) != nil else { return .siteUnknown }
         }
-        await pause(.dispatched)
-        await settle(loadedAfter: nil)
-        return await outcome()
+        return await dispatched(loadedAfter: nil)
     }
 
     /// Whether `target` names the live document, the current control epoch and the agent's control.
@@ -350,10 +345,17 @@ actor SiteSession {
         return mode == .agent && target.control == control && target.document == page.epoch
     }
 
-    private func outcome() async -> HostReply {
-        if ended { return .rejected(.unknownRun) }
-        if let failure = network?.takeFailure() { return .failed(failure) }
-        return await observation()
+    /// What follows input that may have reached the site. Rejections and failures mean nothing was
+    /// done, so from here on only an observation or `siteUnknown` is true: a refused request, a failed
+    /// load, the session ending or an observation failing all leave the effect unknown.
+    private func dispatched(loadedAfter required: Int?, judgingLogin: Bool = false) async -> HostReply {
+        await pause(.dispatched)
+        await settle(loadedAfter: required)
+        restorePhase()
+        guard !ended, network?.takeFailure() == nil else { return .siteUnknown }
+        if judgingLogin { await judgeLogin(handOver: true) }
+        guard case .site(let page) = await observation() else { return .siteUnknown }
+        return .site(page)
     }
 
     // MARK: Observation
@@ -466,14 +468,11 @@ actor SiteSession {
         return .sent(result["exceptionDetails"] == nil ? result["result"]?["value"] : nil)
     }
 
-    private func load(_ url: URL) async -> HostFailure? {
-        guard let session else { return .rendererUnavailable }
-        let before = network?.loads ?? 0
-        guard let result = try? await pipe.call(.pageNavigate, ["url": url.absoluteString], session: session,
-                                                timeout: timing.load) else { return network?.takeFailure() ?? .loadFailed }
-        if result["errorText"]?.string != nil { return network?.takeFailure() ?? .loadFailed }
-        await settle(loadedAfter: before)
-        return network?.takeFailure()
+    /// Asks the main frame to load `url`; whether the browser accepted the navigation.
+    private func load(_ url: URL) async -> Bool {
+        guard let session, let result = try? await pipe.call(.pageNavigate, ["url": url.absoluteString], session: session,
+                                                             timeout: timing.load) else { return false }
+        return result["errorText"]?.string == nil
     }
 
     /// Waits for a navigation the last action started, if any, to finish loading. With `loadedAfter`

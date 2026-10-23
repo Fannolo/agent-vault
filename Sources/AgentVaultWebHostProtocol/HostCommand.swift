@@ -126,7 +126,9 @@ public enum HostReply: Sendable, Equatable {
     case ended
     case rejected(HostRejection)
     case site(SiteObservation)
-    /// The operation was dispatched but its effect is uncertain. Never performed again.
+    /// The operation was dispatched but its effect is uncertain. Never performed again. After a site
+    /// operation may have acted, every later error (a refused request, a failed load, the session
+    /// ending) is reported as this, never as `rejected` or `failed`, which mean it did not act.
     case siteUnknown
 
     /// The replies each command may receive; anything else is a protocol violation.
