@@ -203,6 +203,8 @@ final class ClientConnection: @unchecked Sendable {
             let frame = SocketFrame.request(id: id, opcode: opcode, body: body)
             writer.async { [self] in
                 guard !descriptorClosed else { return resolve(id, .failure(.connectionFailed)) }
+                // A call that expired while queued is never sent, and the stream stays usable.
+                guard deadline.pollTimeout != nil else { return resolve(id, .failure(.timeout)) }
                 guard SocketIO.writeAll(fd, wake: -1, frame, deadline: deadline) else {
                     // A partial frame leaves the stream unusable; end the connection.
                     resolve(id, .failure(deadline.pollTimeout == nil ? .timeout : .connectionFailed))

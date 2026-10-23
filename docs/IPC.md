@@ -258,31 +258,47 @@ Identity and framing:
 
 - The server reads the peer UID with `SO_PEERCRED` on Linux and `getpeereid` on macOS
   before it reads any byte, and closes a connection whose UID does not match its endpoint.
+  A refused peer sees the stream end. On Linux, a peer that already wrote bytes sees a reset
+  instead, because the server closes without reading them.
   Clients check the broker UID the same way before writing any byte. No request field
   names a UID or a connection. A small C target, `CAgentVaultSocket`, isolates these calls.
 - A request frame is `length:u32be | id:u32be | opcode:u8 | body`; a reply is
   `length:u32be | id:u32be | body`. The ID only matches replies; it carries no authority.
   Read and admin opcodes are disjoint. An opcode from the other role, an unknown opcode or
-  a duplicate in-flight ID closes the connection without a reply.
+  a duplicate in-flight ID closes the connection without a reply. An ID is in flight from
+  the moment its request is read until its reply, error replies included, has been written
+  in full or dropped, not merely until its handler returns. The clients never reuse an ID on
+  a connection; a peer that reuses one at the instant its reply is written can be closed.
 - A body above `maxRequestBytes` is refused from the header with `request_too_large`, and
   the connection is closed. A malformed body gets the same fixed codes as XPC and the
   connection stays usable.
 - An idle connection stays open. Once a frame starts, it must complete within 5 seconds.
   A reply write must complete within 5 seconds. Client calls have one monotonic deadline
   covering connect, write and reply. `EINTR`, partial reads and partial writes recompute the
-  remaining time from that deadline. Writes use `MSG_NOSIGNAL` or `SO_NOSIGPIPE`.
+  remaining time from that deadline. Every read and write attempt first checks the deadline
+  and the server's stop signal, so a peer that always has bytes ready cannot outlast either,
+  and a client call that expired while queued is never sent. The accept loop checks stop
+  before each accept. Writes use `MSG_NOSIGNAL` or `SO_NOSIGPIPE`.
 
 Capacity and lifetime:
 
 - Connection, per-connection and per-service limits are the `IPCLimits` values used by XPC,
   with the same separate admin and continuation lanes. Excess connections are closed.
+- Every reply, including `busy` and other error replies, counts against a per-connection
+  backlog of `maxInFlightPerConnection` from the moment it is queued until it is written or
+  dropped. A handler keeps its connection and service capacity for the same span. While the
+  backlog is full the server reads no further request from that connection. A peer that
+  stops reading its replies therefore stops being served, and the first reply write that
+  misses its deadline closes the connection; requests it had sent but the server had not
+  read get no reply, and the client reports `timeout` or `connection_failed` for them.
 - A read handler is cancelled when its connection ends. Admin handlers run to completion;
   their reply is dropped if the connection is gone, and the client reports `timeout` or
   `connection_failed` for an unknown outcome. Nothing retries a mutation.
 - Each admin connection gets an `AdminConnection` minted at accept. Its liveness is cleared
   when the connection ends, before the broker's closed callback runs. A continuation lease
   therefore needs the client's one persistent connection; after a reconnect it needs a new
-  signed open.
+  signed open. The connection's slot stays taken until the closed callback finishes, so
+  reconnecting cannot outrun the broker's cleanup.
 - Only a connection's writer queue closes its descriptor, after the reader thread exits.
   `stop()` wakes every thread, closes listeners and peers, and returns only after every
   descriptor is closed and every handler task has finished.
@@ -292,11 +308,17 @@ Socket files:
 - The socket directory and every ancestor must be a real directory owned by root or the
   broker UID. The directory itself must not be group/other writable. An ancestor may be
   writable only with the sticky bit, as `/tmp` is.
-- An existing path is replaced only if it is a socket owned by the broker UID that refuses
-  connections. A live socket fails `unavailable`. Any other file fails
+- Each socket path has a lock file, `<path>.lock`, mode 0600 and owned by the broker UID. A
+  server takes an exclusive `flock` on it before it checks the path and holds it until stop,
+  so a second broker starting on the same path fails `unavailable` and cannot replace or
+  unlink the first one's socket. A lock file that is not a regular file owned by the broker
+  UID fails `invalid_configuration`. Lock files stay after stop.
+- Under that lock, an existing path is replaced only if it is a socket owned by the broker
+  UID that refuses connections. A live socket fails `unavailable`. Any other file fails
   `invalid_configuration` and is left in place.
-- Mode 0660 and the group are set before `listen()`. `stop()` unlinks a socket only while
-  its device and inode still match the one this server bound.
+- The socket's device and inode are recorded right after `bind()`. Mode 0660 and the group
+  are set before `listen()`. A failed start and `stop()` unlink a socket only while it still
+  has that recorded identity, and stop unlinks it before releasing the lock.
 
 The Linux `agent-vault-broker` validates `sockets.json` for the broker role and then exits
 with `custody_unavailable`. Vault key custody through a systemd encrypted credential is the

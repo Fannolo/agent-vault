@@ -119,36 +119,37 @@ enum SocketIO {
         return .success(.complete(header: header, body: body))
     }
 
+    /// Every attempt first checks the wake descriptor and the deadline, so a peer that always has
+    /// bytes ready cannot outlast either.
     private static func receive(_ fd: Int32, wake: Int32, into buffer: inout [UInt8], from offset: Int,
                                 deadline: Deadline) -> Result<Int, End> {
         while true {
+            switch wait(fd, wake: wake, events: Int32(AV_WAIT_READ), deadline: deadline) {
+            case .ready: break
+            case .woken: return .failure(.stopped)
+            case .expired, .failed: return .failure(.broken)
+            }
             let count = buffer.withUnsafeMutableBytes {
                 av_socket_recv(fd, $0.baseAddress! + offset, $0.count - offset)
             }
             if count > 0 { return .success(count) }
             if count == 0 { return .failure(.closed) }
             let failure = errno
-            if failure == EINTR { continue }
-            guard failure == EAGAIN || failure == EWOULDBLOCK else { return .failure(.broken) }
-            switch wait(fd, wake: wake, events: Int32(AV_WAIT_READ), deadline: deadline) {
-            case .ready: continue
-            case .woken: return .failure(.stopped)
-            case .expired, .failed: return .failure(.broken)
-            }
+            guard failure == EINTR || failure == EAGAIN || failure == EWOULDBLOCK else { return .failure(.broken) }
         }
     }
 
-    /// Writes every byte by `deadline`. A `false` result leaves the stream unusable.
+    /// Writes every byte by `deadline`, checking the wake descriptor and the deadline before each
+    /// attempt. A `false` result leaves the stream unusable unless no byte was sent.
     static func writeAll(_ fd: Int32, wake: Int32, _ data: Data, deadline: Deadline) -> Bool {
         data.withUnsafeBytes { bytes in
             var offset = 0
             while offset < bytes.count {
+                guard case .ready = wait(fd, wake: wake, events: Int32(AV_WAIT_WRITE), deadline: deadline) else { return false }
                 let count = av_socket_send(fd, bytes.baseAddress! + offset, bytes.count - offset)
                 if count > 0 { offset += count; continue }
                 let failure = errno
-                if count < 0 && failure == EINTR { continue }
-                guard count < 0, failure == EAGAIN || failure == EWOULDBLOCK else { return false }
-                guard case .ready = wait(fd, wake: wake, events: Int32(AV_WAIT_WRITE), deadline: deadline) else { return false }
+                guard count < 0, failure == EINTR || failure == EAGAIN || failure == EWOULDBLOCK else { return false }
             }
             return true
         }

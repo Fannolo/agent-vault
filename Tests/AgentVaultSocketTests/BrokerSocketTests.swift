@@ -49,10 +49,10 @@ import Testing
             #expect(try await admin.snapshot().grants.first?.callsRemaining == 2)
 
             // No reply on either socket carries the enrolled credential.
-            let raw = try RawPeer(stack.configuration.admin.path)
+            let raw = try await RawPeer(stack.configuration.admin.path)
             defer { raw.close() }
-            #expect(raw.request(id: 9, .snapshot, Data()))
-            guard case .reply(9, let body) = raw.read(within: 3) else { throw Unexpected(what: "raw snapshot") }
+            #expect(await raw.request(id: 9, .snapshot, Data()))
+            guard case .reply(9, let body) = await raw.read(within: 3) else { throw Unexpected(what: "raw snapshot") }
             #expect(body.range(of: canary) == nil && body.range(of: Data(accountID.uuidString.utf8)) != nil)
         }
     }

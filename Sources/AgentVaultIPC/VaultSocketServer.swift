@@ -23,6 +23,7 @@ public final class VaultSocketServer: @unchecked Sendable {
         let fd: Int32
         let path: String
         let identity: FileIdentity
+        let lock: Int32
         let finished: Completion
     }
 
@@ -31,6 +32,7 @@ public final class VaultSocketServer: @unchecked Sendable {
     private let timeouts: SocketTimeouts
     private let handlers: BrokerHandlers
     private let lanes: SocketLanes
+    private let didBind: @Sendable (SocketRole) -> Void
     private let tracker = WorkTracker()
     private let stopped = Completion()
     private let lock = NSLock()
@@ -45,14 +47,17 @@ public final class VaultSocketServer: @unchecked Sendable {
         self.init(validated: configuration, limits: limits, timeouts: .standard, handlers: handlers)
     }
 
+    /// `didBind` is a test seam: it runs after each socket is bound and before it listens.
     init(validated configuration: SocketConfiguration, limits: IPCLimits, timeouts: SocketTimeouts,
-         handlers: BrokerHandlers) {
+         handlers: BrokerHandlers, didBind: @escaping @Sendable (SocketRole) -> Void = { _ in }) {
         self.configuration = configuration; self.limits = limits; self.timeouts = timeouts
-        self.handlers = handlers; lanes = SocketLanes(limits: limits)
+        self.handlers = handlers; self.didBind = didBind; lanes = SocketLanes(limits: limits)
     }
 
-    /// Binds both sockets in their protected directories and starts accepting. A stale socket left
-    /// by an earlier broker is replaced only if nothing answers on it; any other file is refused.
+    /// Binds both sockets in their protected directories and starts accepting. Each path is held
+    /// under its lock file from before the stale check until stop, so a second broker fails
+    /// `unavailable` instead of racing this one. A stale socket left by an earlier broker is
+    /// replaced only if nothing answers on it; any other file is refused.
     public func start() throws(IPCError) {
         lock.lock()
         defer { lock.unlock() }
@@ -62,7 +67,8 @@ public final class VaultSocketServer: @unchecked Sendable {
         wake = (fds[0], fds[1])
         do {
             for role in [SocketRole.read, .admin] {
-                listeners.append(try Self.bind(endpoint(role), role: role, backlog: limits.maxConnectionsPerService))
+                listeners.append(try Self.bind(endpoint(role), role: role, backlog: limits.maxConnectionsPerService,
+                                               didBind: { didBind(role) }))
             }
         } catch {
             for listener in listeners { Self.remove(listener) }
@@ -106,24 +112,19 @@ public final class VaultSocketServer: @unchecked Sendable {
     private func accept(_ listener: Listener) {
         defer { listener.finished.signal() }
         let endpoint = endpoint(listener.role)
-        while true {
-            switch SocketIO.wait(listener.fd, wake: wake.read, events: Int32(AV_WAIT_READ), deadline: .never) {
-            case .ready: break
-            case .woken, .expired, .failed: return
-            }
-            while true {
-                let fd = av_socket_accept(listener.fd)
-                if fd >= 0 { admit(fd, role: listener.role, endpoint: endpoint); continue }
-                let failure = errno
-                if failure == EINTR || failure == ECONNABORTED { continue }
-                if failure != EAGAIN && failure != EWOULDBLOCK {
-                    // Descriptor or memory exhaustion: back off instead of spinning on a ready listener.
-                    if case .woken = SocketIO.wait(wake.read, wake: -1, events: Int32(AV_WAIT_READ), deadline: .after(0.05)) {
-                        return
-                    }
-                }
-                break
-            }
+        Self.acceptLoop(listener.fd, wake: wake.read) { fd in admit(fd, role: listener.role, endpoint: endpoint) }
+    }
+
+    /// Hands each accepted descriptor to `admit` until `wake` fires or the listener fails. Every
+    /// accept waits first, so peers that keep connecting cannot hold off `stop()`.
+    static func acceptLoop(_ listenFD: Int32, wake: Int32, _ admit: (Int32) -> Void) {
+        while case .ready = SocketIO.wait(listenFD, wake: wake, events: Int32(AV_WAIT_READ), deadline: .never) {
+            let fd = av_socket_accept(listenFD)
+            if fd >= 0 { admit(fd); continue }
+            let failure = errno
+            if failure == EINTR || failure == ECONNABORTED || failure == EAGAIN || failure == EWOULDBLOCK { continue }
+            // Descriptor or memory exhaustion: back off instead of spinning on a ready listener.
+            if case .woken = SocketIO.wait(wake, wake: -1, events: Int32(AV_WAIT_READ), deadline: .after(0.05)) { return }
         }
     }
 
@@ -155,26 +156,38 @@ public final class VaultSocketServer: @unchecked Sendable {
 
     // MARK: Socket files
 
-    private static func bind(_ endpoint: SocketConfiguration.Endpoint, role: SocketRole, backlog: Int) throws(IPCError) -> Listener {
+    private static func bind(_ endpoint: SocketConfiguration.Endpoint, role: SocketRole, backlog: Int,
+                             didBind: () -> Void) throws(IPCError) -> Listener {
         let path = endpoint.path
         try SocketPath.requireProtectedDirectory(of: path)
-        try SocketPath.clearStale(path)
-        let fd = av_socket_bind(path)
-        guard fd >= 0 else { throw .unavailable }
-        // Permissions are final before listen(), so no client can connect under a looser mode.
-        guard let identity = SocketPath.ownedSocket(path),
-              chmod(path, 0o660) == 0, chown(path, UInt32.max, endpoint.group) == 0,
-              av_socket_listen(fd, Int32(backlog)) == 0 else {
-            close(fd)
-            SocketPath.remove(path, ifStill: SocketPath.ownedSocket(path))
-            throw .unavailable
+        let lock = try SocketPath.lock(path)
+        do throws(IPCError) {
+            try SocketPath.clearStale(path)
+            let fd = av_socket_bind(path)
+            guard fd >= 0 else { throw .unavailable }
+            // Under the lock no other broker can replace the file: this identity is our own, and
+            // it alone decides what a rollback or stop may unlink.
+            guard let identity = SocketPath.ownedSocket(path) else { close(fd); throw .unavailable }
+            didBind()
+            // Permissions are final before listen(), so no client can connect under a looser mode.
+            guard chmod(path, 0o660) == 0, chown(path, UInt32.max, endpoint.group) == 0,
+                  av_socket_listen(fd, Int32(backlog)) == 0 else {
+                close(fd)
+                SocketPath.remove(path, ifStill: identity)
+                throw .unavailable
+            }
+            return Listener(role: role, fd: fd, path: path, identity: identity, lock: lock, finished: Completion())
+        } catch {
+            close(lock)
+            throw error
         }
-        return Listener(role: role, fd: fd, path: path, identity: identity, finished: Completion())
     }
 
+    /// Unlinks the socket before releasing its lock, so a successor never sees this one's file.
     private static func remove(_ listener: Listener) {
         close(listener.fd)
         SocketPath.remove(listener.path, ifStill: listener.identity)
+        close(listener.lock)
     }
 }
 
@@ -200,6 +213,11 @@ final class SocketLanes: Sendable {
 /// One accepted connection. Its descriptor is used by the reader thread until that thread exits,
 /// and otherwise only on `writer`; `writer` alone closes it, so a late reply can never reach a
 /// reused descriptor.
+///
+/// Every reply, error replies included, counts against a backlog from the moment it is queued
+/// until it is written or dropped, and a handler's work capacity is held just as long. While the
+/// backlog is full the reader takes no further frame, so a peer that does not read its replies
+/// stops being served; the first write that misses its deadline ends the connection.
 final class ServerConnection: @unchecked Sendable {
     private let fd: Int32
     private let role: SocketRole
@@ -218,6 +236,10 @@ final class ServerConnection: @unchecked Sendable {
     private let lock = NSLock()
     private var inFlight: Set<UInt32> = []
     private var closed = false   // writer-confined
+    private let backlog = NSCondition()
+    private let replyLimit: Int
+    private var queued = 0         // guarded by `backlog`
+    private var writable = true    // guarded by `backlog`; false once a reply write failed
     let finished = Completion()
 
     init(fd: Int32, role: SocketRole, uid: UInt32, limits: IPCLimits, timeouts: SocketTimeouts, lanes: SocketLanes,
@@ -226,6 +248,7 @@ final class ServerConnection: @unchecked Sendable {
         self.lanes = lanes; self.handlers = handlers; self.tracker = tracker; self.wake = wake
         identity = role == .admin ? AdminConnection(uid: uid) : nil
         connectionWork = Gate(limit: limits.maxInFlightPerConnection)
+        replyLimit = max(1, limits.maxInFlightPerConnection)
     }
 
     func run(released: @escaping @Sendable () -> Void) {
@@ -241,7 +264,8 @@ final class ServerConnection: @unchecked Sendable {
             switch SocketIO.readFrame(fd, wake: wake, headerSize: SocketFrame.requestHeader, maxBody: limits.maxRequestBytes,
                                       timeout: timeouts.frame) {
             case .success(.complete(let header, let body)):
-                guard dispatch(id: SocketFrame.number(header, at: 4), opcode: header[8], body: Data(body)) else { return }
+                guard awaitReplyRoom(),
+                      dispatch(id: SocketFrame.number(header, at: 4), opcode: header[8], body: Data(body)) else { return }
             case .success(.oversized(let header)):
                 // The stream cannot be resynchronized without reading the body; answer and close.
                 send(id: SocketFrame.number(header, at: 4), WireCodec.errorReply(.requestTooLarge))
@@ -253,9 +277,11 @@ final class ServerConnection: @unchecked Sendable {
     }
 
     /// Returns `false` for a protocol violation, which closes the connection without a reply.
+    /// An ID is in flight from here until its reply, error replies included, is written or
+    /// dropped; a duplicate before then is a violation.
     private func dispatch(id: UInt32, opcode: UInt8, body: Data) -> Bool {
         guard let opcode = SocketFrame.Opcode(rawValue: opcode),
-              lock.withLock({ () -> Bool in !inFlight.contains(id) }) else { return false }
+              lock.withLock({ inFlight.insert(id).inserted }) else { return false }
         let limits = limits, handlers = handlers, uid = uid
         switch (role, opcode, identity) {
         case (.read, .read, nil):
@@ -307,7 +333,6 @@ final class ServerConnection: @unchecked Sendable {
             send(id: id, WireCodec.errorReply(.busy))
             return true
         }
-        lock.withLock { _ = inFlight.insert(id) }
         tracker.enter()
         // Reserved before the task exists, so completion and disconnect can each happen first.
         // Admin work always runs to completion: signed mutations keep their journal semantics, and
@@ -315,22 +340,40 @@ final class ServerConnection: @unchecked Sendable {
         let registry = self.work, key = cancellable ? registry.reserve() : nil
         let task = Task { [self] in
             let data = await work(input)
-            connection.release(); service.release()
             if let key { registry.complete(key) }
-            lock.withLock { _ = inFlight.remove(id) }
-            send(id: id, data)
+            send(id: id, data) { connection.release(); service.release() }
             tracker.leave()
         }
         if let key, !registry.register(key, task) { task.cancel() }
         return true
     }
 
-    private func send(id: UInt32, _ body: Data) {
+    /// Queues one reply on the backlog. Once it is written or dropped its ID leaves `inFlight`,
+    /// then `then` runs.
+    private func send(id: UInt32, _ body: Data, then: @escaping @Sendable () -> Void = {}) {
         let frame = SocketFrame.reply(id: id, body: body), deadline = Deadline.after(timeouts.write)
+        backlog.withLock { queued += 1 }
         writer.async { [self] in
-            guard !closed else { return }
-            if !SocketIO.writeAll(fd, wake: wake, frame, deadline: deadline) { _ = av_socket_shutdown(fd) }
+            let written = !closed && SocketIO.writeAll(fd, wake: wake, frame, deadline: deadline)
+            if !written && !closed { _ = av_socket_shutdown(fd) }
+            backlog.withLock {
+                queued -= 1
+                if !written { writable = false }
+                backlog.broadcast()
+            }
+            lock.withLock { _ = inFlight.remove(id) }
+            then()
         }
+    }
+
+    /// Holds the reader while the backlog is full. Each queued write ends by its deadline or at
+    /// stop, and fails at once on a closed peer, so this wait cannot outlast any of them.
+    /// Returns `false` once a write has failed: the connection takes no further request.
+    private func awaitReplyRoom() -> Bool {
+        backlog.lock()
+        defer { backlog.unlock() }
+        while writable && queued >= replyLimit { backlog.wait() }
+        return writable
     }
 
     /// Runs on the reader thread after it stops using the descriptor.
@@ -343,14 +386,16 @@ final class ServerConnection: @unchecked Sendable {
             closed = true
             _ = av_socket_shutdown(fd)
             close(fd)
-            // Counted before release, so a stop that no longer sees this connection still awaits it.
-            if identity != nil { tracker.enter() }
-            released()
-            guard let identity else { return finished.signal() }
+            guard let identity else { released(); return finished.signal() }
+            // The connection slot is held until the broker's cleanup finishes, so reconnecting
+            // cannot pile up closed callbacks. Counted before release, so a stop that no longer
+            // sees this connection still awaits it.
+            tracker.enter()
             Task {
                 await closedHandler(identity)
-                tracker.leave()
+                released()
                 finished.signal()
+                tracker.leave()
             }
         }
     }
@@ -385,6 +430,23 @@ enum SocketPath {
                 throw .invalidConfiguration
             }
         }
+    }
+
+    /// Takes the exclusive `flock` on `<path>.lock` that serializes every broker's startup, stale
+    /// replacement and removal of `path`. It is held until stop; the lock file itself stays.
+    static func lock(_ path: String) throws(IPCError) -> Int32 {
+        let fd = open(path + ".lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw .invalidConfiguration }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == geteuid() else {
+            close(fd)
+            throw .invalidConfiguration
+        }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            throw .unavailable
+        }
+        return fd
     }
 
     /// Removes a socket file left by an earlier broker run. Anything that is not a socket owned by

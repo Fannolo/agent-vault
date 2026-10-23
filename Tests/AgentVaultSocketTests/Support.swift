@@ -34,14 +34,14 @@ final class Events: @unchecked Sendable {
     var all: [String] { lock.withLock { values } }
     func count(_ value: String) -> Int { lock.withLock { values.filter { $0 == value }.count } }
 
-    /// Polls for up to `seconds`; returns whether `value` was recorded.
-    func await(_ value: String, within seconds: Double = 5) async -> Bool {
+    /// Polls for up to `seconds`; returns whether `value` was recorded at least `times` times.
+    func await(_ value: String, times: Int = 1, within seconds: Double = 5) async -> Bool {
         let deadline = Date() + seconds
         while Date() < deadline {
-            if count(value) > 0 { return true }
+            if count(value) >= times { return true }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return count(value) > 0
+        return count(value) >= times
     }
 }
 
@@ -60,7 +60,7 @@ final class OwnedDirectory: @unchecked Sendable {
 
     func file(_ name: String) -> String { path + "/" + name }
 
-    func remove(_ names: [String] = ["read.sock", "admin.sock"]) {
+    func remove(_ names: [String] = ["read.sock", "admin.sock", "read.sock.lock", "admin.sock.lock"]) {
         for name in names { _ = unlink(file(name)) }
         _ = rmdir(path)
     }
@@ -74,7 +74,7 @@ func configuration(_ directory: OwnedDirectory, readUID: UInt32 = me, adminUID: 
 }
 
 func stubHandlers(_ events: Events = Events(), read: BrokerHandlers.Read? = nil, begin: BrokerHandlers.Begin? = nil,
-                  continuation: BrokerHandlers.Continuation? = nil) -> BrokerHandlers {
+                  continuation: BrokerHandlers.Continuation? = nil, closed: BrokerHandlers.Closed? = nil) -> BrokerHandlers {
     BrokerHandlers(
         read: read ?? { uid, request in
             events.record("read \(request.operation.rawValue) uid=\(uid)")
@@ -93,7 +93,7 @@ func stubHandlers(_ events: Events = Events(), read: BrokerHandlers.Read? = nil,
             events.record("continuation \(peer.id)")
             return .noFrame
         },
-        closed: { peer in events.record("closed \(peer.id) open=\(peer.isOpen)") })
+        closed: closed ?? { peer in events.record("closed \(peer.id) open=\(peer.isOpen)") })
 }
 
 /// A running socket server in an owned directory plus the clients a test opened. `shutdown`
@@ -145,6 +145,14 @@ func withStack(handlers: BrokerHandlers, limits: IPCLimits = .standard,
     await stack.shutdown()
 }
 
+/// Runs blocking descriptor work on a thread of its own, so a waiting test never occupies a
+/// cooperative-pool thread that other suites' deadlines depend on.
+func blocking<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+        startThread("agent-vault.test.blocking") { continuation.resume(with: Result { try body() }) }
+    }
+}
+
 /// Returns `true` if `operation` finished within `seconds`.
 func finishes(within seconds: Double, _ operation: @escaping @Sendable () async -> Void) async -> Bool {
     let done = Events()
@@ -154,38 +162,56 @@ func finishes(within seconds: Double, _ operation: @escaping @Sendable () async 
     return finished
 }
 
-/// A hand-driven peer for malformed, partial and raw frames.
+/// A hand-driven peer for malformed, partial and raw frames. Every call that can block runs
+/// off the cooperative pool.
 final class RawPeer: @unchecked Sendable {
-    enum Read: Equatable { case reply(id: UInt32, body: Data), eof, timeout, broken }
+    /// `reset`: Linux reports a stream its peer closed with unread bytes as reset, not ended.
+    enum Read: Equatable { case reply(id: UInt32, body: Data), eof, reset, timeout, broken }
 
     let fd: Int32
+    private let lock = NSLock()
+    private var open = true
 
-    init(_ path: String) throws {
-        var inProgress: Int32 = 0
-        let fd = av_socket_connect(path, &inProgress)
-        guard fd >= 0 else { throw POSIXError(.ECONNREFUSED) }
-        if inProgress != 0 {
-            guard case .ready = SocketIO.wait(fd, wake: -1, events: Int32(AV_WAIT_WRITE), deadline: .after(2)),
-                  av_socket_connect_result(fd) == 0 else { closeDescriptor(fd); throw POSIXError(.ECONNREFUSED) }
+    init(_ path: String) async throws {
+        fd = try await blocking {
+            var inProgress: Int32 = 0
+            let fd = av_socket_connect(path, &inProgress)
+            guard fd >= 0 else { throw POSIXError(.ECONNREFUSED) }
+            if inProgress != 0 {
+                guard case .ready = SocketIO.wait(fd, wake: -1, events: Int32(AV_WAIT_WRITE), deadline: .after(2)),
+                      av_socket_connect_result(fd) == 0 else { closeDescriptor(fd); throw POSIXError(.ECONNREFUSED) }
+            }
+            return fd
         }
-        self.fd = fd
     }
 
     init(accepted fd: Int32) { self.fd = fd }
 
     @discardableResult
-    func send(_ data: Data) -> Bool { SocketIO.writeAll(fd, wake: -1, data, deadline: .after(2)) }
-
-    func request(id: UInt32, _ opcode: SocketFrame.Opcode, _ body: Data) -> Bool {
-        send(SocketFrame.request(id: id, opcode: opcode, body: body))
+    func send(_ data: Data) async -> Bool {
+        let fd = fd
+        return (try? await blocking { SocketIO.writeAll(fd, wake: -1, data, deadline: .after(2)) }) ?? false
     }
 
-    func read(within seconds: Double) -> Read {
+    func request(id: UInt32, _ opcode: SocketFrame.Opcode, _ body: Data) async -> Bool {
+        await send(SocketFrame.request(id: id, opcode: opcode, body: body))
+    }
+
+    func read(within seconds: Double) async -> Read {
+        let fd = fd
+        return (try? await blocking { Self.read(fd, within: seconds) }) ?? .broken
+    }
+
+    private static func read(_ fd: Int32, within seconds: Double) -> Read {
         switch SocketIO.wait(fd, wake: -1, events: Int32(AV_WAIT_READ), deadline: .after(seconds)) {
         case .expired: return .timeout
         case .woken, .failed: return .broken
         case .ready: break
         }
+        var byte: UInt8 = 0
+        let peeked = recv(fd, &byte, 1, Int32(MSG_PEEK))
+        if peeked == 0 { return .eof }
+        if peeked < 0 { return errno == ECONNRESET ? .reset : .broken }
         switch SocketIO.readFrame(fd, wake: -1, headerSize: SocketFrame.replyHeader, maxBody: 1 << 20, timeout: 2) {
         case .success(.complete(let header, let body)): return .reply(id: SocketFrame.number(header, at: 4), body: Data(body))
         case .success(.oversized): return .broken
@@ -194,10 +220,55 @@ final class RawPeer: @unchecked Sendable {
         }
     }
 
-    func close() { _ = av_socket_shutdown(fd); closeDescriptor(fd) }
+    /// Closes the descriptor exactly once. Later calls do nothing, so a number the process has
+    /// since reused for another descriptor is never closed.
+    func close() {
+        guard lock.withLock({ () -> Bool in defer { open = false }; return open }) else { return }
+        _ = av_socket_shutdown(fd)
+        closeDescriptor(fd)
+    }
 }
 
 func errorBody(_ code: IPCError) -> Data { WireCodec.errorReply(code) }
+
+/// A connected nonblocking stream pair for driving `SocketIO` directly.
+func streamPair() throws -> (Int32, Int32) {
+    var fds: [Int32] = [-1, -1]
+#if canImport(Darwin)
+    let stream = SOCK_STREAM
+#else
+    let stream = Int32(SOCK_STREAM.rawValue)
+#endif
+    guard socketpair(AF_UNIX, stream, 0, &fds) == 0 else { throw POSIXError(.EMFILE) }
+    for fd in fds {
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+#if canImport(Darwin)
+        var one: Int32 = 1
+        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+#endif
+    }
+    return (fds[0], fds[1])
+}
+
+/// A stop signal like the server's: once fired it stays readable.
+final class WakePipe: @unchecked Sendable {
+    let read: Int32
+    private let writeEnd: Int32
+
+    init() throws {
+        var fds: [Int32] = [-1, -1]
+        guard av_socket_pipe(&fds) == 0 else { throw POSIXError(.EMFILE) }
+        read = fds[0]; writeEnd = fds[1]
+    }
+
+    func fire() { writeByte(writeEnd) }
+    func close() { closeDescriptor(read); closeDescriptor(writeEnd) }
+}
+
+private func writeByte(_ fd: Int32) {
+    var byte: UInt8 = 1
+    _ = write(fd, &byte, 1)
+}
 
 // MARK: Real broker
 
