@@ -149,6 +149,51 @@ import Glibc
         }
     }
 
+    @Test func unwrittenRepliesKeepTheirServiceCapacity() async throws {
+        let events = Events()
+        let many = (0..<128).map { _ in AccountSummary(id: UUID(), service: .demo) }
+        let handlers = stubHandlers(events, read: { _, _ in
+            events.record("read")
+            return ReadReply(.outcome(.completed), accounts: many)
+        })
+        var limits = IPCLimits.standard
+        limits.maxInFlightTotal = 2
+        let lanes = SocketLanes(limits: limits), tracker = WorkTracker(), wake = try WakePipe()
+        defer { wake.close() }
+        let (stalledEnd, stalledFD) = try streamPair(), (otherEnd, otherFD) = try streamPair()
+        // A send buffer smaller than one reply, so the stalled peer's first reply cannot be written.
+        var small: Int32 = 4096
+        _ = setsockopt(stalledEnd, SOL_SOCKET, SO_SNDBUF, &small, socklen_t(MemoryLayout<Int32>.size))
+        func serve(_ fd: Int32) -> ServerConnection {
+            let connection = ServerConnection(fd: fd, role: .read, uid: me, limits: limits, timeouts: testTimeouts, lanes: lanes,
+                                              handlers: handlers, tracker: tracker, wake: wake.read)
+            connection.run {}
+            return connection
+        }
+        let stalled = serve(stalledEnd), other = serve(otherEnd)
+        let stalledPeer = RawPeer(accepted: stalledFD), otherPeer = RawPeer(accepted: otherFD)
+        defer { stalledPeer.close(); otherPeer.close() }
+        let read = try WireCodec.encode(ReadRequest(operation: .accounts))
+        let sentFirst = await stalledPeer.request(id: 1, .read, read), sentSecond = await stalledPeer.request(id: 2, .read, read)
+        #expect(sentFirst && sentSecond)
+        #expect(await events.await("read", times: 2))
+        // Both replies are done but unwritten; they still hold the whole service capacity.
+        #expect(await otherPeer.request(id: 1, .read, read))
+        #expect(await otherPeer.read(within: 3) == .reply(id: 1, body: errorBody(.busy)))
+        // Once the stalled peer leaves, its replies are dropped and the capacity returns.
+        stalledPeer.close()
+        var served = false
+        for id in UInt32(2)..<50 where !served {
+            #expect(await otherPeer.request(id: id, .read, read))
+            if case .reply(id, let body) = await otherPeer.read(within: 3), body != errorBody(.busy) { served = true }
+        }
+        #expect(served)
+        otherPeer.close()
+        await stalled.finished.wait()
+        await other.finished.wait()
+        await tracker.drained()
+    }
+
     @Test func errorRepliesCountAgainstTheReplyBacklog() async throws {
         try await withStack(handlers: stubHandlers()) { stack in
             let raw = try await RawPeer(stack.configuration.read.path)
