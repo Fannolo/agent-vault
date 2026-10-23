@@ -29,11 +29,12 @@ let package = Package(
         .executableTarget(name: "AgentVaultApp", dependencies: ["AgentVaultAppSupport"]),
         .testTarget(name: "AgentVaultAppTests", dependencies: ["AgentVaultAppSupport", "AgentVaultContracts"]),
         .target(name: "AgentVaultRuntime", dependencies: ["AgentVaultIPC"]),
-        .target(name: "AgentVaultMCPTransport", dependencies: ["AgentVaultJSON", .product(name: "MCP", package: "swift-sdk"), .product(name: "Logging", package: "swift-log")]),
+        .target(name: "CAgentVaultStdio"),
+        .target(name: "AgentVaultMCPTransport", dependencies: [.target(name: "CAgentVaultStdio", condition: .when(platforms: [.linux])), "AgentVaultJSON", .product(name: "MCP", package: "swift-sdk"), .product(name: "Logging", package: "swift-log")]),
         .target(name: "AgentVaultMCPBridge", dependencies: ["AgentVaultContracts", "AgentVaultMCPTransport", .product(name: "MCP", package: "swift-sdk")]),
         .executableTarget(name: "AgentVaultBridge", dependencies: ["AgentVaultIPC", "AgentVaultRuntime", "AgentVaultMCPBridge"]),
         .executableTarget(name: "AgentVaultBrokerDaemon", dependencies: ["AgentVaultCore", "AgentVaultIPC", "AgentVaultRuntime"]),
-        .testTarget(name: "AgentVaultMCPTransportTests", dependencies: ["AgentVaultMCPTransport"]),
+        .testTarget(name: "AgentVaultMCPTransportTests", dependencies: ["AgentVaultMCPTransport", .target(name: "CAgentVaultStdio", condition: .when(platforms: [.linux]))]),
         .testTarget(name: "AgentVaultRuntimeTests", dependencies: ["AgentVaultRuntime"]),
         .testTarget(name: "AgentVaultMCPBridgeTests", dependencies: ["AgentVaultMCPBridge", "AgentVaultContracts", .product(name: "MCP", package: "swift-sdk")]),
         .target(name: "AgentVaultCore", dependencies: ["AgentVaultCredentials", "AgentVaultContracts", "AgentVaultApproval", "AgentVaultJSON", portableCrypto], linkerSettings: [.linkedFramework("Security", .when(platforms: [.macOS]))]),
@@ -94,12 +95,16 @@ let portableTargets: Set<String> = [
     "AgentVaultContracts", "AgentVaultCredentials", "AgentVaultCredentialsTests", "AgentVaultJSON",
     "AgentVaultApproval", "AgentVaultApprovalTests", "AgentVaultCore", "AgentVaultCoreTests",
     "CAgentVaultSocket", "AgentVaultIPC", "AgentVaultBrokerDaemon", "AgentVaultSocketTests",
+    "CAgentVaultStdio", "AgentVaultMCPTransport", "AgentVaultMCPTransportTests",
+    "AgentVaultMCPBridge", "AgentVaultMCPBridgeTests", "AgentVaultBridge",
 ]
-package.products = [.library(name: "AgentVaultCore", targets: ["AgentVaultCore"])]
+package.products = [.library(name: "AgentVaultCore", targets: ["AgentVaultCore"]),
+                    .executable(name: "agent-vault-bridge", targets: ["AgentVaultBridge"])]
 package.targets = package.targets.filter { portableTargets.contains($0.name) }
 package.targets.first { $0.name == "AgentVaultCore" }?.exclude = ["KeychainStore.swift", "PrivateKeychainStore.swift"]
 package.targets.first { $0.name == "AgentVaultIPC" }?.exclude = [
     "IPCConfiguration.swift", "VaultXPCClients.swift",
 ]
 package.targets.first { $0.name == "AgentVaultBrokerDaemon" }?.dependencies = ["AgentVaultCore", "AgentVaultIPC"]
+package.targets.first { $0.name == "AgentVaultBridge" }?.dependencies = ["AgentVaultIPC", "AgentVaultMCPBridge"]
 #endif

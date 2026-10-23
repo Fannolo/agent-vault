@@ -427,6 +427,25 @@ or session state, navigate to arbitrary destinations or perform unapproved actio
 - Compatibility checks in target MCP hosts, without broad permission bypasses.
 - Publish documented security guarantees only after their verification.
 
+## Native Linux MCP bridge (development)
+
+The bridge now selects the kernel-peer-authenticated Unix read socket on Linux and XPC
+on macOS. Linux uses only `/etc/agent-vault/sockets.json`, refuses development policy,
+and validates its configured agent UID and the broker peer UID before sending requests.
+It exposes the same four narrow tools; it has no credential store or admin client.
+
+The bounded stdio transport uses nonblocking descriptors on both platforms. Darwin keeps
+`F_SETNOSIGPIPE`; Linux blocks SIGPIPE only around each write on the writer thread,
+consumes a newly generated broken-pipe signal, and restores the thread mask. It does not
+change the process-wide signal disposition or consume an earlier pending SIGPIPE.
+
+Native macOS checks: 15 transport/bridge tests and all 381 root tests pass (existing
+opt-ins skipped); boundary and synthetic MCP verifiers pass. A standalone C broken-pipe
+check passes with the default signal disposition. Linux compilation, the Linux-specific
+pending-signal case and installed end-to-end MCP/socket identity remain pending CI and
+installed-host checks. The Linux broker still refuses to serve without real key custody.
+This change does not provide cloud login, browser site dispatch, an installer or a GUI.
+
 ## Verification record
 
 Verified locally on 13 October 2026 with Apple Swift 6.2.4 and macOS:
