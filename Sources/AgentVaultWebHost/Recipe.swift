@@ -94,6 +94,12 @@ enum Recipe: CaseIterable, Sendable {
 enum SiteRecipe: CaseIterable, Sendable {
     case observe, activate, enterText, choose, loginFill, loginSubmit, loginClear, authState
 
+    /// UTF-16 code units of page text one observation may carry out of the page, across all its
+    /// strings. Cut inside the recipe, before the browser serializes anything: control characters
+    /// are replaced, so each unit is at most 6 bytes of JSON, and the reply stays far below the
+    /// shared pipe's `ChromiumPipe.maximumMessageBytes` whatever the page holds.
+    static let observationBudget = 1 << 19
+
     private static let common = """
         if (!Array.prototype.includes.call(origins, window.location.origin)) return "origin";
         const all = Document.prototype.querySelectorAll, sub = Element.prototype.querySelectorAll;
@@ -106,7 +112,13 @@ enum SiteRecipe: CaseIterable, Sendable {
             const s = window.getComputedStyle(e);
             return s.visibility !== "hidden" && s.display !== "none";
         };
-        const clip = (t, n) => { const s = String(t == null ? "" : t).replace(/\\s+/g, " ").trim(); return s.length > n ? s.slice(0, n) : s; };
+        const clip = (t, n) => {
+            const s = String.prototype.toWellFormed.call(String(t == null ? "" : t))
+                .replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, " ").replace(/\\s+/g, " ").trim();
+            if (s.length <= n) return s;
+            const cut = s.slice(0, n), last = cut.charCodeAt(cut.length - 1);
+            return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+        };
         const roleOf = (e) => {
             if (secret.has(e)) return "password";
             const tag = e.localName;
@@ -190,6 +202,8 @@ enum SiteRecipe: CaseIterable, Sendable {
         switch self {
         case .observe: Self.common + """
             const elements = [], text = [];
+            let budget = \(Self.observationBudget);
+            const take = (t, n) => { const s = clip(t, Math.min(n, budget)); budget -= s.length; return s; };
             const found = all.call(document, "a, button, input, select, textarea, [role=button], [role=link]");
             for (const e of found) {
                 if (elements.length >= \(SiteObservation.maximumElements)) break;
@@ -209,19 +223,19 @@ enum SiteRecipe: CaseIterable, Sendable {
                 else if (role === "checkbox" || role === "radio") value = e.checked ? "checked" : "";
                 else if (role === "link") value = e.href;
                 else if (role === "select") {
-                    options = Array.prototype.slice.call(e.options, 0, \(SiteElement.maximumOptions)).map((o) => clip(o.text, 256));
-                    value = e.selectedIndex >= 0 && e.options[e.selectedIndex] ? clip(e.options[e.selectedIndex].text, 256) : "";
+                    options = Array.prototype.slice.call(e.options, 0, \(SiteElement.maximumOptions)).map((o) => take(o.text, 256));
+                    value = e.selectedIndex >= 0 && e.options[e.selectedIndex] ? take(e.options[e.selectedIndex].text, 256) : "";
                 }
-                elements.push({ ref, role, label: clip(label, 256), value: role === "password" ? "" : clip(value, 1024), options });
+                elements.push({ ref, role, label: take(label, 256), value: role === "password" ? "" : take(value, 1024), options });
             }
             const blocks = all.call(document, "h1, h2, h3, h4, h5, h6, p, li, dt, dd, th, td, caption, legend, pre, blockquote, [role=alert], [role=status]");
             for (const e of blocks) {
                 if (text.length >= \(SiteObservation.maximumTextItems)) break;
                 if (!shown(e)) continue;
-                const t = clip(e.innerText, 1024);
+                const t = take(e.innerText, 1024);
                 if (t && text[text.length - 1] !== t) text.push(t);
             }
-            return { title: clip(document.title, 256), elements, text };
+            return { title: take(document.title, 256), elements, text };
             """
         // The effect recipes resolve the element and act on that same element in one synchronous call:
         // no page timer, focus change or replacement can come between the check and the action. They

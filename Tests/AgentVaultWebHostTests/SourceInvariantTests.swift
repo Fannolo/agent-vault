@@ -1,5 +1,6 @@
 import AgentVaultCredentials
 @testable import AgentVaultWebHost
+import AgentVaultWebHostProtocol
 import AgentVaultContracts
 import Foundation
 import Testing
@@ -81,7 +82,12 @@ private let hostSources: [(name: String, text: String)] = {
             // Only the fill recipe ever receives the credential.
             #expect(recipe == .loginFill || !recipe.parameters.contains("password"))
         }
-        let session = hostSources.first { $0.name == "SiteSession.swift" }?.text ?? ""
+        // Every observed string is cut from one budget in the page, at most 6 JSON bytes per unit, plus
+        // fixed per-element structure: far below the pipe's message cap.
+        let structure = SiteObservation.maximumElements * (200 + SiteElement.maximumOptions * 3) + SiteObservation.maximumTextItems * 3
+        #expect(SiteRecipe.observationBudget * 6 + structure < ChromiumPipe.maximumMessageBytes / 2)
+        #expect(SiteRecipe.observe.body.contains("budget -= s.length"))
+                let session = hostSources.first { $0.name == "SiteSession.swift" }?.text ?? ""
         #expect(session.components(separatedBy: "withLoginBytes").count == 2, "one reveal, inside login")
     }
 }

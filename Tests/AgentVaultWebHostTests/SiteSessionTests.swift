@@ -409,4 +409,19 @@ extension RealBrowserTests {
             #expect(back.mode == .agent && back.control > (observed(taken)?.control ?? 0))
         }
     }
+
+    /// Finding 5: one page's observation is bounded before the browser serializes it, so it cannot
+    /// break the shared pipe and end every other session.
+    @Test func anOversizedPageCannotEndTheBrowserForOtherSessions() async throws {
+        try await Host.using { h in
+            let (bystander, _) = await h.open()
+            let (session, _) = await h.open()
+            let huge = try #require(observed(await h.operate(session, .navigate(h.url("/huge")))))
+            #expect(!h.fatal.isSet, "one page ended the shared browser")
+            #expect(observed(await h.observe(bystander))?.path == "/login", "another session was lost")
+            #expect(huge.path == "/huge" && huge.elements.contains { $0.role == .select && !$0.options.isEmpty })
+            let wire = try HostWire.encode(HostResponse(request: HostWire.maximumCounter, run: session, reply: .site(huge)))
+            #expect(wire.count <= HostWire.maximumReplyBytes)
+        }
+    }
 }
