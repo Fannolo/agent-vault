@@ -46,7 +46,9 @@ public enum HostCommand: Sendable, Equatable {
     case siteOperate(session: UUID, operation: UUID, command: SiteCommand)
     /// A person takes control: agent observation and input are refused until release. Takeover and
     /// release answer an observation (at least the page's identity, mode and control epoch) or a
-    /// rejection made before control changed; never a failure that would hide the change.
+    /// rejection: one made before control changed, or `unknownRun` once the session ended, which it
+    /// does when a handover cannot be completed safely (the agent's control is gone either way). Never
+    /// a failure that would hide the change.
     case siteTakeover(session: UUID)
     case siteRelease(session: UUID)
 

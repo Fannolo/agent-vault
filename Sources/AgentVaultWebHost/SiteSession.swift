@@ -42,7 +42,18 @@ actor SiteSession {
     private var target: String?
     private var session: String?
     private var network: RunNetwork<SiteGate>?
-    private var mode = SiteMode.agent
+    /// Who controls the page. A handover is one transition, not a flag: from the step that enters it
+    /// the agent holds nothing, so no agent call is admitted; every takeover meanwhile joins it and a
+    /// release waits for it. Only its last step, after it drained every admitted call and cleared the
+    /// host's fill, gives a person control.
+    private enum Control {
+        case agent
+        case handingOver(Task<Bool, Never>)
+        case human
+    }
+    private var holder = Control.agent
+    /// As the wire states it: during a handover the agent already holds nothing.
+    private var mode: SiteMode { if case .agent = holder { .agent } else { .human } }
     private var auth = SiteAuth.signedOut
     private var control: UInt64 = 1
     private var document: Document?
@@ -52,11 +63,9 @@ actor SiteSession {
     private var operating = false
     private var ended = false
     /// A password the host filled may be in the page: set just before a login sends its fill, and
-    /// reset once a clear of the field was sent.
+    /// reset only once the browser answered a clear of the field. A clear whose answer was lost may
+    /// still run, so it leaves this set.
     private var filled = false
-    /// The clear last started; each runs after the one before. A handover waits for it, so no clear
-    /// lands after a person is told they have control.
-    private var clearing: Task<Void, Never>?
     /// Every call sent under an agent hold, from the actor step that checked the hold until the browser
     /// answers it. One whose answer was lost stays: the browser may still act on it.
     private var admitted: [Admission] = []
@@ -171,7 +180,11 @@ actor SiteSession {
             // person is told they have control, and after that the field may hold what they typed. On a
             // new document there is nothing to clear.
             let signedIn = if case .site = reply { auth == .signedIn } else { false }
-            if signedIn { filled = false } else { await clearFill(while: held).value }
+            if signedIn {
+                filled = false
+            } else if filled, case .sent = await run(.loginClear, origins: policy.navigation + policy.credential, [:], while: held) {
+                filled = false
+            }
             return reply
         }
     }
@@ -202,7 +215,7 @@ actor SiteSession {
         case .sent(.string("origin")?): return .rejected(.credentialOrigin)
         case .sent(.string("unsupported")?): return .rejected(.unsupportedLogin)
         case .sent(.string("ok")?): break
-        case .sent: return .siteUnknown
+        case .sent, .lost: return .siteUnknown
         }
         try? await Task.sleep(for: timing.settle)
         await pause(.loginFilled)
@@ -225,7 +238,7 @@ actor SiteSession {
         guard !ended else { return .rejected(.unknownRun) }
         // Still opening: there is no page to hand over yet, and nothing changes.
         guard document != nil else { return .rejected(.busy) }
-        guard await handToPerson() else { return abandon() }
+        guard await handToPerson() else { return .rejected(.unknownRun) }
         return await controlReply()
     }
 
@@ -233,8 +246,15 @@ actor SiteSession {
     func release() async -> HostReply {
         guard !ended else { return .rejected(.unknownRun) }
         guard document != nil else { return .rejected(.busy) }
-        if mode == .human {
-            fence(.agent)
+        // A handover under way finishes first: control never passes back while it still drains agent
+        // calls or clears the host's fill.
+        while case .handingOver(let handover) = holder {
+            guard await handover.value else { return .rejected(.unknownRun) }
+        }
+        if case .human = holder {
+            holder = .agent
+            control += 1
+            restorePhase()
             // The person decided to return control; the page's state is reported, not enforced.
             if auth != .signedOut && auth != .signedIn { await judgeLogin(handOver: false) }
         }
@@ -242,12 +262,19 @@ actor SiteSession {
     }
 
     /// Control may just have changed hands, so the reply always carries the mode and control epoch:
-    /// a page that cannot be read yields its last known identity instead of a failure.
+    /// a page that cannot be read yields its last known identity instead of a failure. The reply names
+    /// control as it stands when it leaves: a handover under way is waited for, and a page read while
+    /// control moved is read again.
     private func controlReply() async -> HostReply {
-        let reply = await observation()
-        guard case .failed = reply, let page = document else { return reply }
-        return .site(summary(page.epoch))
+        while true {
+            if case .handingOver(let handover) = holder, !(await handover.value) { return .rejected(.unknownRun) }
+            var reply = await observation()
+            if case .failed = reply, let page = document { reply = .site(summary(page.epoch)) }
+            guard case .site(let page) = reply, page.control != control || isHandingOver else { return reply }
+        }
     }
+
+    private var isHandingOver: Bool { if case .handingOver = holder { true } else { false } }
 
     /// Whether the agent still holds the control generation an operation began under. Takeover and
     /// release both bump `control`, so after any suspension an operation goes on only while this holds.
@@ -258,51 +285,54 @@ actor SiteSession {
         ended ? .rejected(.unknownRun) : mode == .human ? .rejected(.humanControl) : .rejected(.staleTarget)
     }
 
-    /// Control passes to a person, if it has not already. Before anyone is told the person has
-    /// control: every agent call not yet queued is withdrawn and never sent, every queued one has been
-    /// answered, a password the host filled for a login that has not finished is cleared, and any clear
-    /// already started has finished. From then on the field may hold what they typed, and the host
-    /// never touches it. False if an agent call's answer was lost: it may still act, so no one can
-    /// be given control of this page.
+    /// Control passes to a person, through the handover under way if there is one. True once the
+    /// person holds control; false if the session ended instead.
     private func handToPerson() async -> Bool {
-        if mode == .agent { fence(.human); clearFill(while: nil) }
+        switch holder {
+        case .human: return true
+        case .handingOver(let handover): return await handover.value
+        case .agent:
+            let handover = Task { await handOver() }
+            holder = .handingOver(handover)
+            control += 1
+            restorePhase()
+            return await handover.value
+        }
+    }
+
+    /// The one handover from the agent to a person. No agent call can be admitted any more, so the
+    /// calls in `admitted` are all that can still reach the page: those not yet queued are withdrawn and
+    /// never sent, the queued ones are waited for. Only then is a password the host filled cleared, and
+    /// only a clear the browser answered counts. From then on the field may hold what the person types,
+    /// and the host never touches it. A lost answer, of an agent call or of the clear, means the browser
+    /// may still act on the page: the session ends instead, and no one is told they have control.
+    private func handOver() async -> Bool {
         var queued: [Admission] = []
         for call in admitted where call.withdraw() { queued.append(call) }
-        for call in queued { guard await call.answered() else { return false } }
-        await clearing?.value
+        for call in queued { guard await call.answered() else { return abandon() } }
+        if filled {
+            await pause(.clearing)
+            switch await run(.loginClear, origins: policy.navigation + policy.credential, [:]) {
+            case .lost: return abandon()
+            case .sent: filled = false
+            // Never sent (no world for the document): it cannot run later.
+            case .notRun: break
+            }
+        }
+        guard !ended else { return abandon() }
+        holder = .human
         return true
     }
 
     /// Ends the session, which can no longer hand its page to a person: the host disposes its context.
-    private func abandon() -> HostReply {
+    private func abandon() -> Bool {
         ended = true
         network?.phase = .locked
-        return .rejected(.unknownRun)
+        return false
     }
 
     /// Whether the session ended, including by abandoning a handover.
     var isEnded: Bool { ended }
-
-    /// Starts clearing the password the host filled, after any clear already started, and only while
-    /// `held` lasts if given.
-    @discardableResult
-    private func clearFill(while held: UInt64?) -> Task<Void, Never> {
-        let previous = clearing
-        let clear = Task {
-            await previous?.value
-            guard filled else { return }
-            await pause(.clearing)
-            if case .sent = await run(.loginClear, origins: policy.navigation + policy.credential, [:], while: held) { filled = false }
-        }
-        clearing = clear
-        return clear
-    }
-
-    private func fence(_ next: SiteMode) {
-        mode = next
-        control += 1
-        restorePhase()
-    }
 
     /// The network phase that matches who is in control; never reopens an ended session.
     private func restorePhase() {
@@ -322,7 +352,7 @@ actor SiteSession {
         }
         if state["code"]?.bool == true {
             auth = .humanRequired
-            if handOver && mode == .agent, !(await handToPerson()) { _ = abandon() }
+            if handOver, case .agent = holder { _ = await handToPerson() }
         } else if state["password"]?.bool == true {
             auth = .rejected
         } else {
@@ -384,7 +414,7 @@ actor SiteSession {
         case .sent(.string("ok")?): break
         case .sent(.string("kind")?): return .rejected(.notPermitted)
         case .sent(.string?): return .rejected(.staleTarget)
-        case .sent: return .siteUnknown
+        case .sent, .lost: return .siteUnknown
         }
         return await dispatched(loadedAfter: nil)
     }
@@ -518,10 +548,12 @@ actor SiteSession {
         return Int(world)
     }
 
-    /// Whether a recipe call was never sent, or was sent (with its value, if it answered).
+    /// Whether a recipe call was never sent, was answered (with its value, `nil` if it threw), or was
+    /// sent and its answer lost: then it may still run.
     private enum Ran {
         case notRun
         case sent(JSONValue?)
+        case lost
         var value: JSONValue? { if case .sent(let value) = self { value } else { nil } }
     }
 
@@ -547,8 +579,8 @@ actor SiteSession {
         switch answer {
         case .success(let result): return .sent(result["exceptionDetails"] == nil ? result["result"]?["value"] : nil)
         // An error answer (for example, the document's world is gone) means it never ran; a
-        // timeout or a lost browser may come after it ran.
-        case .failure(let error): return error == .protocolError ? .notRun : .sent(nil)
+        // timeout or a lost browser may come before it runs.
+        case .failure(let error): return error == .protocolError ? .notRun : .lost
         }
     }
 

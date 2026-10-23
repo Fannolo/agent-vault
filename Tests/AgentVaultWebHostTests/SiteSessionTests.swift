@@ -704,6 +704,189 @@ extension RealBrowserTests {
     }
 }
 
+/// What a reply says about who controls the page.
+private func control(_ reply: HostReply) -> String {
+    observed(reply).map { $0.mode.rawValue } ?? "\(reply)"
+}
+
+// Regressions for the source-review findings on 84ef816 (verification-logs/continuing-site/astra-review-v4.md):
+// a handover is one transition that every takeover joins and a release waits for.
+extension RealBrowserTests {
+    /// Finding 1: the handover's clear of the host's fill gets no answer, so the browser may still run
+    /// it after a person was told they have control. The takeover never claims control: the session
+    /// ends and its context is disposed, while other sessions go on.
+    @Test func aHandoverWhoseClearGetsNoAnswerEndsTheSessionInsteadOfClaimingControl() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            let (bystander, _) = await h.open()
+            h.site.loginPage = .fillHangsPage
+            let (session, _) = await h.open()
+            #expect(await eventually { h.site.passwordField == "empty" })
+            let takeover = Slot<HostReply>(), fieldAtAnswer = Slot<String>(), filledAt = Slot<Date>()
+            at(.loginFilled, of: session) {
+                // The page reported the host's fill; from 300 ms after the fill it is busy for 22 seconds.
+                #expect(await eventually { h.site.passwordField == "other" })
+                filledAt.value = Date()
+                try? await Task.sleep(for: .milliseconds(400))
+                takeover.value = await h.service.perform(.siteTakeover(session: session))
+                fieldAtAnswer.value = h.site.passwordField
+            }
+            #expect(await h.login(session) == .siteUnknown)
+            #expect(takeover.value == .rejected(.unknownRun), "control claimed while the clear may still run: \(String(describing: takeover.value))")
+            // Past the page's busy time: a clear still queued in its renderer would have run by now.
+            let started = try #require(filledAt.value)
+            let remaining = 24 - Date().timeIntervalSince(started)
+            if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
+            #expect(h.site.passwordField == fieldAtAnswer.value, "the host's clear ran after the takeover answered")
+            #expect(await h.observe(session) == .rejected(.unknownRun))
+            #expect(await h.service.perform(.siteTakeover(session: session)) == .rejected(.unknownRun))
+            #expect(!h.fatal.isSet)
+            #expect(await h.service.liveSessions == 1)
+            #expect(observed(await h.observe(bystander))?.path == "/login", "another session was lost")
+        }
+    }
+
+    /// Finding 2: a release while a takeover waits for an agent call cannot hand control back before
+    /// that takeover is done, and no agent call is admitted meanwhile. Otherwise a key the agent sends
+    /// after the release reaches the page after the first takeover told the person they have control.
+    @Test func aReleaseCannotGiveTheAgentControlWhileATakeoverIsStillDraining() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil; ChromiumPipe.queueing.disarm() }
+            let (session, _) = await h.open()
+            _ = try #require(observed(await h.operate(session, .navigate(h.url("/effects")))))
+            let events = Timeline(), held = Slot<@Sendable () -> Void>(), first = Flag()
+            let tasks = Slot<[Task<HostReply, Never>]>()
+            // The observation was sent and answered; the session has not yet recorded the answer.
+            at(.afterSend, of: session) {
+                let takeover = Task {
+                    let reply = await h.service.perform(.siteTakeover(session: session))
+                    events.add("takeover \(control(reply))"); first.set()
+                    return reply
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+                let release = Task {
+                    let reply = await h.service.perform(.siteRelease(session: session))
+                    events.add("release \(control(reply))")
+                    return reply
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+                // Held between the pipe claiming it for queueing and the writer receiving it.
+                ChromiumPipe.queueing.arm { proceed in held.value = proceed }
+                let press = Task { await h.operate(session, .press(.escape)) }
+                let refused = Flag()
+                Task { _ = await press.value; refused.set() }
+                _ = await eventually(2) { held.value != nil || refused.isSet }
+                ChromiumPipe.queueing.disarm()
+                let second = Task {
+                    let reply = await h.service.perform(.siteTakeover(session: session))
+                    events.add("takeover \(control(reply))")
+                    return reply
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+                tasks.value = [takeover, release, press, second]
+                events.add("observation answered")
+            }
+            _ = await h.observe(session)
+            #expect(await eventually { first.isSet }, "the first takeover never answered")
+            if let proceed = held.value { events.add("key sent"); proceed() }
+            let all = try #require(tasks.value)
+            for task in all { _ = await task.value }
+            let pressed = await all[2].value
+            #expect(pressed == .rejected(.humanControl), "an agent call was admitted during the handover: \(pressed)")
+            let order = events.all
+            #expect((order.firstIndex { $0.hasPrefix("release") } ?? -1) > (order.firstIndex(of: "observation answered") ?? .max),
+                    "the release answered while the takeover still waited for the observation: \(order)")
+            var personInControl = false
+            for event in order {
+                if event == "takeover human" { personInControl = true }
+                if event.hasPrefix("release") { personInControl = false }
+                if event == "key sent" { #expect(!personInControl, "agent input left after a takeover answered: \(order)") }
+            }
+            try await Task.sleep(for: .milliseconds(500))
+            let back = try #require(observed(await h.service.perform(.siteRelease(session: session))))
+            #expect(!back.text.contains { $0.hasPrefix("key") }, "the page received agent input during the handover: \(back.text)")
+        }
+    }
+
+    /// Finding 3: the login's fill is claimed by the pipe but not yet written when takeover arrives. The
+    /// handover waits for every admitted call before its own clear, so no takeover answers with the
+    /// host's password in the field. A second takeover joins the same handover.
+    @Test func aHandoverClearsTheFillOnlyAfterEveryAdmittedCallIsAnswered() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil; ChromiumPipe.queueing.disarm() }
+            h.site.loginPage = .personEditsPassword
+            let (session, _) = await h.open()
+            #expect(await eventually { h.site.passwordField == "empty" })
+            let held = Slot<@Sendable () -> Void>()
+            at(.loginDocument, of: session) { ChromiumPipe.queueing.arm { proceed in held.value = proceed } }
+            async let login = h.login(session)
+            #expect(await eventually { held.value != nil }, "the fill never reached the pipe")
+            let firstAnswered = Flag(), secondAnswered = Flag()
+            let first = Task {
+                let reply = await h.service.perform(.siteTakeover(session: session)); firstAnswered.set(); return reply
+            }
+            try await Task.sleep(for: .milliseconds(200))
+            let second = Task {
+                let reply = await h.service.perform(.siteTakeover(session: session)); secondAnswered.set(); return reply
+            }
+            try await Task.sleep(for: .milliseconds(500))
+            #expect(!firstAnswered.isSet && !secondAnswered.isSet, "a takeover answered while the fill was still to be written")
+            held.value?()
+            #expect(observed(await first.value)?.mode == .human)
+            #expect(observed(await second.value)?.mode == .human)
+            #expect(await login == .siteUnknown)
+            // Long enough for the page to report the field many times over.
+            try await Task.sleep(for: .milliseconds(500))
+            #expect(h.site.passwordField == "empty", "a takeover answered with the host's fill still in the field")
+            #expect(h.posts.filter { $0.path == "/session" }.isEmpty)
+        }
+    }
+}
+
+extension RealBrowserTests {
+    /// Every reply naming who controls the page is true when it leaves. A release whose page read
+    /// overlaps a new takeover answers only once that takeover's handover is done: here the handover
+    /// waits for a key the agent sent after the release, held before the writer has it.
+    @Test func aControlReplyWaitsForAHandoverThatBeganWhileItReadThePage() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil; ChromiumPipe.queueing.disarm() }
+            let (session, _) = await h.open()
+            _ = try #require(observed(await h.operate(session, .navigate(h.url("/effects")))))
+            #expect(observed(await h.service.perform(.siteTakeover(session: session)))?.mode == .human)
+            let held = Slot<@Sendable () -> Void>(), released = Flag(), taken = Flag()
+            let tasks = Slot<[Task<HostReply, Never>]>()
+            // The release's own read of the page is done; it has not yet checked control again.
+            at(.observed, of: session) {
+                ChromiumPipe.queueing.arm { proceed in held.value = proceed }
+                let press = Task { await h.operate(session, .press(.escape)) }
+                _ = await eventually(2) { held.value != nil }
+                let takeover = Task {
+                    let reply = await h.service.perform(.siteTakeover(session: session)); taken.set(); return reply
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+                tasks.value = [press, takeover]
+            }
+            let release = Task {
+                let reply = await h.service.perform(.siteRelease(session: session)); released.set(); return reply
+            }
+            #expect(await eventually { held.value != nil && tasks.value != nil }, "the key never reached the pipe")
+            try await Task.sleep(for: .milliseconds(500))
+            #expect(!released.isSet && !taken.isSet, "a control reply left while a handover still waited for the key")
+            held.value?()
+            #expect(observed(await release.value)?.mode == .human)
+            let all = try #require(tasks.value)
+            #expect(await all[0].value == .siteUnknown, "the key left before the handover, its key-up never")
+            #expect(observed(await all[1].value)?.mode == .human)
+        }
+    }
+}
+
+private final class Timeline: @unchecked Sendable {
+    private let lock = NSLock(); private var items: [String] = []
+    func add(_ item: String) { lock.withLock { items.append(item) } }
+    var all: [String] { lock.withLock { items } }
+}
+
 private final class Slot<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock(); private var stored: Value?
     var value: Value? {
