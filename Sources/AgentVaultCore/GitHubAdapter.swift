@@ -29,21 +29,9 @@ public final class RejectRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 
 public struct GitHubAdapter: Sendable {
     public static let endpoint = URL(string: "https://api.github.com/user")!
-    private let session: URLSession
-
-    public init() {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = nil
-        configuration.urlCredentialStorage = nil
-        configuration.urlCache = nil
-        configuration.timeoutIntervalForRequest = 15
-        configuration.timeoutIntervalForResource = 20
-        session = URLSession(configuration: configuration, delegate: RejectRedirects(), delegateQueue: nil)
-    }
+    public init() {}
 
     public func profile(credential: Data) async throws -> AccountProfile {
-        // The adapter owns this single-operation delegated session.
-        defer { session.invalidateAndCancel() }
         guard CredentialFormat.isValid(credential, for: .github),
               let token = String(data: credential, encoding: .utf8) else { throw VaultError.invalidInput }
         var request = URLRequest(url: Self.endpoint)
@@ -53,14 +41,7 @@ public struct GitHubAdapter: Sendable {
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         request.setValue("AgentVault/0.1.0", forHTTPHeaderField: "User-Agent")
         do {
-            let (bytes, response) = try await session.bytes(for: request)
-            guard let response = response as? HTTPURLResponse, response.url == Self.endpoint,
-                  response.statusCode == 200 else { throw VaultError.upstreamUnavailable }
-            var body = Data()
-            for try await byte in bytes {
-                guard body.count < 65_536 else { throw VaultError.invalidResponse }
-                body.append(byte)
-            }
+            let body = try await BoundedProfileRequest.load(request, expectedURL: Self.endpoint)
             let profile = try Self.decodeProfile(body)
             guard !profile.login.contains(token) else { throw VaultError.invalidResponse }
             return profile
