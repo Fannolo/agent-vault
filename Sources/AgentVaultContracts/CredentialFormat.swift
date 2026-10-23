@@ -10,36 +10,26 @@ public enum CredentialFormat {
         switch service {
         case .demo: !bytes.isEmpty && bytes.count <= transportMaximum
         case .github: (10...transportMaximum).contains(bytes.count) && bytes.allSatisfy { (0x21...0x7E).contains($0) }
-        case .browserDemo, .githubWeb: WebLoginCredential(bytes) != nil
+        case .browserDemo, .githubWeb: WebLoginFormat.isValid(bytes)
         }
     }
 }
 
 /// UTF-8 `username` LF `password`: at most 4096 bytes in total, a username of at most 255
 /// characters, both parts non-empty and excluding Unicode Cc/Cf control and format scalars.
-/// Unicode separators such as U+2028 remain allowed. Descriptions are redacted.
-public struct WebLoginCredential: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+/// Unicode separators such as U+2028 remain allowed. This validator retains no credential.
+public enum WebLoginFormat {
     public static let maximumBytes = 4096
     public static let maximumUsernameCharacters = 255
-    public let username: String
-    public let password: String
-
-    public init?(_ bytes: Data) {
-        guard bytes.count <= Self.maximumBytes, let text = String(data: bytes, encoding: .utf8) else { return nil }
+    public static func isValid(_ bytes: Data) -> Bool {
+        guard bytes.count <= maximumBytes else { return false }
+        let text = String(decoding: bytes, as: UTF8.self)
+        guard Data(text.utf8) == bytes else { return false }
         let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty,
               parts[0].count <= Self.maximumUsernameCharacters,
               !parts.contains(where: { $0.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) } })
-        else { return nil }
-        username = String(parts[0]); password = String(parts[1])
+        else { return false }
+        return true
     }
-
-    public var description: String { "WebLoginCredential(redacted)" }
-    public var debugDescription: String { description }
-    public var customMirror: Mirror { Mirror(self, children: [:]) }
-}
-
-extension WebLoginCredential: Equatable {
-    /// The canonical `username` LF `password` bytes that `init?(_:)` accepts.
-    public var bytes: Data { Data((username + "\n" + password).utf8) }
 }

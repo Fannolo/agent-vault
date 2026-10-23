@@ -21,6 +21,41 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "Packages/VaultCore"
+
+table_spec = importlib.util.spec_from_file_location("membership_spec", ROOT / "scripts/membership_spec.py")
+tables = importlib.util.module_from_spec(table_spec)
+table_spec.loader.exec_module(tables)
+ORIGINAL_SOURCE = tables.ORIGINAL_SOURCE
+ORIGINAL_FILES = tables.ORIGINAL_FILES
+ORIGINAL_NAMES = tables.ORIGINAL_NAMES
+EXCHANGE_LIMITS = tables.EXCHANGE_LIMITS
+MAX_EXCHANGE = tables.MAX_EXCHANGE
+MAX_EXCHANGE_JSON = tables.MAX_EXCHANGE_JSON
+U1_SCHEMA = tables.U1_SCHEMA
+U1_SOURCE = tables.U1_SOURCE
+U1_FILES = tables.U1_FILES
+U1_NAMES = tables.U1_NAMES
+CORPUS_SHA = tables.CORPUS_SHA
+TABLE_SHA = tables.TABLE_SHA
+CRYPTO_REVISION = tables.CRYPTO_REVISION
+READER_SOURCE = tables.READER_SOURCE
+PRODUCER_TEST = tables.PRODUCER_TEST
+READER_TEST = tables.READER_TEST
+CASE_PREFIX = tables.CASE_PREFIX
+RESULT_PREFIX = tables.RESULT_PREFIX
+CORPUS_PREFIX = tables.CORPUS_PREFIX
+OPENSSL = tables.OPENSSL
+EXCHANGE_ORDER = tables.EXCHANGE_ORDER
+BODY_PINS = tables.BODY_PINS
+HEADS = tables.HEADS
+CASE_TABLE = tables.CASE_TABLE
+ORACLE_KEYS = tables.ORACLE_KEYS
+ORACLE_SEEDS = tables.ORACLE_SEEDS
+READER_FAILURE_REMARKS = tables.READER_FAILURE_REMARKS
+U1_DETECTORS = tables.U1_DETECTORS
+U1_MUTATIONS = tables.U1_MUTATIONS
+EXCHANGE_STEPS = tables.EXCHANGE_STEPS
+MUTATIONS = tables.MUTATIONS
 EXPECTED_SOURCE = "8d2470defaadd67e255535186c35d876fc80f932a647e4eb83a449f8cf29f076"
 IMAGE = "swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197"
 TARGET = "lowOrderEncapsulationRejectedAfterSignatureAndContext"
@@ -41,9 +76,9 @@ SENTINELS += [b"AV_MEMBERSHIP_U1_SYNTHETIC_CANARY_5E3B91A4", b"synthetic-member"
     bytes([value]) * 32 for value in (0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xD1, 0xD2, 0xD5, 0xD6, *range(0xE0, 0x100))]
 SENTINELS += [bytes([0xC1]).decode("utf-8", "replace").encode("utf-8") * 32]
 HARNESS = (
-    "scripts/verify-membership.py", "scripts/verify-membership-controls.py",
+    "scripts/verify-membership.py", "scripts/verify-membership-controls.py", "scripts/membership_spec.py",
     "deploy/tests/test_membership_verifier.py", "scripts/verify-portable-vault.py",
-    "scripts/verify-webhost-link-mutations.py", "scripts/verify-boundaries.py",
+    "scripts/verify-webhost-link-mutations.py", "scripts/verify-boundaries.py", "scripts/credential_boundaries.py",
     "deploy/tests/test_vault_fixture_boundary.py", ".github/workflows/ci.yml",
 )
 
@@ -98,45 +133,6 @@ def package_snapshot(package):
 # Accepted U0 baseline SHA256
 # 5218bc766b05c099141fd7e8fd9317634f1c58620c30dcb35e0d37ffe1efcd2e.
 # Never regenerate these pins from a combined package or transferred artifacts.
-ORIGINAL_SOURCE = "8d2470defaadd67e255535186c35d876fc80f932a647e4eb83a449f8cf29f076"
-ORIGINAL_FILES = {
-    "Package.swift": {"size": 547, "sha256": "86418ff81c07f714f3d4e259f81269e13bbeea47089b8b997669ad92624b8721"},
-    "Package.resolved": {"size": 656, "sha256": "655e0a19222701d26fbd709837787af9e3d7a867d2c2e44ebbd966c6e86a747a"},
-    "Sources/VaultCore/Binary.swift": {"size": 3666, "sha256": "98ba8309a66aa91c023094ddaebf0f19c2d154635b30d9376b42fbc565a3b6b9"},
-    "Sources/VaultCore/Model.swift": {"size": 3260, "sha256": "699579e13c8ddf7ce6d5415439de7906e74466440e163aeb5a994efa3c698625"},
-    "Sources/VaultCore/Record.swift": {"size": 4204, "sha256": "5f44daaf42b2654932402d44f1a7d43ca516c33b4267ec70400495a847f82f3a"},
-    "Sources/VaultCore/RevisionCodec.swift": {"size": 4192, "sha256": "fb7cbec6b8697ee90b7ed071aa694aefc8f6db2ad44905b2974dbbe5ee29cdef"},
-    "Sources/VaultCore/RevisionLog.swift": {"size": 1774, "sha256": "624cb1d64808dc2bce55aeb300d0d9eab32366ebeed2c98dd38ff8c67bfdc047"},
-    "Tests/VaultCoreTests/AssociatedDataTests.swift": {"size": 5467, "sha256": "fe19fc069c713208d6638ae466273b172040cb4ab9d83ed7bcecfb8d1eb84687"},
-    "Tests/VaultCoreTests/Fixtures.swift": {"size": 4874, "sha256": "94824c3350cb6173511d7e5864fa3cc9d2557630ba4e0d936dbfdf9151c6de0e"},
-    "Tests/VaultCoreTests/FreezeRegressionTests.swift": {"size": 3172, "sha256": "61fdf53ce13502cb6ce4eb50516bdae027f8ca3e3ef82c0f4e5415dcbd5e4b70"},
-    "Tests/VaultCoreTests/LowOrderTests.swift": {"size": 9110, "sha256": "3bd8bf550430e5ee673c94e3a58b4d1c053db18e7fcf2ea5ecca782736078b4b"},
-    "Tests/VaultCoreTests/ParserTests.swift": {"size": 7097, "sha256": "cd71fb500928d1b20cbac75574dd29f7eeafc7081fac61964dee9a5225cf6659"},
-    "Tests/VaultCoreTests/RevisionTests.swift": {"size": 8381, "sha256": "07028ee96b22a8c88477fcfc0ef71f600c8269229ffc6ecaf1bb309cf0f801f0"},
-}
-ORIGINAL_NAMES = (
-    "allRecipientsAndUnrelatedKey", "authenticatedMalformedPlaintextStaysMalformed",
-    "bomPrefixedUsernamePreservesExactUTF8", "contextComparisonsAndTransplantBinding",
-    "ed25519ScalarPlusOrderRejectedByOpenAndLog", "fixtureExchange",
-    "freshNonceEncapsulationAndDataKey", "logPinsAuthorsAndVaultAndStoresExactBytes",
-    "lowOrderEncapsulationRejectedAfterSignatureAndContext",
-    "lowOrderRecipientValidationPreventsPublicRecovery", "malformedHeadersLengthsAndTruncation",
-    "maximumRecipientCountRoundTrips", "nonzeroStartSlicesOpenAndLogInsertDuplicateConflict",
-    "payloadAuthenticationCheckedAfterValidWraps", "plaintextParserBoundsUTF8AndCanonicalOrigins",
-    "resignedPayloadAndEnvelopeTampering", "sealInputBoundsAndCanonicalOrdering",
-    "secretDescriptionsAreRedacted", "signatureCheckedBeforeIdentityAndDecryption",
-    "signedNoncanonicalParentsAndRecipientsAreMalformed", "wireLayoutAndAADMatchContract",
-)
-EXCHANGE_LIMITS = {
-    name: (233, 1287) for name in (
-        "genesis.avm", "add-reader.avm", "remove-reader.avm", "fork-at-1.avm",
-        "contradiction-at-2.avm", "gap-at-3.avm")
-}
-EXCHANGE_LIMITS.update({name: (1, 266499) for name in (
-    "head0.avseal", "head1.avseal", "head2.avseal", "bad-signature.avseal",
-    "incomplete-recipients.avseal", "bad-encapsulation.avseal", "corrupt-wrap.avseal")})
-MAX_EXCHANGE = 1873215
-MAX_EXCHANGE_JSON = 64 * 1024
 
 
 def u1_package_snapshot(package, frozen_files):
@@ -316,6 +312,8 @@ def snapshot():
             "imported_helper_path_mismatch")
     require(Path(owned.__file__).resolve() == (ROOT / "scripts/verify-webhost-link-mutations.py").resolve(),
             "imported_helper_path_mismatch")
+    require(Path(tables.__file__).resolve() == (ROOT / "scripts/membership_spec.py").resolve(),
+            "imported_helper_path_mismatch")
     return {"package": package, "inputs": inputs}
 
 
@@ -463,7 +461,7 @@ def suite_commands(state, platform, names, unit="u0"):
     else:
         require(unit == "u0", "unsupported_unit")
     return ([*prefix, "swift", "build", *options, "--force-resolved-versions", "--build-tests", "--jobs", "4"],
-            [*prefix, "swift", "test", *options, "--skip-build", *selection])
+            [*prefix, "swift", "test", *options, "--skip-build", *(["--no-parallel"] if unit == "u1" else []), *selection])
 
 
 def test_package(run, state, platform, label, names, *, mutant=False, unit="u0", control_id=None):
@@ -473,6 +471,9 @@ def test_package(run, state, platform, label, names, *, mutant=False, unit="u0",
     build_code, build_output = run(build_label, build, timeout=1500)
     require(build_code == 0, "build_exit_failed")
     require(re.search(r"^Build complete!", build_output, re.M) is not None, "build_completion_missing")
+    if mutant and platform == "native" and control_id is None:
+        require(re.search(r"^\[\d+/\d+\] Compiling VaultCore RevisionCodec\.swift$", build_output, re.M)
+                is not None, "masked_mutant_compilation_unconfirmed")
     scanner_error = None
     try:
         code, output = run(test_label, test, timeout=180, required=False)
@@ -629,195 +630,6 @@ def verify_baseline(path, expected):
     return {"path": str(path.resolve()), "sha256": sha(data), "size": len(data)}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--unit", choices=("u0", "u1"), default="u0")
-    args = parser.parse_args()
-    state, report, run = recording("baseline", unit=args.unit)
-    failure = None
-    try:
-        if args.unit == "u1":
-            u1_baseline(run, state, report)
-        else:
-            run("guard", [sys.executable, str(ROOT / "scripts/verify-boundaries.py")])
-            runtime_and_container(run, state)
-            names = suite_names(PACKAGE)
-            report["suites"] = {}
-            for platform in ("native", "linux"):
-                report["suites"][platform] = test_package(run, state, platform, "baseline", names)
-    except BaseException as error:
-        failure = error
-    failure = finish(report, state, run, report["snapshot"], failure, unit=args.unit)
-    if failure is not None:
-        raise failure
-    print(state["evidence"] / "result.json")
-
-U1_SCHEMA = "membership-u1-v1"
-U1_SOURCE = "82a8de6cdcc79dacf468dc51b82ee4995beb5f7bd916e70da6428c920f5dbdd9"
-U1_FILES = {'Package.resolved': {'sha256': '655e0a19222701d26fbd709837787af9e3d7a867d2c2e44ebbd966c6e86a747a',
-                      'size': 656},
- 'Package.swift': {'sha256': '86418ff81c07f714f3d4e259f81269e13bbeea47089b8b997669ad92624b8721', 'size': 547},
- 'Sources/VaultCore/Binary.swift': {'sha256': '98ba8309a66aa91c023094ddaebf0f19c2d154635b30d9376b42fbc565a3b6b9',
-                                    'size': 3666},
- 'Sources/VaultCore/FixtureController.swift': {'sha256': 'a3740eebd71c11c87bce4a986c21c5ad7ac163bc8cf7cd1f8b804cf16c2126e1',
-                                               'size': 3173},
- 'Sources/VaultCore/MembershipCodec.swift': {'sha256': '702a09c87a61f5cb076895305f88077233b43770e47118dec12649d6b78bc164',
-                                             'size': 6792},
- 'Sources/VaultCore/MembershipSession.swift': {'sha256': '3e84164a8e9df77e6f3da1cb2a2e35e6132816fda773da5a8b947e60fc2778e0',
-                                               'size': 5399},
- 'Sources/VaultCore/MembershipTypes.swift': {'sha256': '7ce2724ad176b861a374d91b789a902a85ea21b312bd6e25802b2cbd204971b0',
-                                             'size': 7189},
- 'Sources/VaultCore/Model.swift': {'sha256': '699579e13c8ddf7ce6d5415439de7906e74466440e163aeb5a994efa3c698625',
-                                   'size': 3260},
- 'Sources/VaultCore/Record.swift': {'sha256': '5f44daaf42b2654932402d44f1a7d43ca516c33b4267ec70400495a847f82f3a',
-                                    'size': 4204},
- 'Sources/VaultCore/RevisionAuthorization.swift': {'sha256': '552f72c1b260747e1eaf678f423eb46cebb0f8938c5bbc55608413bc1d1d7707',
-                                                   'size': 2712},
- 'Sources/VaultCore/RevisionCodec.swift': {'sha256': 'fb7cbec6b8697ee90b7ed071aa694aefc8f6db2ad44905b2974dbbe5ee29cdef',
-                                           'size': 4192},
- 'Sources/VaultCore/RevisionLog.swift': {'sha256': '624cb1d64808dc2bce55aeb300d0d9eab32366ebeed2c98dd38ff8c67bfdc047',
-                                         'size': 1774},
- 'Tests/VaultCoreTests/AssociatedDataTests.swift': {'sha256': 'fe19fc069c713208d6638ae466273b172040cb4ab9d83ed7bcecfb8d1eb84687',
-                                                    'size': 5467},
- 'Tests/VaultCoreTests/Fixtures.swift': {'sha256': '94824c3350cb6173511d7e5864fa3cc9d2557630ba4e0d936dbfdf9151c6de0e',
-                                         'size': 4874},
- 'Tests/VaultCoreTests/FreezeRegressionTests.swift': {'sha256': '61fdf53ce13502cb6ce4eb50516bdae027f8ca3e3ef82c0f4e5415dcbd5e4b70',
-                                                      'size': 3172},
- 'Tests/VaultCoreTests/LowOrderTests.swift': {'sha256': '3bd8bf550430e5ee673c94e3a58b4d1c053db18e7fcf2ea5ecca782736078b4b',
-                                              'size': 9110},
- 'Tests/VaultCoreTests/MembershipExchangeTests.swift': {'sha256': 'c27efc6c263fe899b58ed2fd764be2e75d63d0bb0ef3b558b234472a31e16955',
-                                                        'size': 9398},
- 'Tests/VaultCoreTests/MembershipFixtures.swift': {'sha256': '16ec17672fec1f27c19634716c28f611f511f5324eb9e1e3c8795a38772813bb',
-                                                   'size': 14676},
- 'Tests/VaultCoreTests/MembershipReaderFixtures.swift': {'sha256': '3540cd23c04488734056bcec0716566986063e8fa88c87ca1f9f1e4d28b91c73',
-                                                         'size': 21928},
- 'Tests/VaultCoreTests/MembershipTests.swift': {'sha256': '3afefd77da54c3b810011767ad03f29dfe45c628501ba23135ddd49710d61ce0',
-                                                'size': 32570},
- 'Tests/VaultCoreTests/ParserTests.swift': {'sha256': 'cd71fb500928d1b20cbac75574dd29f7eeafc7081fac61964dee9a5225cf6659',
-                                            'size': 7097},
- 'Tests/VaultCoreTests/RevisionAuthorizationTests.swift': {'sha256': '2e61b45b9afa9ec54851f5bbe5082c0db4a0b8234b36799dfc8b422d054147ca',
-                                                           'size': 19384},
- 'Tests/VaultCoreTests/RevisionTests.swift': {'sha256': '07028ee96b22a8c88477fcfc0ef71f600c8269229ffc6ecaf1bb309cf0f801f0',
-                                              'size': 8381},
- 'Tests/VaultCoreTests/SignatureCompatibilityTests.swift': {'sha256': '53ec6399ff738b9596e0f418494f3d2fa555f1e910251114eed9e4c83ec9c370',
-                                                            'size': 3991},
- 'Tests/VaultCoreTests/SignatureCorpus.swift': {'sha256': '9bedd0d081b524f8d32427c73f4a03ae7c053197467ebfa8d7be01517df1479c',
-                                                'size': 40660}}
-U1_NAMES = ('allRecipientsAndUnrelatedKey',
- 'authenticatedMalformedPlaintextStaysMalformed',
- 'bomPrefixedUsernamePreservesExactUTF8',
- 'contextComparisonsAndTransplantBinding',
- 'ed25519ScalarPlusOrderRejectedByOpenAndLog',
- 'fixtureExchange',
- 'freshNonceEncapsulationAndDataKey',
- 'logPinsAuthorsAndVaultAndStoresExactBytes',
- 'lowOrderEncapsulationRejectedAfterSignatureAndContext',
- 'lowOrderRecipientValidationPreventsPublicRecovery',
- 'malformedHeadersLengthsAndTruncation',
- 'maximumRecipientCountRoundTrips',
- 'membershipBodyIdentityIgnoresSignatureRandomization',
- 'membershipBootstrapRejectsUntrustedGenesis',
- 'membershipChangedWriterAtObservedSequenceLatches',
- 'membershipContiguousLineageAndDuplicates',
- 'membershipDiagnosticsAreRedacted',
- 'membershipExchangeProduce',
- 'membershipExchangeRead',
- 'membershipExchangeScriptCoversEveryArtifactAndReaderDifference',
- 'membershipForgedSuccessorIsRejectedUnchanged',
- 'membershipHistoryCapacityAndAtomicity',
- 'membershipHostileStructureIsMalformedWithoutState',
- 'membershipLineageContradictionAndGaps',
- 'membershipMemberPolicyAndKeyHostility',
- 'membershipMintingRejectsInvalidAuthority',
- 'membershipObservedSequenceForkLatches',
- 'membershipObservedSequenceForksAndPoisoningResistance',
- 'membershipSequenceArithmeticIsChecked',
- 'membershipSignedGapIsMissingPredecessor',
- 'membershipWireLayoutMatchesContract',
- 'membershipWriterDisableRetainOmitAndReenable',
- 'membershipWrongParentLatchesLineageContradiction',
- 'nonzeroStartSlicesOpenAndLogInsertDuplicateConflict',
- 'payloadAuthenticationCheckedAfterValidWraps',
- 'plaintextParserBoundsUTF8AndCanonicalOrigins',
- 'resignedPayloadAndEnvelopeTampering',
- 'revisionAuthorizationCheckOrder',
- 'revisionAuthorizationIdentityAndCapability',
- 'revisionCurrentHeadLimitationAndRequestingRecipient',
- 'revisionEveryEncapsulationIsValidated',
- 'revisionFromDisabledWriterIsUnauthorized',
- 'revisionMaliciousWriterBounds',
- 'revisionMissingRecipientIsRejected',
- 'revisionPolicyOpenReturnsSyntheticItem',
- 'revisionRecipientSetMustMatchExactly',
- 'revisionStaleAfterNoOpSuccessor',
- 'revisionUnselectedLowOrderEncapsulationIsRejected',
- 'sealInputBoundsAndCanonicalOrdering',
- 'secretDescriptionsAreRedacted',
- 'signatureCheckedBeforeIdentityAndDecryption',
- 'signedNoncanonicalParentsAndRecipientsAreMalformed',
- 'wireLayoutAndAADMatchContract',
- 'wycheproofEd25519ExpectedOutcomes',
- 'wycheproofEd25519TableProvenanceAndCoverage')
-
-CORPUS_SHA = "496a1ecd43c48c74355ee170a498064e4b1c89162b84c0322352450f1fce34e9"
-TABLE_SHA = "e8ab9314a0f44531529f582847f21bb3acda8a416bd10fc8ece92ebd58077088"
-CRYPTO_REVISION = "c2cbadd7263439d8015189668f96ff5b5be565ce"
-READER_SOURCE = "Tests/VaultCoreTests/MembershipReaderFixtures.swift"
-PRODUCER_TEST = "membershipExchangeProduce"
-READER_TEST = "membershipExchangeRead"
-CASE_PREFIX = "AV_MEMBERSHIP_CASE_V1 "
-RESULT_PREFIX = "AV_MEMBERSHIP_RESULT_V1 "
-CORPUS_PREFIX = "AV_SIGNATURE_CORPUS_V1 "
-OPENSSL = "/opt/homebrew/bin/openssl"
-EXCHANGE_ORDER = (
-    "genesis.avm", "add-reader.avm", "remove-reader.avm", "head0.avseal", "head1.avseal", "head2.avseal",
-    "bad-signature.avseal", "incomplete-recipients.avseal", "bad-encapsulation.avseal", "corrupt-wrap.avseal",
-    "fork-at-1.avm", "contradiction-at-2.avm", "gap-at-3.avm",
-)
-BODY_PINS = {
-    "genesis.avm": "a7b6578a9dc51eb7b3b2966b55c79db0daa6ced89851cd2a4d8714c797c16eaf",
-    "add-reader.avm": "368357653056c0d54205dbd259f3f575ee2c4ce1c8f2ed7f6247ee8d6504bd79",
-    "remove-reader.avm": "dbbfc5dcead52a8e76f69534790a5d9078516e5777cbcdecf68ff787cb8d251f",
-    "gap-at-3.avm": "4630ded00a362488d993f2fe1d4ef679abc0d37c731c0c1ed38e1b43f90d30b4",
-    "fork-at-1.avm": "5ac8f9d140e8490ae14dd7d842b8e9df2bc4d749ef6de805c427bcc013fb0117",
-    "contradiction-at-2.avm": "d829a5fb8e851dc488bcbb04b7db55cad538cb7bc8591581f39b86f788400866",
-}
-HEADS = tuple(BODY_PINS[n] for n in ("genesis.avm", "add-reader.avm", "remove-reader.avm", "gap-at-3.avm"))
-CASE_TABLE = (
-    ("main.init.genesis", "initialized", 0),
-    ("main.open.head0", "opened", 0),
-    ("main.advance.add-reader", "advanced", 1),
-    ("main.advance.genesis-duplicate", "duplicate", 1),
-    ("main.open.head0-stale", "staleMembership", 1),
-    ("main.open.head1", "opened", 1),
-    ("main.authorize.bad-signature", "badSignature", 1),
-    ("main.authorize.incomplete-recipients", "recipientSetMismatch", 1),
-    ("main.authorize.bad-encapsulation", "invalidEncapsulation", 1),
-    ("main.authorize.corrupt-wrap", "authorized", 1),
-    ("main.open.corrupt-wrap", "opened", 1),
-    ("main.advance.gap-at-3", "missingPredecessor", 1),
-    ("main.advance.remove-reader", "advanced", 2),
-    ("main.advance.add-reader-duplicate", "duplicate", 2),
-    ("main.open.head1-stale", "staleMembership", 2),
-    ("main.open.head2", "opened", 2),
-    ("main.advance.gap-at-3-linked", "advanced", 3),
-    ("main.open.head2-stale", "staleMembership", 3),
-    ("fork.init.genesis", "initialized", 0),
-    ("fork.advance.add-reader", "advanced", 1),
-    ("fork.advance.fork-at-1", "membershipFork", 1),
-    ("fork.advance.remove-reader-terminal", "membershipFork", 1),
-    ("fork.authorize.head1-terminal", "membershipFork", 1),
-    ("fork.open.head1-terminal", "membershipFork", 1),
-    ("contradiction.init.genesis", "initialized", 0),
-    ("contradiction.advance.add-reader", "advanced", 1),
-    ("contradiction.advance.contradiction-at-2", "membershipFork", 1),
-    ("contradiction.advance.remove-reader-terminal", "membershipFork", 1),
-    ("contradiction.open.head1-terminal", "membershipFork", 1),
-)
-ORACLE_KEYS = ("controller", "writer", "writer-agreement", "reader-a", "reader-b")
-ORACLE_SEEDS = (("ed25519", 0xC1), ("ed25519", 0xC2), ("x25519", 0xC3), ("x25519", 0xD1), ("x25519", 0xD2))
-
-
 def closed(value, keys, code):
     require(isinstance(value, dict) and set(value) == set(keys), code)
 
@@ -895,6 +707,7 @@ def u1_snapshot():
         paths.extend(p.relative_to(ROOT).as_posix() for p in sorted((ROOT / part).rglob("*.swift")))
     require(Path(portable.__file__).resolve() == ROOT / "scripts/verify-portable-vault.py"
             and Path(owned.__file__).resolve() == ROOT / "scripts/verify-webhost-link-mutations.py", "imported_helper_path_mismatch")
+    require(Path(tables.__file__).resolve() == ROOT / "scripts/membership_spec.py", "imported_helper_path_mismatch")
     return {"package": package, "names": names, "inputs": {name: file_record(ROOT / name) for name in paths},
             "reader_custody": reader_custody(PACKAGE), "corpus_source": CORPUS_SHA, "corpus_table": TABLE_SHA,
             "recorder": {"path": "scripts/verify-membership.py", **file_record(Path(__file__))},
@@ -1106,12 +919,6 @@ def exchange_result(code, output, platform, role, manifest, bodies, reader=None)
     return value
 
 
-READER_FAILURE_REMARKS = (
-    "↳ /// Separate reader process entry point. AV_MEMBERSHIP_READ_DIR names an exchange directory and",
-    "↳ /// AV_MEMBERSHIP_READER is exactly A or B. Without them this test performs no fixture I/O.",
-)
-
-
 def runtime_failure(code, output, name, location, message, detail=None, *, remarks=()):
     """Pinned native grammar. Linux must match exactly or block, with no fallback."""
     if type(code) is not int or code != 1 or "[output capture ended" in output:
@@ -1238,33 +1045,44 @@ def checked_reader(run, state, report, platform, label, directory, reader, manif
     return result
 
 
-def exchange_direction(run, state, report, producer, bodies):
+def exchange_direction(run, state, report, producer, bodies, *, replay=False):
+    """Run or replay the identical fixed exchange; replay never creates corpus files."""
     root = state["evidence"]
     consumer = "linux" if producer == "native" else "native"
     directory, negative = producer + "-corpus", producer + "-negative"
-    label = producer + "-produce"
-    code, output = run_fixture(run, state, producer, label, directory)
-    manifest = validate_fixture_files(root, directory, bodies)
-    report["exchange_snapshots"][directory] = manifest
-    exchange_result(code, output, "macos" if producer == "native" else "linux", "producer", manifest, bodies)
-    readers = {}
-    for role in ("A", "B"):
-        label = producer + "-read-" + role.lower()
+    readers, manifest, negative_record = {}, None, None
+    for suffix, kind, role in EXCHANGE_STEPS:
+        label = producer + "-" + suffix
+        if kind == "producer":
+            code, output = run_fixture(run, state, producer, label, directory)
+            manifest = validate_fixture_files(root, directory, bodies)
+            report["exchange_snapshots"][directory] = manifest
+            exchange_result(code, output, "macos" if producer == "native" else "linux",
+                            "producer", manifest, bodies)
+            continue
+        if kind == "negative":
+            if replay:
+                validate_negative_delta(root, directory, negative, bodies)
+                altered = validate_fixture_files(root, negative, bodies)
+            else:
+                altered = negative_corpus(root, directory, negative, bodies)
+            report["exchange_snapshots"][negative] = altered
+            checked_reader(run, state, report, consumer, label, negative, role, altered, bodies,
+                           negative=True, original_directory=directory, original_manifest=manifest)
+            negative_record = {
+                "classification": "badSignature_at_main.open.head1",
+                "log": evidence_ref(root, label + ".log"),
+                "patch": validate_negative_delta(root, directory, negative, bodies), "files": altered,
+            }
+            continue
         value = checked_reader(run, state, report, consumer, label, directory, role, manifest, bodies)
-        readers[role] = {"log": evidence_ref(root, label + ".log"), "cases": value["cases"]}
-    altered = negative_corpus(root, directory, negative, bodies)
-    report["exchange_snapshots"][negative] = altered
-    label = producer + "-negative-read-a"
-    checked_reader(run, state, report, consumer, label, negative, "A", altered, bodies, negative=True,
-                   original_directory=directory, original_manifest=manifest)
-    negative_record = {"classification": "badSignature_at_main.open.head1", "log": evidence_ref(root, label + ".log"),
-                       "patch": validate_negative_delta(root, directory, negative, bodies), "files": altered}
-    label = producer + "-read-a-restored"
-    checked_reader(run, state, report, consumer, label, directory, "A", manifest, bodies)
+        if kind == "reader":
+            readers[role] = {"log": evidence_ref(root, label + ".log"), "cases": value["cases"]}
     return direction_summary(root, producer, manifest, readers, negative_record, bodies)
 
 
 def direction_summary(root, producer, manifest, readers, negative_record, bodies):
+    require(set(readers) == {"A", "B"} and negative_record is not None, "exchange_direction_incomplete")
     directory = producer + "-corpus"
     pairs = []
     for kind, second in (("observedSequence", "fork-at-1.avm"), ("signedLineageContradiction", "contradiction-at-2.avm")):
@@ -1407,38 +1225,12 @@ def validate_u1_baseline_report(root, report, expected):
     require(reopened["oracle-public.json"] == compact({name: key.hex() for name, key in keys.items()}), "oracle_artifact_mismatch")
     require(not (root / "oracle-temporary").exists(), "oracle_temporary_not_removed")
     bodies = fixture_bodies(keys)
-    custody, directions = {}, []
-    for producer in ("native", "linux"):
-        consumer = "linux" if producer == "native" else "native"
-        directory, negative = producer + "-corpus", producer + "-negative"
-        code, output = run_fixture(run, state, producer, producer + "-produce", directory)
-        manifest = validate_fixture_files(root, directory, bodies)
-        exchange_result(code, output, "macos" if producer == "native" else "linux", "producer", manifest, bodies)
-        readers = {}
-        for role in ("A", "B"):
-            label = producer + "-read-" + role.lower()
-            code, output = run_fixture(run, state, consumer, label, directory, role)
-            value = exchange_result(code, output, "macos" if consumer == "native" else "linux", "reader", manifest, bodies, role)
-            readers[role] = {"log": evidence_ref(root, label + ".log"), "cases": value["cases"]}
-            custody[label] = {"before": manifest, "after": manifest}
-        patch = validate_negative_delta(root, directory, negative, bodies)
-        altered = validate_fixture_files(root, negative, bodies)
-        label = producer + "-negative-read-a"
-        run_fixture(run, state, consumer, label, negative, "A", negative=True)
-        custody[label] = {"before": altered, "after": altered}
-        negative_record = {"classification": "badSignature_at_main.open.head1", "log": evidence_ref(root, label + ".log"),
-                           "patch": patch, "files": altered}
-        label = producer + "-read-a-restored"
-        code, output = run_fixture(run, state, consumer, label, directory, "A")
-        exchange_result(code, output, "macos" if consumer == "native" else "linux", "reader", manifest, bodies, "A")
-        custody[label] = {"before": manifest, "after": manifest}
-        directions.append(direction_summary(root, producer, manifest, readers, negative_record, bodies))
-    require(report["custody"] == custody, "baseline_custody_mismatch")
-    require(report["exchange_errors"] == {label: {"failure": None, "artifact_check_error": None} for label in custody},
-            "baseline_exchange_error")
-    expected_snapshots = {platform + suffix: exchange_snapshot(root, platform + suffix)
-                          for platform in ("native", "linux") for suffix in ("-corpus", "-negative")}
-    require(report["exchange_snapshots"] == expected_snapshots, "baseline_exchange_snapshot_mismatch")
+    exchange = {"custody": {}, "exchange_errors": {}, "exchange_snapshots": {}}
+    directions = [exchange_direction(run, state, exchange, producer, bodies, replay=True)
+                  for producer in ("native", "linux")]
+    require(report["custody"] == exchange["custody"], "baseline_custody_mismatch")
+    require(report["exchange_errors"] == exchange["exchange_errors"], "baseline_exchange_error")
+    require(report["exchange_snapshots"] == exchange["exchange_snapshots"], "baseline_exchange_snapshot_mismatch")
     cleanup_container(run, state["identifier"], state["owner"])
     require(position[0] == len(report["steps"]), "baseline_extra_steps")
     summary = parse_exchange_json(reopened["exchange-summary.json"])
@@ -1446,134 +1238,36 @@ def validate_u1_baseline_report(root, report, expected):
     require(report["summary"] == artifacts["exchange-summary.json"], "exchange_summary_reference_mismatch")
     return summary
 
-U1_DETECTORS = {'M1': {'test': 'membershipForgedSuccessorIsRejectedUnchanged',
-        'location': 'MembershipTests.swift:471:28',
-        'message': 'Issue recorded',
-        'detail': 'Expected fixed membership error'},
- 'M2': {'test': 'membershipSignedGapIsMissingPredecessor',
-        'location': 'MembershipTests.swift:479:28',
-        'message': 'Issue recorded',
-        'detail': 'Expected fixed membership error'},
- 'M3': {'test': 'membershipObservedSequenceForkLatches',
-        'location': 'MembershipTests.swift:487:20',
-        'message': 'Expectation failed: (actual → missingPredecessor) == (.membershipFork → membershipFork)',
-        'detail': None},
- 'M4': {'test': 'membershipWrongParentLatchesLineageContradiction',
-        'location': 'MembershipTests.swift:499:20',
-        'message': 'Expectation failed: (actual → malformed) == (.membershipFork → membershipFork)',
-        'detail': None},
- 'M5': {'test': 'membershipChangedWriterAtObservedSequenceLatches',
-        'location': 'MembershipTests.swift:510:20',
-        'message': 'Expectation failed: (actual → unsupportedAuthorityChange) == (.membershipFork → '
-                   'membershipFork)',
-        'detail': None},
- 'M6': {'test': 'revisionStaleAfterNoOpSuccessor',
-        'location': 'RevisionAuthorizationTests.swift:285:22',
-        'message': 'Issue recorded',
-        'detail': 'Expected fixed membership error'},
- 'M7': {'test': 'revisionFromDisabledWriterIsUnauthorized',
-        'location': 'RevisionAuthorizationTests.swift:292:22',
-        'message': 'Issue recorded',
-        'detail': 'Expected fixed membership error'},
- 'M8': {'test': 'revisionMissingRecipientIsRejected',
-        'location': 'RevisionAuthorizationTests.swift:298:22',
-        'message': 'Issue recorded',
-        'detail': 'Expected fixed membership error'},
- 'M9': {'test': 'revisionUnselectedLowOrderEncapsulationIsRejected',
-        'location': 'RevisionAuthorizationTests.swift:307:22',
-        'message': 'Issue recorded',
-        'detail': 'Expected fixed membership error'},
- 'M10': {'test': 'revisionPolicyOpenReturnsSyntheticItem', 'location': None, 'message': None, 'detail': None}}
 
-U1_MUTATIONS = {'M1': {'file': 'Sources/VaultCore/MembershipSession.swift',
-        'old': b'        guard controller.isValidSignature(record.signature, for: record.bodyBytes) else '
-               b'{\n            throw MembershipPolicyError.badMembershipSignature\n        }\n',
-        'new': b''},
- 'M2': {'file': 'Sources/VaultCore/MembershipSession.swift',
-        'old': b'        guard body.sequence == next else { throw MembershipPolicyError.missingPredecesso'
-               b'r }\n',
-        'new': b''},
- 'M3': {'file': 'Sources/VaultCore/MembershipSession.swift',
-        'old': b'            try latch(.observedSequence, first: retained, second: record.encoded)\n',
-        'new': b''},
- 'M4': {'file': 'Sources/VaultCore/MembershipSession.swift',
-        'old': b'        guard body.parent == checkpoint.head.bytes else {\n            try latch(.signedL'
-               b'ineageContradiction, first: history[history.count - 1], second: record.encoded)\n        '
-               b'}\n',
-        'new': b''},
- 'M5': {'file': 'Sources/VaultCore/MembershipSession.swift',
-        'old': b'        if let index = MembershipSequence.historyIndex(of: body.sequence, current: checkpoin'
-               b't.sequence) {\n            let retained = history[index]\n            if retained.prefix(r'
-               b'etained.count - MembershipBody.signatureSize) == record.bodyBytes {\n                retu'
-               b'rn .duplicate(checkpoint)\n            }\n            try latch(.observedSequence, first: '
-               b'retained, second: record.encoded)\n        }\n        let next = try MembershipSequence.su'
-               b'ccessor(after: checkpoint.sequence)\n        guard body.sequence == next else { throw Mem'
-               b'bershipPolicyError.missingPredecessor }\n        guard body.parent == checkpoint.head.byt'
-               b'es else {\n            try latch(.signedLineageContradiction, first: history[history.coun'
-               b't - 1], second: record.encoded)\n        }\n        guard body.writerKey == authority.writ'
-               b'erKey else { throw MembershipPolicyError.unsupportedAuthorityChange }\n        let member'
-               b'ship = try MembershipPolicy.validate(rows: body.rows, pinnedWriterAgreement: authority.write'
-               b'rAgreementKey)\n',
-        'new': b'        guard body.writerKey == authority.writerKey else { throw MembershipPolicyError.unsup'
-               b'portedAuthorityChange }\n        let membership = try MembershipPolicy.validate(rows: bod'
-               b'y.rows, pinnedWriterAgreement: authority.writerAgreementKey)\n        if let index = Memb'
-               b'ershipSequence.historyIndex(of: body.sequence, current: checkpoint.sequence) {\n         '
-               b'   let retained = history[index]\n            if retained.prefix(retained.count - Members'
-               b'hipBody.signatureSize) == record.bodyBytes {\n                return .duplicate(checkpoin'
-               b't)\n            }\n            try latch(.observedSequence, first: retained, second: recor'
-               b'd.encoded)\n        }\n        let next = try MembershipSequence.successor(after: checkpoi'
-               b'nt.sequence)\n        guard body.sequence == next else { throw MembershipPolicyError.miss'
-               b'ingPredecessor }\n        guard body.parent == checkpoint.head.bytes else {\n            t'
-               b'ry latch(.signedLineageContradiction, first: history[history.count - 1], second: record.enco'
-               b'ded)\n        }\n'},
- 'M6': {'file': 'Sources/VaultCore/RevisionAuthorization.swift',
-        'old': b'        guard context.membershipHead == checkpoint.head.bytes else { throw MembershipPolicyE'
-               b'rror.staleMembership }\n',
-        'new': b''},
- 'M7': {'file': 'Sources/VaultCore/RevisionAuthorization.swift',
-        'old': b'        guard membership.writerActive else { throw MembershipPolicyError.unauthorizedAuthor '
-               b'}\n',
-        'new': b''},
- 'M8': {'file': 'Sources/VaultCore/RevisionAuthorization.swift',
-        'old': b'        guard parsed.envelopes.map(\\.sortKey) == membership.recipients else {\n',
-        'new': b'        guard Set(parsed.envelopes.map(\\.sortKey)).isSubset(of: membership.recipients) e'
-               b'lse {\n'},
- 'M9': {'file': 'Sources/VaultCore/RevisionAuthorization.swift',
-        'old': b'        for envelope in parsed.envelopes {\n            do {\n                try validate'
-               b'X25519PublicKey(Curve25519.KeyAgreement.PublicKey(rawRepresentation: envelope.encapsulatedKe'
-               b'y))\n            } catch {\n                throw MembershipPolicyError.invalidEncapsulati'
-               b'on\n            }\n        }\n',
-        'new': b''},
- 'M10': {'file': 'Sources/VaultCore/RevisionCodec.swift',
-         'old': b'        plaintext = try ChaChaPoly.open(payload, using: SymmetricKey(data: keyBytes), au'
-                b'thenticating: record.payloadAAD)\n',
-         'new': b'        plaintext = try ChaChaPoly.open(payload, using: SymmetricKey(data: keyBytes), au'
-                b'thenticating: record.payloadAAD)\n        print(String(decoding: plaintext, as: UTF8.self'
-                b'))\n'}}
-
-
-def expected_mutation(identifier):
+def mutation_source(identifier, package):
+    """One specification and source/patch construction for recording and replay."""
     import difflib
-    raw = identifier == "N1"
-    spec = {"file": "Sources/VaultCore/RevisionCodec.swift", "old": b"        try validateX25519PublicKey(encapsulatedKey)\n", "new": b""} if raw else U1_MUTATIONS[identifier]
-    original = read_regular(PACKAGE / spec["file"])
-    require(original.count(spec["old"]) == 1, "u1_mutation_anchor_changed")
+    spec = MUTATIONS[identifier]
+    path = package / spec["file"]
+    original = read_regular(path)
+    require(original.count(spec["old"]) == 1,
+            "n1_mutation_anchor_changed" if identifier == "N1" else "u1_mutation_anchor_changed")
     changed = original.replace(spec["old"], spec["new"])
     patch = "".join(difflib.unified_diff(original.decode().splitlines(True), changed.decode().splitlines(True),
                                       fromfile=spec["file"], tofile=spec["file"])).encode()
     manifest, digest = {}, hashlib.sha256()
-    for name in package_snapshot(PACKAGE)["files"]:
-        data = changed if name == spec["file"] else read_regular(PACKAGE / name)
+    for name in package_snapshot(package)["files"]:
+        data = changed if name == spec["file"] else read_regular(package / name)
         manifest[name] = {"size": len(data), "sha256": sha(data)}
         digest.update(name.encode() + b"\0" + data + b"\0")
     record = {"target": spec["file"], "original_sha256": sha(original), "mutated_sha256": sha(changed),
               "patch": identifier.lower() + ".patch", "patch_record": {"sha256": sha(patch), "size": len(patch)}}
-    if raw:
-        record.update(removed_sites=1, test=TARGET, expected_error="Expected fixed codec error", assertion="badAuthentication",
-                      source_location=list(n1_location(PACKAGE)))
+    if identifier == "N1":
+        record.update(removed_sites=1, test=TARGET, expected_error="Expected fixed codec error",
+                      assertion="badAuthentication", source_location=list(n1_location(package)))
     else:
         record.update(id=identifier, changed_sites=1, detector=U1_DETECTORS[identifier])
-    return record, patch, {"files": manifest, "sha256": digest.hexdigest()}
+    return path, original, changed, record, patch, {"files": manifest, "sha256": digest.hexdigest()}
+
+
+def expected_mutation(identifier):
+    _, _, _, record, patch, snapshot = mutation_source(identifier, PACKAGE)
+    return record, patch, snapshot
 
 
 def validate_u1_controls(report, state):
@@ -1626,11 +1320,35 @@ def validate_u1_controls(report, state):
     require(position[0] == len(report["steps"]), "controls_extra_steps")
 
 
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--unit", choices=("u0", "u1"), default="u0")
+    args = parser.parse_args()
+    state, report, run = recording("baseline", unit=args.unit)
+    failure = None
+    try:
+        if args.unit == "u1":
+            u1_baseline(run, state, report)
+        else:
+            run("guard", [sys.executable, str(ROOT / "scripts/verify-boundaries.py")])
+            runtime_and_container(run, state)
+            names = suite_names(PACKAGE)
+            report["suites"] = {}
+            for platform in ("native", "linux"):
+                report["suites"][platform] = test_package(run, state, platform, "baseline", names)
+    except BaseException as error:
+        failure = error
+    failure = finish(report, state, run, report["snapshot"], failure, unit=args.unit)
+    if failure is not None:
+        raise failure
+    print(state["evidence"] / "result.json")
+
+
 if __name__ == "__main__":
     os.umask(0o077)
     try:
         with owned.interrupt_on_termination():
             main()
     except VerificationFailure as error:
-        print("membership U0: " + str(error), file=sys.stderr)
+        print("membership: " + str(error), file=sys.stderr)
         raise SystemExit(1)

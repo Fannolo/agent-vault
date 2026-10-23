@@ -1,3 +1,4 @@
+import AgentVaultCredentials
 import AgentVaultContracts
 @testable import AgentVaultAppSupport
 @testable import AgentVaultCore

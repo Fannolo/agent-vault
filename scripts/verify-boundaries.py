@@ -312,6 +312,10 @@ def main():
         raise SystemExit(str(error)) from None
     targets = {target["name"]: set(target.get("target_dependencies", [])) for target in package["targets"]}
     kinds = {target["name"]: target["type"] for target in package["targets"]}
+    credential_spec = importlib.util.spec_from_file_location("credential_boundaries", ROOT / "scripts/credential_boundaries.py")
+    credential_guard = importlib.util.module_from_spec(credential_spec)
+    credential_spec.loader.exec_module(credential_guard)
+    credential_guard.check_credentials(ROOT, targets, package["targets"])
 
     def closure(name):
         assert name in targets, f"Missing required target: {name}"

@@ -1,3 +1,4 @@
+@_spi(CredentialUse) import AgentVaultCredentials
 import AgentVaultContracts
 import AgentVaultWebHostProtocol
 import Foundation
@@ -101,7 +102,10 @@ actor WebRun {
         if let failure = await navigate(url) { return .failed(failure) }
         if let failure = await checkpoint() { return failure }
         var fill = formArguments
-        fill["username"] = credential.username; fill["password"] = credential.password
+        credential.withLoginBytes { username, password in
+            fill["username"] = String(decoding: username, as: UTF8.self)
+            fill["password"] = String(decoding: password, as: UTF8.self)
+        }
         switch await recipe(.fill, fill) {
         case .string("ok")?: break
         case .string("origin")?: return .failed(.originMismatch)

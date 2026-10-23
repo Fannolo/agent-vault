@@ -18,6 +18,10 @@ jobs:
         run: swift package resolve --force-resolved-versions
       - name: Verify module boundaries
         run: python3 scripts/verify-boundaries.py
+      - name: Verify credential reveal boundaries
+        run: python3 -I deploy/tests/test_credential_boundaries.py
+      - name: Verify credential boundaries with Python assertions disabled
+        run: python3 -I -O deploy/tests/test_credential_boundaries.py
       - name: Verify fixture-only boundary guard
         run: python3 -I deploy/tests/test_vault_fixture_boundary.py
       - name: Verify fixture-only guard with Python assertions disabled
@@ -26,8 +30,12 @@ jobs:
         run: python3 -I deploy/tests/test_membership_verifier.py
       - name: Verify membership evidence runner with Python assertions disabled
         run: python3 -I -O deploy/tests/test_membership_verifier.py
+      - name: Verify scoped secret buffer on macOS
+        run: swift test --package-path Packages/VaultSecret --no-parallel
       - name: Build and test pinned dependencies
         run: swift test --force-resolved-versions
+      - name: Verify credential public API cannot reveal bytes
+        run: python3 -I scripts/verify-credential-api.py
       - name: Verify stdio MCP with synthetic data
         run: python3 scripts/verify-mcp.py
       - name: Verify installer guards without root
@@ -48,3 +56,28 @@ jobs:
         run: python3 -I deploy/tests/test_recorder.py
       - name: Build release executable
         run: swift build -c release --force-resolved-versions
+  portable-linux:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify portable packages in isolated Linux container
+        env:
+          SWIFT_IMAGE: swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+        run: |
+          mkdir -p "$RUNNER_TEMP/agent-vault-build"
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777 \
+            --env HOME=/tmp \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/source,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/agent-vault-build,dst=/build" \
+            --workdir /source "$SWIFT_IMAGE" /bin/bash -euc '
+              swift --version
+              uname -m
+              swift test --package-path Packages/VaultCore --scratch-path /build/core \
+                --force-resolved-versions --no-parallel --jobs 4
+              swift test --package-path Packages/VaultSecret --scratch-path /build/secret \
+                --no-parallel --jobs 4
+            '

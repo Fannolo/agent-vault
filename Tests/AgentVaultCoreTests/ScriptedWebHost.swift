@@ -1,3 +1,4 @@
+import AgentVaultCredentials
 import AgentVaultContracts
 import AgentVaultCore
 import Foundation
@@ -38,8 +39,8 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
     private var reclassifySteps: [WebStep]
     private var open: Set<BrowserRunID> = []
     private var ended: [BrowserRunID] = []
-    private var usernames: [String] = []
     private var starts = 0
+    private var fixtureMatches = 0
     private var lifetimes: [Int] = []
     let log: EventLog
     let startHold = Hold(), reclassifyHold = Hold()
@@ -62,7 +63,8 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
             log.append("start_withheld")
             return .failed(.unknownRun)
         }
-        lock.withLock { starts += 1; usernames.append(credential.username); lifetimes.append(lifetime) }
+        let matches = credential == WebLoginCredential(syntheticWebCredential)
+        lock.withLock { starts += 1; if matches { fixtureMatches += 1 }; lifetimes.append(lifetime) }
         log.append("start")
         await startHold.pass()
         return lock.withLock {
@@ -136,8 +138,8 @@ final class ScriptedWebHost: WebSessionExecutor, @unchecked Sendable {
 
     var openContexts: Int { lock.withLock { open.count } }
     var startCount: Int { lock.withLock { starts } }
+    var fixtureCredentialMatches: Int { lock.withLock { fixtureMatches } }
     var startLifetimes: [Int] { lock.withLock { lifetimes } }
-    var startedUsernames: [String] { lock.withLock { usernames } }
     func endCount(_ run: BrowserRunID) -> Int { lock.withLock { ended.filter { $0 == run }.count } }
     func contextOpen(_ run: BrowserRunID) -> Bool { lock.withLock { open.contains(run) } }
 }

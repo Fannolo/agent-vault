@@ -1,3 +1,4 @@
+import AgentVaultCredentials
 @testable import AgentVaultCore
 @testable import AgentVaultWebHostLink
 @testable import AgentVaultWebHostProtocol
@@ -35,7 +36,8 @@ func link(_ endpoint: @escaping @Sendable () -> NSXPCListenerEndpoint,
     WebHostLink(validated: configuration, target: .endpoint(endpoint), budgets: budgets, limits: limits)
 }
 
-let credential = WebLoginCredential(Data("synthetic-user\nSYNTHETIC-only-password".utf8))!
+let credentialData = Data("synthetic-user\nSYNTHETIC-only-password".utf8)
+let credential = WebLoginCredential(credentialData)!
 let profile = AccountProfile(login: "synthetic-user", userID: 4242)!
 let tinyJPEG = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0xFF, 0xD9])
 

@@ -76,6 +76,7 @@ class Fixture:
                                      (v, "EXPECTED_SOURCE", digest), (v.portable, "PACKAGE", self.package),
                                      (v.portable, "__file__", str(self.root / "scripts/verify-portable-vault.py")),
                                      (v.owned, "__file__", str(self.root / "scripts/verify-webhost-link-mutations.py")),
+                                     (v.tables, "__file__", str(self.root / "scripts/membership_spec.py")),
                                      (v.sys, "platform", "darwin")):
                 stack.enter_context(mock.patch.object(obj, attr, value))
             stack.enter_context(mock.patch.object(v.owned, "run_owned", side_effect=self.run))
@@ -113,7 +114,7 @@ class Fixture:
             if swift == ["-print-target-info"]:
                 return 0, json.dumps({"target": {"triple": "aarch64-unknown-linux-gnu" if command[0] == "docker" else "arm64-apple-macosx15.0"}})
             if swift[0] == "build":
-                return 0, "Building for debugging...\nBuild complete! (0.10s)\n"
+                return 0, "Building for debugging...\n[3/5] Compiling VaultCore RevisionCodec.swift\nBuild complete! (0.10s)\n"
             if swift[0] == "test":
                 names = [v.TARGET] if "--filter" in swift else NAMES
                 mounted = [c for c in self.calls if c[:2] == ["docker", "create"]][-1]
@@ -1040,6 +1041,7 @@ class U1HarnessFixture(Fixture):
     """Synthetic process boundary only. No Swift, signature operation or Docker executes."""
     def __init__(self, root):
         super().__init__(root)
+        root = self.root
         for name in v.U1_FILES:
             path = self.package / name
             path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -1096,7 +1098,7 @@ class U1HarnessFixture(Fixture):
             corpus = self.evidence / "native-build/checkouts/swift-crypto/Tests/Test Vectors/ed25519_test.json"
             corpus.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             corpus.write_bytes(self.raw)
-            return 0, "Building for debugging...\nBuild complete! (0.1s)\n"
+            return 0, "Building for debugging...\n[3/5] Compiling VaultCore RevisionCodec.swift\nBuild complete! (0.1s)\n"
         platform = "linux" if command[0] == "docker" else "macos"
         selected = command[command.index("--filter") + 1] if "--filter" in command else None
         if selected is None:
@@ -1219,6 +1221,39 @@ class U1IntegrationTests(unittest.TestCase):
             with self.assertRaises(v.VerificationFailure):
                 v.test_package(run, state, "native", "m1-mutant", [v.U1_DETECTORS["M1"]["test"]], mutant=True, unit="u1", control_id="M1")
             self.assertEqual(run.call_count, 1)
+
+    def test_backend_masking_requires_compiled_mutant_source(self):
+        state = {"package": v.PACKAGE, "evidence": self.root, "identifier": "a" * 64}
+        build = "Building for debugging...\nBuild complete! (0.1s)\n"
+        run = mock.Mock(side_effect=[(0, build), (0, passing([v.TARGET]))])
+        with self.assertRaisesRegex(v.VerificationFailure, "masked_mutant_compilation_unconfirmed"):
+            v.test_package(run, state, "native", "n1-mutant", [v.TARGET], mutant=True, unit="u1")
+        self.assertEqual(run.call_count, 1)
+        run = mock.Mock(side_effect=[
+            (0, "[3/5] Compiling VaultCore RevisionCodec.swift\n" + build),
+            (0, passing([v.TARGET])),
+        ])
+        result = v.test_package(run, state, "native", "n1-mutant", [v.TARGET], mutant=True, unit="u1")
+        self.assertEqual(result["status"], "backend_masked")
+
+    def test_u1_snapshot_handles_directory_alias(self):
+        canonical = self.root / "canonical"
+        canonical.mkdir()
+        alias = self.root / "alias"
+        alias.symlink_to(canonical, target_is_directory=True)
+        fixture = U1HarnessFixture(alias / "fixture")
+        with fixture.patched():
+            result = v.u1_snapshot()
+            self.assertEqual(result["package"]["combined"]["sha256"], v.U1_SOURCE)
+            self.assertEqual(v.ROOT, (canonical / "fixture").resolve())
+
+    def test_negative_exchange_is_required_even_when_live_and_replay_agree(self):
+        fixture = U1HarnessFixture(self.root / "fixture")
+        incomplete = tuple(step for step in v.EXCHANGE_STEPS if step[1] != "negative")
+        with fixture.patched(), mock.patch.object(v, "EXCHANGE_STEPS", incomplete):
+            with mock.patch.object(v.sys, "argv", ["verify-membership.py", "--unit", "u1"]):
+                with self.assertRaisesRegex(v.VerificationFailure, "exchange_direction_incomplete"):
+                    v.main()
 
     def test_reader_role_trace_and_pin_have_independent_oracle(self):
         for role in ("A", "B"):
@@ -1349,7 +1384,7 @@ class U1IntegrationTests(unittest.TestCase):
     def test_u1_current_harness_root_and_package_epoch_are_bound(self):
         fixture, result, report = self.full_baseline()
         with fixture.patched():
-            for name in ("scripts/verify-membership.py", "scripts/verify-membership-controls.py", "deploy/tests/test_membership_verifier.py",
+            for name in ("scripts/verify-membership.py", "scripts/verify-membership-controls.py", "scripts/membership_spec.py", "deploy/tests/test_membership_verifier.py",
                          "scripts/verify-portable-vault.py", "scripts/verify-webhost-link-mutations.py", "Package.resolved"):
                 path = fixture.root / name; old = path.read_bytes(); path.write_bytes(old + b" changed")
                 with self.assertRaisesRegex(v.VerificationFailure, "matching_passed_u1_baseline_required"):
@@ -1488,7 +1523,7 @@ class U1IntegrationTests(unittest.TestCase):
             state, report, run = v.recording("controls", unit="u1")
             state["package"] = controls.copy_package(state["evidence"])
             v.runtime_and_container(run, state)
-            path, original, changed, _ = controls.u1_mutation_bytes(state["package"], state["evidence"], "M1")
+            path, original, changed, _ = controls.mutation_bytes(state["package"], state["evidence"], "M1")
             real = fixture.run
             def timeout(command, **kwargs):
                 if "test" in command and changed == path.read_bytes():

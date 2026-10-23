@@ -1,5 +1,47 @@
 # Implementation plan
 
+## Headless delivery work: 23 October 2026
+
+The user authorized completion of private website login and continuing browser operation,
+native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
+The end-to-end acceptance criteria are in [DELIVERY-PLAN.md](DELIVERY-PLAN.md). This is active
+implementation work, not a completed product or release.
+
+The membership verifier's fixed tables now live in `scripts/membership_spec.py`. Live
+exchange and receipt replay share one sequence, and all policy/N1 source mutations use one
+definition. A required negative-exchange check prevents both paths agreeing on an incomplete
+run. Native backend-masking evidence now requires a compiler line for the mutated source.
+The Python suite passes 64 tests in normal and optimized modes. Fresh complete recording
+and controls remain pending; historical receipts are not evidence for these changed bytes.
+
+`Packages/VaultSecret` provides a redacted immutable owned buffer and scoped trusted byte
+access. Development integration now moves `WebLoginCredential` from agent-visible Contracts
+to `AgentVaultCredentials`. Readable username/password/bytes properties are removed. Only
+the private wire serializer and host fill adapter import its reveal SPI. A source/graph
+allowlist rejects reveal imports elsewhere, including declared custom source paths.
+Seven native buffer tests and four credential tests pass. The default root suite reports
+356 passing tests, with existing opt-ins skipped. With Chromium 149.0.7827.55 enabled,
+26 synthetic browser/continuation/secret-boundary tests pass. The guard/API-timeout suite
+passes 10 tests normally and optimized; module boundaries and MCP checks pass. Compiler probes confirm the credential
+is absent from Contracts, has no password property, and cannot reveal bytes without SPI.
+This integration is awaiting independent review. It does not prove installed custody or
+erase transient copies made by validation and the JSON/CDP serializer.
+
+Local Linux attempts are retained as failures. One lost the Docker connection; a later run
+passed all 55 Swift tests on each platform but interleaved framework output with corpus JSON,
+which the strict recorder correctly refused. U1 recording commands now select `--no-parallel`.
+Another attempt found Docker stopped before container creation. The user explicitly asked
+to leave OrbStack stopped. New isolated Linux CI checks cover VaultCore and VaultSecret;
+their results, plus complete exchange/control receipts, must be verified before claiming
+the cleanup gate or Linux product integration complete.
+
+The user selected Bite for hosting. The connected Bite Supabase organization has existing
+application projects; Agent Vault needs separate project/storage. New-project provisioning
+was declined by the user at the quoted $10/month. Do not provision a paid project. No
+existing app schema, data or credentials have been changed. The managed-auth design revision
+is accepted as an architecture option; deployment needs free or existing approved hosting
+and an SMTP sender for public signup. Source work continues without paid provisioning.
+
 ## Membership implementation checkpoint: 22 October 2026
 
 Synthetic U1 membership lineage and stateless revision authorization are verified in the
