@@ -59,9 +59,9 @@ simulated by configuration. Linux CI run 39884964104 of `4d84080` showed that Li
 refused peer that had already written; the test now accepts that and still requires that no
 reply is sent. The integrated source at `f3d3b4f` received bounded source acceptance. Its
 macOS and cloud-database CI jobs passed; Linux compiled the broker and MCP bridge but failed
-one of 192 tests: `unwrittenRepliesKeepTheirServiceCapacity` exhausted 49 rapid retries
-before asynchronous writer cleanup released capacity. In a private copy, a one-second
-writer-cleanup delay reproduces that failure. A bounded recovery wait passes with the delay
+one of 192 tests: `unwrittenRepliesKeepTheirServiceCapacity` failed its recovery assertion after 48 rapid attempts. Suspected cause: retries outran
+asynchronous writer cleanup. A private macOS experiment with a one-second writer-cleanup
+delay reproduces this failure mode. A bounded recovery wait passes with the delay
 and still fails when reply completion never releases capacity. Production socket code is
 unchanged by this test correction; the corrected Linux CI run remains pending.
 
