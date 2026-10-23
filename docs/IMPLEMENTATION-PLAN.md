@@ -21,8 +21,8 @@ the private wire serializer and host fill adapter import its reveal SPI. A sourc
 allowlist rejects reveal imports elsewhere, including declared custom source paths.
 Seven native buffer tests and four credential tests pass. The default root suite reports
 356 passing tests, with existing opt-ins skipped. With Chromium 149.0.7827.55 enabled,
-26 synthetic browser/continuation/secret-boundary tests pass. The 7 guard tests pass normally
-and optimized; module boundaries and MCP checks pass. Compiler probes confirm the credential
+26 synthetic browser/continuation/secret-boundary tests pass. The guard/API-timeout suite
+passes 10 tests normally and optimized; module boundaries and MCP checks pass. Compiler probes confirm the credential
 is absent from Contracts, has no password property, and cannot reveal bytes without SPI.
 This integration is awaiting independent review. It does not prove installed custody or
 erase transient copies made by validation and the JSON/CDP serializer.

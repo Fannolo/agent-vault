@@ -32,13 +32,19 @@ PROBES = (
 )
 
 
+def probe_passes(code, output, diagnostic):
+    if code is None:
+        return False
+    return code == 0 if diagnostic is None else code != 0 and diagnostic in output
+
+
 def main():
     code, _ = owned.run_owned(["swift", "build", "--target", "AgentVaultCredentials", "--force-resolved-versions"],
                               timeout=300, cwd=ROOT)
-    if code:
+    if code != 0:
         raise SystemExit("credential_api_build_failed")
     code, output = owned.run_owned(["swift", "build", "--show-bin-path"], timeout=30, cwd=ROOT)
-    if code:
+    if code != 0:
         raise SystemExit("credential_api_build_path_unavailable")
     binary = Path(output.strip())
     with tempfile.TemporaryDirectory(prefix="av-credential-api-") as directory:
@@ -49,11 +55,7 @@ def main():
                 "swiftc", "-typecheck", "-I", str(binary / "Modules"),
                 "-I", str(binary / "CSecretMemory.build"), str(source),
             ], timeout=30, cwd=ROOT)
-            if diagnostic is None:
-                passed = code == 0
-            else:
-                passed = code != 0 and diagnostic in output
-            if not passed:
+            if not probe_passes(code, output, diagnostic):
                 raise SystemExit("credential_api_probe_failed: " + name)
     print("PASS: agent contracts and normal credential imports cannot reveal login fields")
 
