@@ -121,9 +121,39 @@ same way. Tests cover all eight effect kinds (click, typing, selection, navigati
 key, scroll, login fill and login submit), a takeover that waits for a queued call, a busy
 page whose answer is lost, and a second takeover that waits for the clear the first started.
 
-After it acknowledges a person's control, the host sends no new call under the agent's
-hold. It does not stop what the page or site does on its own, or the consequences of calls
-answered before the acknowledgement, such as a form submission a click started.
+A fourth independent source review (84ef816) found that this handover was still not
+exclusive. Each fix had assumed that switching the mode to human, taking one snapshot of the
+admitted calls and waiting for the clear task made the handover exclusive. That assumption
+fails three ways, each first reproduced against 84ef816 behaviour with Chromium
+149.0.7827.55, using a debug-only pipe seam between claiming a call for queueing and handing
+it to the writer:
+
+- The handover's own clear did not count a lost answer. On a page busy for 22 seconds after
+  the fill, the clear timed out, the page read timed out, and takeover still answered human.
+  The clear then ran after the answer.
+- A release during a takeover gave the agent control back while that takeover was still
+  waiting for an agent call. A key the agent sent after the release reached the page after
+  the first takeover had answered human.
+- The handover started its clear before it waited for admitted calls. A fill the pipe had
+  claimed but not yet written was overtaken by the clear. Both takeovers then answered with
+  the host's password still in the field.
+
+A handover is now one transition that the session owns: agent, handing over, human. The step
+that enters it closes admission and bumps the control epoch. Every takeover meanwhile joins
+the same transition, and a release waits for it to finish. The transition first withdraws
+or waits for every admitted call, and only then clears the host's fill. Only a clear the
+browser answered counts. A lost answer, either from an agent call or from the clear, ends
+the session and disposes its context. Takeover then refuses with `unknownRun`, and no
+reply says a person has control. Takeover and release replies wait for any handover under
+way, and read the page again if control moved while they read it. Tests cover the lost
+clear (the session ends, the other session continues and the host stays healthy), the
+release overlapping a takeover, a fill held before the writer, and a release reply that
+overlaps a later takeover.
+
+After it acknowledges a person's control, the host sends no call under the agent's hold,
+and no handover clear can still arrive. It does not stop what the page or site does on its
+own, or the consequences of calls answered before the acknowledgement, such as a form
+submission a click started.
 
 Remaining limits noticed while fixing, from source reading and not reproduced: a document
 response near the 8 MiB document cap can exceed the 8 MiB pipe message cap once escaped or
@@ -133,8 +163,11 @@ credential-origin page's own script can read the filled password and send it to 
 origin, except non-read-only requests during the pre-submission window. A page timer that
 submits the filled form between the host's check and its own submit can produce a second
 login POST to the credential origin; the login still answers with an observation or
-`siteUnknown`. A page that keeps the renderer busy past an agent call's deadline makes that
-answer lost, and the session then ends at its next handover instead of passing to a person.
+`siteUnknown`. A page that keeps the renderer busy past an agent call's deadline, or past
+the handover clear's deadline, makes that answer lost, and the session then ends at its next
+handover instead of passing to a person. A handover can take as long as the latest admitted
+call's deadline, plus the deadlines of preparing and sending the clear. While a handover is
+under way, agent replies already report human mode.
 
 Limits: `HostPolicy.production.sites` is empty, and neither Core, the host link nor MCP can
 send site commands. The operation journal is volatile host memory, bounded per session and
