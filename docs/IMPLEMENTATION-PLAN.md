@@ -10,9 +10,9 @@ reveal the token (compiler probe). The cloud target graph is now an allowlist: o
 broker daemon may reach the transport, and the CLI's MCP process, Core and new targets are
 refused. Vault creation confirms ownership of an existing id instead of reporting another
 account's id as created. The endpoint origin is canonical. Fifteen native client tests,
-377 root tests, guard tests, 13 compiler probes, MCP checks and 21 marker-checked mutants
+the native root suite (opt-ins skipped), guard tests, 13 compiler probes, MCP checks and 21 marker-checked mutants
 pass in `scripts/verify-cloud-client.py`. The head-conflict client expects HTTP 409 from a
-`PT409` server raise; that server change is pending integration. Linux runtime and live
+`PT409` server raise; the merged migration and native SQL assertion now use that code. Linux runtime and live
 PostgREST remain unmeasured. This module is not composed into production. Signup, token
 refresh/custody, pairing and durable verified sync remain unfinished; see
 [CLOUD-TRANSPORT.md](CLOUD-TRANSPORT.md).
@@ -24,7 +24,8 @@ conditional-head races and commit-ordered cursors. Removing the vault owner-read
 makes the real SQL assertion fail; restoring it passes. This is database behavior only.
 The SQL auth functions are synthetic test stubs, not a test of hosted JWT validation or
 PostgREST. No hosted project, signup, pairing mailbox, token custody or client sync engine
-exists yet. The database CI job and independent source review remain pending. See
+exists yet. The bounded database source review is accepted; native PostgreSQL 16.15 Linux
+CI and 17.11 macOS checks passed for that component. These are not hosted auth tests. See
 [`supabase/README.md`](../supabase/README.md) for the transport contract and deployment gates.
 
 Shared broker Core, approval and credential modules now compile on Linux. GitHub Actions

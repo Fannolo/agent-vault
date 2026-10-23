@@ -317,8 +317,8 @@ private func fails(_ expected: CloudError, _ work: () async throws -> Void) asyn
     #expect(head?.revision == 2)
     #expect(head?.digest == object.digest)
     #expect(try await client.compareAndSwap(vault: vault, expected: nil, new: object.digest) == 3)
-    // 409 is the documented PostgREST status for a PT409-coded head conflict (server change pending
-    // integration). The current 40001 raise arrives as 500 and must stay unconfirmed, never a conflict.
+    // 409 is the documented PostgREST status for the migration's PT409-coded head conflict.
+    // A generic 40001 rollback maps to 500 and must stay unconfirmed, never a conflict.
     for (status, expected) in [(401, CloudError.unauthorized), (403, .denied), (409, .conflict), (500, .writeUnconfirmed),
                                (400, .writeUnconfirmed)] {
         let refusal = Fixture { _ in .init(status: status) }; defer { refusal.close() }

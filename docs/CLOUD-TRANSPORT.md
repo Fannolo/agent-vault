@@ -60,16 +60,15 @@ OS sandbox or protection against a hostile maintainer.
 - There are no automatic retries. Interrupted or malformed write completion returns
   `writeUnconfirmed`; callers must reconcile the immutable object/head before retrying.
   Unrecognized write statuses, including 400 (`head_invalid`) and 500 (`vault_quota` and
-  the current `40001` head conflict), are also `writeUnconfirmed`. 401 is `unauthorized`
+  a legacy `40001` transaction rollback), are also `writeUnconfirmed`. 401 is `unauthorized`
   and 403 (RLS or owner-check denial) is `denied`. 409 is `conflict`. Read failures keep
   the transport's code: a redirect, foreign URL or oversize reply is `invalidResponse`, and
   loss or cancellation is `unavailable`.
 - A head conflict returns `conflict` only after the server raises a `PT409`-coded error.
-  PostgREST maps that code to HTTP 409; it maps the current `40001` raise to 500
+  PostgREST maps that code to HTTP 409; it maps a generic `40001` raise to 500
   ([PostgREST errors](https://docs.postgrest.org/en/stable/references/errors.html)).
-  That server change is pending integration from the cloud-transport branch. Until it
-  lands, a lost compare-and-swap race is reported as `writeUnconfirmed`. Neither mapping
-  has run against a live PostgREST server.
+  The merged migration now raises `PT409`, and its native SQL assertion requires that
+  exact code. Source alignment is complete; live PostgREST mapping is still untested.
 - Replacing or invalidating a token only fences responses. The client discards any
   response for an older token generation. `invalidate()` does not cancel in-flight URL
   tasks. A request admitted before invalidation can still be sent with the old token, and
@@ -102,7 +101,8 @@ source to be unchanged at the end.
   conditional-head status mapping; uncertain writes; declared and chunked response bounds;
   foreign response URLs; redirects; canonical endpoints; invalidation; and cancellation.
   No real network connection is made.
-- The native root suite (377 tests on macOS; Chromium and Keychain opt-ins skipped),
+- The native root suite (framework summary: 377; 353 individual passes, 24 skipped
+  tests and three skipped-suite notices on macOS),
   the package graph check, 15 credential/timeout/graph tests in normal and optimized
   Python, 13 compiler probes and the MCP checks.
 - Twenty-one source mutants. Each mutant edits one guarded line: a route, header,
