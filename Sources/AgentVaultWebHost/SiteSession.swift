@@ -180,26 +180,28 @@ actor SiteSession {
             fields["username"] = String(decoding: username, as: UTF8.self)
             fields["password"] = String(decoding: password, as: UTF8.self)
         }
-        let filled = await run(.loginFill, origins: policy.credential, fields, while: held)
+        let fill = await run(.loginFill, origins: policy.credential, fields, while: held)
         fields = [:]
-        switch filled {
-        case .sent(.string("ok")?): break
+        // The fill sets values and fires input and change events, which the page may act on, even by
+        // submitting the form. Only a refusal from before the first value was set means nothing was
+        // done; from then on, only an observation or `siteUnknown` is true.
+        switch fill {
+        case .notRun: return holds(held) ? .rejected(.unsupportedLogin) : fenced
         case .sent(.string("origin")?): return .rejected(.credentialOrigin)
-        case .notRun where !holds(held): return fenced
-        default: return .rejected(.unsupportedLogin)
+        case .sent(.string("unsupported")?): return .rejected(.unsupportedLogin)
+        case .sent(.string("ok")?): break
+        case .sent: return .siteUnknown
         }
         try? await Task.sleep(for: timing.settle)
         await pause(.loginFilled)
-        // Taken over, ended or replaced while filling: the form stays unsubmitted.
-        guard holds(held) else { return fenced }
-        guard await currentDocument()?.document.epoch == page.epoch else { return .rejected(.staleTarget) }
-        if let failure = network?.takeFailure() { return .failed(failure) }
+        // Taken over, ended or replaced since the fill: the host submits nothing.
+        guard holds(held) else { return .siteUnknown }
+        // The page sent the filled form itself: the login reports where that led, and never sends it again.
+        guard network?.phase == .login else { return await dispatched(loadedAfter: nil, judgingLogin: true) }
+        guard await currentDocument()?.document.epoch == page.epoch, network?.takeFailure() == nil else { return .siteUnknown }
         let before = network?.loads ?? 0
-        switch await run(.loginSubmit, origins: policy.credential, [:], while: held) {
-        case .sent(.string("ok")?): break
-        case .sent(.string?): return .rejected(.unsupportedLogin)
-        case .notRun: return holds(held) ? .rejected(.staleTarget) : fenced
-        case .sent: return .siteUnknown
+        guard case .sent(.string("ok")?) = await run(.loginSubmit, origins: policy.credential, [:], while: held) else {
+            return .siteUnknown
         }
         return await dispatched(loadedAfter: before, judgingLogin: true)
     }

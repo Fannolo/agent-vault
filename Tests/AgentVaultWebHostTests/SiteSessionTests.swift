@@ -337,7 +337,8 @@ extension RealBrowserTests {
                     _ = await h.service.perform(.siteRelease(session: session))
                 }
                 let reply = await h.login(session)
-                #expect(reply == .rejected(.staleTarget), "\(point): \(reply)")
+                // Before the fill nothing was done; after it, the page may have acted on the filled form.
+                #expect(reply == (point == .loginDocument ? .rejected(.staleTarget) : .siteUnknown), "\(point): \(reply)")
                 #expect(h.posts.filter { $0.path == "/session" }.isEmpty, "\(point): submitted under a later control epoch")
                 await h.service.end(session)
             }
@@ -470,6 +471,46 @@ extension RealBrowserTests {
 
 // Regressions for the three source-review findings on 34ceaa9 (verification-logs/continuing-site/astra-review-v2.md).
 extension RealBrowserTests {
+    /// Finding 1: filling dispatches events the page can act on, even by submitting the form. From
+    /// the fill on, a login answers with what the host then observes or `siteUnknown`, never a refusal.
+    @Test func aLoginWhosePageActsOnTheFillIsNeverReportedAsARefusal() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            // The password field's input listener submits the form; its response lands on /home before
+            // the host looks at the page again.
+            h.site.loginPage = .fillListenerSubmits
+            let (session, _) = await h.open()
+            at(.loginFilled, of: session) {
+                _ = await eventually { h.site.trusted.requests.contains { $0.path == "/home" } }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            let operation = UUID()
+            let reply = await h.login(session, operation: operation)
+            #expect(h.posts.filter { $0.path == "/session" }.count == 1, "the page's own submission, sent once")
+            #expect(observed(reply)?.auth == .signedIn && observed(reply)?.path == "/home", "\(reply)")
+            #expect(await h.login(session, operation: operation) == reply, "a retry gets the first reply")
+            #expect(h.posts.filter { $0.path == "/session" }.count == 1)
+            #expect(h.passwordSightings.allSatisfy { $0.path == "/session" && $0.method == "POST" })
+
+            // The username's listener submits, then breaks the fill: the recipe throws after the page acted.
+            h.site.loginPage = .fillListenerBreaksFill
+            let (broken, _) = await h.open()
+            let failing = UUID()
+            let unknown = await h.login(broken, operation: failing)
+            #expect(await eventually { h.posts.filter { $0.path == "/session" }.count == 2 }, "the page submitted the form")
+            #expect(unknown == .siteUnknown, "\(unknown)")
+            #expect(await h.login(broken, operation: failing) == .siteUnknown)
+            #expect(h.posts.filter { $0.path == "/session" }.count == 2)
+
+            // Taken over once the fill has run: the host submits nothing, and does not claim it did nothing.
+            h.site.loginPage = .normal
+            let (taken, _) = await h.open()
+            at(.loginFilled, of: taken) { _ = await h.service.perform(.siteTakeover(session: taken)) }
+            #expect(await h.login(taken) == .siteUnknown)
+            #expect(h.posts.filter { $0.path == "/session" }.count == 2)
+        }
+    }
+
     /// Finding 3: a control disabled by its fieldset, or an option in a disabled group, is disabled.
     /// It is never observed as operable, and typing or choosing is refused before any event fires.
     @Test func controlsDisabledByAnAncestorAreNeitherObservedNorOperated() async throws {
