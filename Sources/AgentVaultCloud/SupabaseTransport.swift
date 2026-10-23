@@ -2,7 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
-@_spi(CredentialUse) import AgentVaultCredentials
+@_spi(CloudTokenUse) import AgentVaultCredentials
 
 /// Broker-owned ciphertext client. No refresh token, admin key or password belongs here.
 /// A separate trusted authentication/custody owner supplies and rotates its access token.
@@ -27,10 +27,21 @@ public actor SupabaseTransport: CloudTransport {
 
     public func invalidate() { token = nil; generation &+= 1 }
 
+    /// Succeeds only when this session owns the vault. A plain insert reports an existing id as
+    /// 409 (23505); RLS then shows the row only to its owner. `ignore-duplicates` is not used: its
+    /// `ON CONFLICT DO NOTHING` returns 201 for another account's id as well.
     public func createVault(_ vault: UUID) async throws {
-        let body = try JSONSerialization.data(withJSONObject: ["id": vault.uuidString.lowercased()])
-        _ = try await request("vaults", method: "POST", query: [], body: body,
-                              prefer: "return=minimal,resolution=ignore-duplicates", success: [201, 200, 204])
+        let id = vault.uuidString.lowercased()
+        let body = try JSONSerialization.data(withJSONObject: ["id": id])
+        do {
+            _ = try await request("vaults", method: "POST", query: [], body: body, prefer: "return=minimal", success: [201])
+            return
+        } catch CloudError.conflict {}
+        let data = try await request("vaults", method: "GET", query: [
+            .init(name: "select", value: "id"), .init(name: "id", value: "eq." + id), .init(name: "limit", value: "1")], success: [200])
+        guard let rows = try? JSONDecoder().decode([VaultRow].self, from: data), rows.count <= 1 else { throw CloudError.invalidResponse }
+        guard let row = rows.first else { throw CloudError.conflict }
+        guard row.id == vault else { throw CloudError.invalidResponse }
     }
 
     public func put(_ object: CloudObject, vault: UUID) async throws {
@@ -98,9 +109,11 @@ public actor SupabaseTransport: CloudTransport {
         guard let copy = configuration.copy() as? URLSessionConfiguration else { throw CloudError.invalidConfiguration }
         let response: CloudHTTPResponse
         do { response = try await CloudHTTPRequest.load(request, configuration: copy) }
-        catch { throw method == "GET" ? CloudError.unavailable : CloudError.writeUnconfirmed }
+        catch { throw method == "GET" ? (error as? CloudError ?? .unavailable) : CloudError.writeUnconfirmed }
         guard tokenIsCurrent(admittedGeneration) else { throw method == "GET" ? CloudError.unauthorized : CloudError.writeUnconfirmed }
-        if response.status == 401 || response.status == 403 { throw CloudError.unauthorized }
+        if response.status == 401 { throw CloudError.unauthorized }
+        if response.status == 403 { throw CloudError.denied }
+        // PostgREST: 23505 and PTxyz-coded 409 refusals. A 40001 rollback arrives as 500 and stays unconfirmed.
         if response.status == 409 { throw CloudError.conflict }
         guard success.contains(response.status) else { throw method == "GET" ? CloudError.invalidResponse : CloudError.writeUnconfirmed }
         return response.body
@@ -108,6 +121,7 @@ public actor SupabaseTransport: CloudTransport {
 
     private func tokenIsCurrent(_ value: UInt64) -> Bool { token != nil && generation == value }
     private struct ObjectRow: Decodable { let vault_id: UUID; let body: String; let digest: String; let seq: Int64 }
+    private struct VaultRow: Decodable { let id: UUID }
     private struct HeadRow: Decodable { let vault_id: UUID; let head: String; let revision: Int64 }
 }
 

@@ -17,7 +17,7 @@ final class CloudHTTPRequest: NSObject, URLSessionDataDelegate, @unchecked Senda
     private var status: Int?
     private var finished = false
 
-    private init(url: URL) { expectedURL = url }
+    init(url: URL) { expectedURL = url }
 
     static func load(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> CloudHTTPResponse {
         guard let url = request.url else { throw CloudError.invalidConfiguration }

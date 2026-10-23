@@ -5,8 +5,10 @@ import CryptoKit
 import Crypto
 #endif
 
+/// `unauthorized` means the session was refused (HTTP 401) or fenced locally; `denied` means an
+/// authenticated session lacks access to that vault (HTTP 403). Neither is retried.
 public enum CloudError: String, Error, Sendable {
-    case invalidConfiguration, invalidObject, unauthorized, conflict, unavailable, invalidResponse, writeUnconfirmed
+    case invalidConfiguration, invalidObject, unauthorized, denied, conflict, unavailable, invalidResponse, writeUnconfirmed
 }
 
 public struct CloudDigest: Sendable, Hashable {
@@ -62,17 +64,31 @@ public protocol CloudTransport: Sendable {
 }
 
 public struct CloudEndpoint: Sendable {
+    /// Canonical `https://host[:port]`: lowercase ASCII DNS host, no default port, no path.
+    /// Every request URL is built from it, so the exact response-URL check compares like forms.
     let origin: URL
     let publishableKey: String
     public init(origin: URL, publishableKey: String) throws(CloudError) {
         guard let parts = URLComponents(url: origin, resolvingAgainstBaseURL: false),
-              parts.scheme == "https", let host = parts.host, !host.isEmpty,
+              parts.scheme == "https", let host = parts.percentEncodedHost?.lowercased(), Self.isDNSName(host),
+              parts.port.map({ (1...65535).contains($0) }) ?? true,
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
               parts.path.isEmpty || parts.path == "/",
               publishableKey.hasPrefix("sb_publishable_"), (16...256).contains(publishableKey.utf8.count),
               publishableKey.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0)
                   || (48...57).contains($0) || $0 == 45 || $0 == 95 }) else { throw .invalidConfiguration }
-        self.origin = origin
+        var canonical = URLComponents()
+        canonical.scheme = "https"; canonical.host = host; canonical.port = parts.port == 443 ? nil : parts.port
+        guard let url = canonical.url else { throw .invalidConfiguration }
+        self.origin = url
         self.publishableKey = publishableKey
+    }
+
+    private static func isDNSName(_ host: String) -> Bool {
+        let labels = host.utf8.split(separator: 46, omittingEmptySubsequences: false)
+        return (1...253).contains(host.utf8.count) && labels.allSatisfy { label in
+            (1...63).contains(label.count) && label.first != 45 && label.last != 45
+                && label.allSatisfy { (97...122).contains($0) || (48...57).contains($0) || $0 == 45 }
+        }
     }
 }

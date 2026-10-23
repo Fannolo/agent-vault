@@ -17,7 +17,8 @@ public struct CloudAccessToken: Sendable, CustomStringConvertible, CustomDebugSt
         storage = secret
     }
 
-    @_spi(CredentialUse)
+    /// A separate SPI group: browser roles that import `CredentialUse` cannot reveal it.
+    @_spi(CloudTokenUse)
     public func withTokenBytes<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
         try storage.withUnsafeBytes(body)
     }
