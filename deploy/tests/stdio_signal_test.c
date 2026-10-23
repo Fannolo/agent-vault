@@ -11,6 +11,10 @@ int main(void) {
     action.sa_handler = SIG_DFL;
     sigemptyset(&action.sa_mask);
     if (sigaction(SIGPIPE, &action, NULL) != 0) return 1;
+    sigset_t pipe_signal;
+    sigemptyset(&pipe_signal);
+    sigaddset(&pipe_signal, SIGPIPE);
+    if (pthread_sigmask(SIG_UNBLOCK, &pipe_signal, NULL) != 0) return 14;
     int descriptors[2];
     if (pipe(descriptors) != 0) return 2;
     close(descriptors[0]);
@@ -22,6 +26,7 @@ int main(void) {
     if (av_stdio_write(descriptors[1], "x", 1) != -1 || errno != EPIPE) return 5;
     if (pthread_sigmask(SIG_BLOCK, NULL, &mask) != 0 ||
         sigismember(&before, SIGPIPE) != sigismember(&mask, SIGPIPE)) return 6;
+    if (sigpending(&mask) != 0 || sigismember(&mask, SIGPIPE) != 0) return 15;
     if (sigaction(SIGPIPE, NULL, &after) != 0 || after.sa_handler != SIG_DFL) return 7;
 #if defined(__linux__)
     /* An earlier caller-owned pending signal must survive our write. */
