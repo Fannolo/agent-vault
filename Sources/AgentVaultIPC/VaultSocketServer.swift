@@ -366,14 +366,16 @@ final class ServerConnection: @unchecked Sendable {
             closed = true
             _ = av_socket_shutdown(fd)
             close(fd)
-            // Counted before release, so a stop that no longer sees this connection still awaits it.
-            if identity != nil { tracker.enter() }
-            released()
-            guard let identity else { return finished.signal() }
+            guard let identity else { released(); return finished.signal() }
+            // The connection slot is held until the broker's cleanup finishes, so reconnecting
+            // cannot pile up closed callbacks. Counted before release, so a stop that no longer
+            // sees this connection still awaits it.
+            tracker.enter()
             Task {
                 await closedHandler(identity)
-                tracker.leave()
+                released()
                 finished.signal()
+                tracker.leave()
             }
         }
     }

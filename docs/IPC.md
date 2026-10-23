@@ -292,7 +292,8 @@ Capacity and lifetime:
   their reply is dropped if the connection is gone, and the client reports `timeout` or
   `connection_failed` for an unknown outcome. Nothing retries a mutation.
 - Each admin connection gets an `AdminConnection` minted at accept. Its liveness is cleared
-  when the connection ends, before the broker's closed callback runs. A continuation lease
+  when the connection ends, before the broker's closed callback runs. The connection's slot
+  stays taken until that callback finishes, so reconnecting cannot outrun it. A continuation lease
   therefore needs the client's one persistent connection; after a reconnect it needs a new
   signed open.
 - Only a connection's writer queue closes its descriptor, after the reader thread exits.

@@ -223,4 +223,38 @@ import Glibc
         #expect(events.count("run cancelled") == 1)
         await stack.shutdown()
     }
+
+    // MARK: Cleanup capacity
+
+    @Test func anAdminSlotStaysTakenUntilTheClosedCallbackFinishes() async throws {
+        let events = Events(), cleanup = Completion()
+        let handlers = stubHandlers(events, closed: { _ in
+            events.record("cleanup started")
+            await cleanup.wait()
+            events.record("cleanup finished")
+        })
+        var limits = IPCLimits.standard
+        limits.maxConnectionsPerService = 1
+        try await withStack(handlers: handlers, limits: limits) { stack in
+            let path = stack.configuration.admin.path
+            let first = try await RawPeer(path)
+            #expect(await first.request(id: 1, .snapshot, Data()))
+            guard case .reply(1, _) = await first.read(within: 3) else { throw Unexpected(what: "snapshot") }
+            first.close()
+            #expect(await events.await("cleanup started"))
+            // The broker is still cleaning up the first connection: its slot is still taken.
+            let second = try await RawPeer(path)
+            #expect(await second.read(within: 3) == .eof, "a connection beyond the limit is closed during cleanup")
+            second.close()
+            cleanup.signal()
+            #expect(await events.await("cleanup finished"))
+            var admitted = false
+            for _ in 0..<50 where !admitted {
+                let retry = try await RawPeer(path)
+                if await retry.request(id: 2, .snapshot, Data()), case .reply = await retry.read(within: 0.5) { admitted = true }
+                retry.close()
+            }
+            #expect(admitted, "the slot is free once cleanup finished")
+        }
+    }
 }
