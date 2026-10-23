@@ -16,15 +16,25 @@ OrbStack remains stopped.
 The native socket transport (commit `2571da2`) carries the fixed read and signed admin
 calls over separate Unix sockets into the real broker, using the daemon's own handler
 composition. Peer UIDs come from `SO_PEERCRED` on Linux and `getpeereid` on macOS; see
-[IPC](IPC.md#unix-socket-transport). On macOS 15 with Swift 6.2.4, run through
-`scripts/verify-socket-transport.py --full --mutations`: 19 socket tests pass, the root suite
-reports 381 passing tests with existing opt-ins skipped, and `verify-mcp.py` and
-`verify-boundaries.py` pass. All 8 transport mutations fail their named test, and the
-synthetic canary scan of 22 logs is clean. Tests run every role under one UID; denied UIDs
-are simulated by configuration. The Linux compile and test result needs root CI and is not
-claimed here. The Linux broker exits `custody_unavailable` until vault key custody exists,
-and the Linux MCP bridge is not built. Dedicated accounts, systemd units and an installed
-host remain unproven.
+[IPC](IPC.md#unix-socket-transport). A source review of `4d84080` found five defects, each
+reproduced by a regression that failed on that code before its fix: an unbounded reply queue,
+stop and deadline checks that a busy peer could skip, concurrent starts that could unlink
+each other's sockets, admin slots released before broker cleanup, and a test peer that could
+close a reused descriptor. A follow-up found that a request ID left flight when its handler
+returned, so a duplicate could run again while the reply was unwritten; that is fixed the same
+way. Commit `be621d9`, on macOS 15 with Swift 6.2.4, through
+`scripts/verify-socket-transport.py --full --stress 5 --mutations`: 32 socket tests pass,
+the same suite passes 5 more times in the same run, the root suite reports 394 passing tests
+with existing opt-ins skipped, and `verify-mcp.py` and `verify-boundaries.py` pass. All 19
+transport mutations fail every named test, and after each one the restored file rebuilds and
+the same tests pass. The synthetic canary scan of 86 logs is clean, and `MANIFEST.txt` records
+each log's SHA-256 with the source hashes. Tests run every role under one UID; denied UIDs are
+simulated by configuration. Linux CI run 39884964104 of `4d84080` showed that Linux resets a
+refused peer that had already written; the test now accepts that and still requires that no
+reply is sent. A Linux compile and test result for `be621d9` needs root CI and is not claimed
+here. The Linux broker exits `custody_unavailable` until vault key custody exists, and the
+Linux MCP bridge is not built in this branch. Dedicated accounts, systemd units and an
+installed host remain unproven.
 
 The user authorized completion of private website login and continuing browser operation,
 native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
