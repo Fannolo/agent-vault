@@ -32,6 +32,8 @@ jobs:
         run: python3 -I -O deploy/tests/test_membership_verifier.py
       - name: Verify scoped secret buffer on macOS
         run: swift test --package-path Packages/VaultSecret --no-parallel
+      - name: Verify isolated committed-record codec on macOS
+        run: swift test --package-path Packages/VaultRecord --force-resolved-versions --no-parallel --jobs 4
       - name: Build and test pinned dependencies
         run: swift test --force-resolved-versions
       - name: Verify credential public API cannot reveal bytes
@@ -93,6 +95,7 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/source,readonly" \
             --mount "type=bind,src=$RUNNER_TEMP/agent-vault-build,dst=/build" \
             --workdir /source "$SWIFT_IMAGE" /bin/bash -euc '
+              set -o pipefail
               swift --version
               uname -m
               clang -Wall -Wextra -Werror -pthread -I Sources/CAgentVaultStdio/include \
@@ -103,9 +106,25 @@ jobs:
                 --force-resolved-versions --no-parallel --jobs 4
               swift test --package-path Packages/VaultSecret --scratch-path /build/secret \
                 --no-parallel --jobs 4
+              AV_RECORD_EXCHANGE_READ=/source/deploy/fixtures/record-v2/macos-exchange.json \
+              AV_RECORD_EXCHANGE_WRITE=/build/record-linux-exchange.json \
+              AV_RECORD_REFERENCE_WRITE=/build/record-linux-reference.json \
+                swift test --package-path Packages/VaultRecord --scratch-path /build/record \
+                  --force-resolved-versions --no-parallel --jobs 4 2>&1 | tee /build/record-linux-tests.log
               swift test --scratch-path /build/broker \
                 --force-resolved-versions --no-parallel --jobs 4
             '
+      - name: Retain synthetic record interoperability evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: record-linux-exchange
+          path: |
+            ${{ runner.temp }}/agent-vault-build/record-linux-exchange.json
+            ${{ runner.temp }}/agent-vault-build/record-linux-reference.json
+            ${{ runner.temp }}/agent-vault-build/record-linux-tests.log
+          retention-days: 7
+          if-no-files-found: warn
 
   persistence-macos:
     runs-on: macos-15

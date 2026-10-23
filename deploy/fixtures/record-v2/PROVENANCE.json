@@ -1,0 +1,21 @@
+{
+  "schema": "agent-vault-record-fixture-provenance-v1",
+  "producer": "native macOS15.6.1 Swift6.2.4 SDK26.2",
+  "package_commit": "2f171001ffff14d637f113bd794975bdebb7f52d",
+  "package_tree": "263edfd0c588f83f06716eb543b6a7f783f29357",
+  "recorded_result_sha256": "069801eb79966b206ada19779207e689ba79e797deadea550921b2d12fd115a8",
+  "fixture_sha256": "52196ef01fab005a351f289c098f3b5d37b8e88873760631acc23b1ebec79902",
+  "fixture_bytes": 155875,
+  "cases": [
+    "login_absent_username",
+    "login_empty_username",
+    "login_bom_non_ascii",
+    "login_maximum_fields",
+    "token_github_minimal",
+    "token_github_bucket_512",
+    "token_github_bucket_1024",
+    "token_github_maximum",
+    "tombstone"
+  ],
+  "data_class": "public synthetic ciphertext; test keys deterministically generated in package test source; never real credentials"
+}

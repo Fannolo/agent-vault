@@ -48,6 +48,7 @@ class FixtureBoundaryTests(unittest.TestCase):
         self.write("Sources/App/App.swift", "import Foundation\n")
         self.write("Tests/AppTests/Tests.swift", "import Foundation\n")
         self.write("Packages/VaultCore/Sources/VaultCore/Codec.swift", "// VaultCore AVSEAL01 AVMEMB01\n")
+        self.write("Packages/VaultRecord/Sources/VaultRecord/Record.swift", "// unreviewed codec\n")
         self.write("Packages/VaultPersistence/Sources/VaultPersistence/Record.swift", "// unreviewed codec\n")
         # Field shapes measured from SwiftPM describe, also exercised below on real fixtures.
         self.graph = {
@@ -132,6 +133,40 @@ class FixtureBoundaryTests(unittest.TestCase):
         self.rejected("fixture_dependency")
         self.graph["products"] = []
         anchor = self.root / "Packages/VaultPersistence"
+        anchor.rename(self.root / "Packages/RenamedRecord")
+        self.rejected("fixture_input_unavailable")
+
+
+    def test_unreviewed_record_imports_are_quarantined(self):
+        for statement in ("import VaultRecord", "@testable import VaultRecord",
+                          "import struct VaultRecord.Record"):
+            with self.subTest(statement=statement):
+                path = self.write("Sources/App/Record.swift", statement + "\n")
+                self.rejected("fixture_source_reference")
+                path.unlink()
+
+    def test_unreviewed_record_alias_and_wrapper_compiler_paths_are_quarantined(self):
+        canonical = self.root / "Packages/VaultRecord"
+        (self.root / "RecordAlias").symlink_to(canonical, target_is_directory=True)
+        self.graph["dependencies"] = [{"identity": "recordalias", "type": "fileSystem", "path": "RecordAlias"}]
+        self.resolved["dependencies"] = [self.node(canonical, "recordalias", "Renamed")]
+        self.rejected("fixture_dependency")
+        # An ancestor package compiling the canonical files under another module name.
+        self.utility("Packages", "Wrapper")
+        self.graph["dependencies"] = [{"identity": "packages", "type": "fileSystem", "path": "Packages"}]
+        self.resolved["dependencies"] = [self.node(self.root / "Packages", "packages", "Wrapper")]
+        dependency = {"path": str(self.root / "Packages"), "dependencies": [], "products": [],
+                      "targets": [{"name": "Codec", "c99name": "Codec", "type": "library",
+                                   "module_type": "SwiftTarget", "path": "VaultRecord/Sources/VaultRecord",
+                                   "sources": ["Record.swift"]}]}
+        with patch.object(guard, "_read_graph", return_value=dependency):
+            self.rejected("fixture_source_path")
+
+    def test_unreviewed_record_anchor_and_names_fail_closed(self):
+        self.graph["products"] = [{"name": "VaultRecord", "targets": ["App"]}]
+        self.rejected("fixture_dependency")
+        self.graph["products"] = []
+        anchor = self.root / "Packages/VaultRecord"
         anchor.rename(self.root / "Packages/RenamedRecord")
         self.rejected("fixture_input_unavailable")
 
