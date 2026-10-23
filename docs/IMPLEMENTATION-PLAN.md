@@ -2,6 +2,17 @@
 
 ## Headless delivery work: 23 October 2026
 
+Shared broker Core, approval and credential modules now compile on Linux. GitHub Actions
+run [39880214643](https://github.com/Fannolo/agent-vault/actions/runs/39880214643), at
+`2219b11`, passed both jobs: Linux ran 55 VaultCore tests, 7 VaultSecret tests and 131
+shared-root tests. Native macOS checks passed in the same run. Source review found no
+actionable defect in the bounded streaming replacement. The later integration of the
+reviewed credential-verifier timeout fix requires its own exact-head CI result.
+This proves library portability, not a Linux daemon, dedicated service identity, secret
+custody, cross-process durability, network containment or installed-host behavior.
+The Linux manifest omits Keychain implementations rather than substituting weaker storage.
+OrbStack remains stopped.
+
 The user authorized completion of private website login and continuing browser operation,
 native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
 The end-to-end acceptance criteria are in [DELIVERY-PLAN.md](DELIVERY-PLAN.md). This is active

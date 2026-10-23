@@ -5,8 +5,10 @@ with native local vaults/private browsers and client-side encrypted cloud synchr
 An agent should notice a website is logged out, ask whether it may use an approved account,
 and request private login without receiving password text.
 
-The current app is a macOS broker for fixed operations. Linux UI/broker, cloud signup/sync
-and general website operation are not implemented yet. The first portable component is
+The current app is a macOS broker for fixed operations. Shared broker authority, approval,
+metadata and bounded GitHub adapter code also build and test on Linux. A native Linux
+service/UI, cloud signup/sync and general website operation are not implemented yet.
+The first portable component is
 the standalone [sealed-record core](Packages/VaultCore), tested on macOS and Linux with
 bidirectional synthetic ciphertext exchange. It is not connected to current app products.
 Its corrected codec passes 21 tests per platform and 12 deliberate-defense-removal checks;
