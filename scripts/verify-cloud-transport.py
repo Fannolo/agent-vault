@@ -44,7 +44,8 @@ def main():
 
     inputs = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in (MIGRATION, Path(__file__), ROOT / 'deploy/tests/cloud_transport_bootstrap.sql',
-                        ROOT / 'deploy/tests/cloud_transport_checks.sql')}
+                        ROOT / 'deploy/tests/cloud_transport_checks.sql',
+                        ROOT / 'scripts/verify-webhost-link-mutations.py')}
     report = {'status': 'fail', 'inputs': inputs, 'steps': records}
     try:
         run('version', [binary / 'postgres', '--version'])
@@ -64,7 +65,7 @@ def main():
                 try:
                     deadline = time.monotonic() + 15
                     while True:
-                        code, _ = run('ready', [binary / 'pg_isready', '-h', sockets, '-U', 'av_transport_test'], required=False)
+                        code, _ = run('ready', [binary / 'pg_isready', '-h', sockets, '-U', 'av_transport_test', '-d', 'postgres'], required=False)
                         if code == 0:
                             break
                         if server.done() or time.monotonic() >= deadline:

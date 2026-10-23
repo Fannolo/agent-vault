@@ -56,6 +56,12 @@ records exit confirmation, input hashes and logs under ignored `verification-log
 The local baseline used PostgreSQL 17.11. CI selects the runner's PostgreSQL 16 binaries;
 its exact version is recorded at runtime. CI execution remains pending until measured.
 
+The canonical process owner now observes Linux exits through pidfds and reads `/proc`
+membership only for the unreaped leader's pinned process group. It never signals a PID
+discovered by that scan. macOS retains kqueue. Shared ownership tests check timeout,
+descendant cleanup, unrelated-process survival, stopped-child behavior and retention of
+the unreaped leader. Both platforms still require actual runtime results.
+
 `cloud_transport_bootstrap.sql` supplies synthetic `auth.users`, `auth.uid()` and
 `auth.jwt()` in that fresh cluster only. Claims are injected by the tests. These checks
 do not test Supabase JWT validation, PostgREST behavior, signup, email delivery, project

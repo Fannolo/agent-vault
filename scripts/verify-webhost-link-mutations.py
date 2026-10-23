@@ -8,8 +8,8 @@ verification-logs/webhost-link-mutations.log (gitignored).
 Process ownership: every build and test runs in a new session whose process group this
 script records at spawn. On timeout, or if anything is left in that group after the leader
 exits, only that recorded group is signalled (TERM, bounded wait, then KILL). Nothing is
-ever found or signalled by name, path or search, so other test runs, worktrees and
-applications are untouched.
+signalled by command-name or path matching. Linux reads /proc group membership using
+only that pinned group ID; other test runs, worktrees and applications are untouched.
 """
 import argparse
 import contextlib
@@ -103,11 +103,35 @@ def group_has_live_members(pgid):
     Measured on macOS: signal 0 to a group succeeds while a live member exists, fails with
     EPERM when only the unreaped (zombie) leader remains, and with ESRCH once it is reaped.
     """
+    if sys.platform.startswith("linux"):
+        return linux_group_has_live_members(pgid)
     try:
         os.killpg(pgid, 0)
     except (ProcessLookupError, PermissionError):
         return False
     return True
+
+
+def linux_group_has_live_members(pgid, proc_root=pathlib.Path("/proc")):
+    """Inspect only membership of the pinned group; never signal discovered PIDs.
+
+    Unlike macOS, Linux signal 0 succeeds for a zombie-only group. Exclude zombie/dead
+    states, but conservatively report live on an unreadable record. The unreaped leader
+    reserves the group ID throughout these reads and cleanup.
+    """
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            # comm can contain spaces and parentheses; the last ') ' ends that field.
+            fields = (entry / "stat").read_text().rsplit(") ", 1)[1].split()
+            if int(fields[2]) == pgid and fields[0] not in ("Z", "X"):
+                return True
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        except (OSError, IndexError, ValueError):
+            return True
+    return False
 
 
 def terminate_group(pgid, grace=TERM_GRACE):
@@ -131,6 +155,25 @@ def terminate_group(pgid, grace=TERM_GRACE):
 
 def wait_for_exit_without_reaping(pid, timeout):
     """Waits for `pid` to exit but leaves it unreaped, keeping its PID and group ID reserved."""
+    if sys.platform.startswith("linux"):
+        # A pidfd becomes readable on exit, not SIGSTOP. Do not poll()/wait() the child:
+        # reaping before owned-group cleanup would permit its numeric group ID to be reused.
+        descriptor = os.pidfd_open(pid)
+        try:
+            poller = select.poll()
+            poller.register(descriptor, select.POLLIN)
+            deadline = time.monotonic() + timeout
+            while True:
+                interruption = _interrupts.get()
+                if interruption is not None:
+                    interruption.check()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                if poller.poll(max(1, int(min(remaining, 0.1) * 1000))):
+                    return True
+        finally:
+            os.close(descriptor)
     queue = select.kqueue()
     try:
         event = select.kevent(pid, filter=select.KQ_FILTER_PROC,
