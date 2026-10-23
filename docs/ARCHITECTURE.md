@@ -13,7 +13,7 @@ The package graph enforces three roles, checked by `scripts/verify-boundaries.py
 | Bridge | Installed read client; no caller-selected identity, state path or destination | None |
 | AppSupport / App | Secure enrollment forms, pairing, grants, approvals and audit export | Own approval signing key only |
 | WebHostProtocol / WebHostLink | Authenticated credential-bearing host wire and broker-side admission link | Transient credentials; excluded from human app/bridge |
-| WebHost | Fixed Chromium workflows over private CDP pipes, owned contexts and cropped challenges | Transient authorized credentials; production disconnected |
+| WebHost | Fixed Chromium workflows and synthetic continuing-site sessions over private CDP pipes, owned contexts and cropped challenges | Transient authorized credentials; production disconnected; no production site policy |
 
 The signed bridge binds to the paired OS UID. `clientInfo` and tool arguments do not select
 identity. `accounts_list`, `action_run`, `request_resume` and `request_cancel` map to closed

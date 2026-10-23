@@ -1,0 +1,438 @@
+@_spi(CredentialUse) import AgentVaultCredentials
+import AgentVaultContracts
+import AgentVaultWebHostProtocol
+import Foundation
+
+/// Hands out document epochs for every session of one host, so an epoch names one document only
+/// and a target from one session can never match a document of another.
+final class DocumentEpochs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last: UInt64 = 0
+    func next() -> UInt64 { lock.withLock { last += 1; return last } }
+}
+
+/// One continuing-site session: one host-created incognito context with one page that logs in
+/// privately and then accepts closed, typed operations under its site policy.
+///
+/// The credential is used only on a page the host itself observes on a credential origin, and
+/// exists only inside `login`. Targets are rechecked against the live document, the control epoch
+/// and the agent's control immediately before input is sent. Operation IDs are remembered for the
+/// session's life (in host memory only): a retry gets the first reply, never a second dispatch.
+actor SiteSession {
+    /// What an operation ID was first used for. A credential is never recorded.
+    enum Recorded: Equatable, Sendable { case login, operate(SiteCommand) }
+
+    static let journalCapacity = 1024
+
+    private struct Document {
+        let loader: String
+        let epoch: UInt64
+        /// The isolated world holding this document's element table, once created.
+        var world: Int?
+    }
+
+    let id: UUID
+    private let pipe: ChromiumPipe
+    private let router: EventRouter
+    private let policy: SitePolicy
+    private let timing: WebRun.Timing
+    private let epochs: DocumentEpochs
+    private var context: String?
+    private var target: String?
+    private var session: String?
+    private var network: RunNetwork<SiteGate>?
+    private var mode = SiteMode.agent
+    private var auth = SiteAuth.signedOut
+    private var control: UInt64 = 1
+    private var document: Document?
+    private var journal: [UUID: (command: Recorded, reply: HostReply?)] = [:]
+    /// One operation at a time: another operation or observation waits for none, it is refused.
+    /// Takeover, release and end never wait for it.
+    private var operating = false
+    private var ended = false
+
+    init(id: UUID, pipe: ChromiumPipe, router: EventRouter, policy: SitePolicy, epochs: DocumentEpochs, timing: WebRun.Timing) {
+        self.id = id; self.pipe = pipe; self.router = router; self.policy = policy; self.epochs = epochs; self.timing = timing
+    }
+
+    // MARK: Lifecycle
+
+    /// Creates the context and page and loads the policy's own entry page.
+    func open() async -> HostReply {
+        do { try await create() } catch { return .failed(.rendererUnavailable) }
+        if let failure = await load(policy.entry) { return .failed(failure) }
+        return await observation()
+    }
+
+    private func create() async throws {
+        let created = try await pipe.call(.targetCreateBrowserContext, ["disposeOnDetach": true])
+        guard let context = created["browserContextId"]?.string else { throw CDPError.protocolError }
+        self.context = context
+        if ended { _ = await dispose(); throw CDPError.closed }
+        _ = try await pipe.call(.browserSetDownloadBehavior, ["behavior": "deny", "browserContextId": context])
+        router.beginCreation()
+        let page = try? await pipe.call(.targetCreateTarget, ["url": "about:blank", "browserContextId": context])
+        let target = page?["targetId"]?.string
+        router.endCreation(target)
+        guard let target, !ended else { throw CDPError.closed }
+        self.target = target
+        guard let session = await router.claimSession(for: target), !ended else { throw CDPError.closed }
+        self.session = session
+        let network = RunNetwork(gate: SiteGate(policy: policy), mainFrame: target, phase: .agent)
+        self.network = network
+        router.register(session: session, network: network)
+        for (method, params) in WebRun.pageSetup {
+            _ = try await pipe.call(method, params, session: session)
+        }
+        _ = try await pipe.call(.runtimeRunIfWaitingForDebugger, [:], session: session)
+    }
+
+    /// Disposes the context. Idempotent; returns whether the browser confirmed it.
+    func dispose() async -> Bool {
+        ended = true
+        network?.phase = .locked
+        if let target { router.forget(target: target, sessions: session.map { [$0] } ?? []) }
+        guard let context else { return true }
+        self.context = nil
+        return (try? await pipe.call(.targetDisposeBrowserContext, ["browserContextId": context], timeout: 2)) != nil
+    }
+
+    // MARK: Agent commands
+
+    func observe() async -> HostReply {
+        guard !ended else { return .rejected(.unknownRun) }
+        guard mode == .agent else { return .rejected(.humanControl) }
+        guard !operating else { return .rejected(.busy) }
+        return await observation()
+    }
+
+    func operate(_ operation: UUID, _ command: SiteCommand) async -> HostReply {
+        await journaled(operation, .operate(command)) {
+            guard command.fits else { return .rejected(.notPermitted) }
+            guard mode == .agent else { return .rejected(.humanControl) }
+            _ = network?.takeFailure()
+            switch command {
+            case .navigate(let text): return await navigate(text)
+            case .click(let target): return await click(target)
+            case .typePublic(let target, let text): return await type(target, text)
+            case .select(let target, let option): return await choose(target, option)
+            case .press(let key): return await press(key)
+            case .scroll(let dy): return await scroll(dy)
+            }
+        }
+    }
+
+    /// Fills and submits the page's single login form, only if the page the host observes now is on
+    /// a credential origin and the form posts to one. Nothing the caller supplied decides that.
+    func login(_ operation: UUID, _ credential: WebLoginCredential) async -> HostReply {
+        await journaled(operation, .login) {
+            let reply = await attemptLogin(credential)
+            // Unless signed in by this login, a password the host filled must not stay in a page the
+            // agent operates. On a new document there is nothing to clear.
+            if case .site = reply, auth == .signedIn { return reply }
+            _ = await run(.loginClear, origins: policy.navigation + policy.credential, [:])
+            return reply
+        }
+    }
+
+    private func attemptLogin(_ credential: WebLoginCredential) async -> HostReply {
+        guard mode == .agent else { return .rejected(.humanControl) }
+        _ = network?.takeFailure()
+        guard let (url, page) = await currentDocument(), let origin = WebOrigin(url: url),
+              policy.credential.contains(origin) else { return .rejected(.credentialOrigin) }
+        network?.phase = .login
+        defer { restorePhase() }
+        var fields: [String: Any] = [:]
+        credential.withLoginBytes { username, password in
+            fields["username"] = String(decoding: username, as: UTF8.self)
+            fields["password"] = String(decoding: password, as: UTF8.self)
+        }
+        let filled = await run(.loginFill, origins: policy.credential, fields)
+        fields = [:]
+        switch filled {
+        case .string("ok")?: break
+        case .string("origin")?: return .rejected(.credentialOrigin)
+        default: return .rejected(.unsupportedLogin)
+        }
+        try? await Task.sleep(for: timing.settle)
+        // Taken over, ended or replaced while filling: the form stays unsubmitted.
+        guard !ended, mode == .agent, await currentDocument()?.document.epoch == page.epoch else {
+            return .rejected(.staleTarget)
+        }
+        if let failure = network?.takeFailure() { return .failed(failure) }
+        let before = network?.loads ?? 0
+        switch await run(.loginSubmit, origins: policy.credential, [:]) {
+        case .string("ok")?: break
+        case .string?: return .rejected(.unsupportedLogin)
+        default: return .siteUnknown
+        }
+        await settle(loadedAfter: before)
+        restorePhase()
+        if let failure = network?.takeFailure() { return .failed(failure) }
+        await judgeLogin(handOver: true)
+        return await observation()
+    }
+
+    /// A person takes control: agent observation and input stop, and every earlier target expires.
+    func takeover() async -> HostReply {
+        guard !ended else { return .rejected(.unknownRun) }
+        if mode == .agent { fence(.human) }
+        return await observation()
+    }
+
+    /// Control returns to the agent with a new control epoch: targets seen before release expire.
+    func release() async -> HostReply {
+        guard !ended else { return .rejected(.unknownRun) }
+        if mode == .human {
+            fence(.agent)
+            // The person decided to return control; the page's state is reported, not enforced.
+            if auth == .humanRequired || auth == .rejected { await judgeLogin(handOver: false) }
+        }
+        return await observation()
+    }
+
+    private func fence(_ next: SiteMode) {
+        mode = next
+        control += 1
+        restorePhase()
+    }
+
+    /// The network phase that matches who is in control; never reopens an ended session.
+    private func restorePhase() {
+        guard !ended else { return }
+        network?.phase = mode == .agent ? .agent : .human
+    }
+
+    /// Signed in unless the page still shows a password form or asks for a one-time code, which a
+    /// person must enter: after a login the session then passes to them.
+    private func judgeLogin(handOver: Bool) async {
+        guard await currentDocument() != nil,
+              case .object(let state)? = await run(.authState, origins: policy.navigation + policy.credential, [:]) else {
+            auth = .rejected
+            return
+        }
+        if state["code"]?.bool == true {
+            auth = .humanRequired
+            if handOver && mode == .agent { fence(.human) }
+        } else {
+            auth = state["password"]?.bool == true ? .rejected : .signedIn
+        }
+    }
+
+    // MARK: Operations
+
+    private func journaled(_ operation: UUID, _ command: Recorded, _ body: () async -> HostReply) async -> HostReply {
+        if let entry = journal[operation] {
+            guard entry.command == command else { return .rejected(.operationConflict) }
+            return entry.reply ?? .rejected(.operationInFlight)
+        }
+        guard !ended else { return .rejected(.unknownRun) }
+        guard !operating, journal.count < Self.journalCapacity else { return .rejected(.busy) }
+        journal[operation] = (command, nil)
+        operating = true
+        let reply = await body()
+        operating = false
+        journal[operation]?.reply = reply
+        return reply
+    }
+
+    private func navigate(_ text: String) async -> HostReply {
+        guard let url = URL(string: text), let origin = WebOrigin(url: url), policy.navigation.contains(origin) else {
+            return .rejected(.notPermitted)
+        }
+        if let failure = await load(url) { return .failed(failure) }
+        return await outcome()
+    }
+
+    private func click(_ target: SiteTarget) async -> HostReply {
+        guard await current(target) else { return .rejected(.staleTarget) }
+        let roles: [SiteRole] = [.link, .button, .submit, .checkbox, .radio]
+        let found = await run(.target, origins: policy.navigation, ["index": target.element, "roles": roles.map(\.rawValue)])
+        guard case .object(let point)? = found, let x = point["x"]?.double, let y = point["y"]?.double else {
+            return refusal(found)
+        }
+        let at: [String: Any] = ["x": x, "y": y, "button": "left", "clickCount": 1]
+        return await dispatch(target, [(.inputDispatchMouseEvent, CDPParameters(at.merging(["type": "mousePressed"]) { $1 })),
+                                       (.inputDispatchMouseEvent, CDPParameters(at.merging(["type": "mouseReleased"]) { $1 }))])
+    }
+
+    private func type(_ target: SiteTarget, _ text: String) async -> HostReply {
+        guard await current(target) else { return .rejected(.staleTarget) }
+        let focused = await run(.focusText, origins: policy.navigation, ["index": target.element, "roles": [SiteRole.textField.rawValue]])
+        guard case .string("ok")? = focused else { return refusal(focused) }
+        // The field's text is selected, so typing replaces it; an empty text deletes it.
+        return await dispatch(target, text.isEmpty ? Self.key(.delete) : [(.inputInsertText, ["text": text])])
+    }
+
+    private func choose(_ target: SiteTarget, _ option: Int) async -> HostReply {
+        guard await current(target) else { return .rejected(.staleTarget) }
+        let chosen = await run(.choose, origins: policy.navigation,
+                               ["index": target.element, "roles": [SiteRole.select.rawValue], "option": option])
+        switch chosen {
+        case .string("ok")?: break
+        case nil: return .siteUnknown
+        default: return refusal(chosen)
+        }
+        await settle(loadedAfter: nil)
+        return await outcome()
+    }
+
+    private func press(_ key: NamedKey) async -> HostReply { await dispatch(nil, Self.key(key)) }
+
+    private func scroll(_ dy: Int) async -> HostReply {
+        await dispatch(nil, [(.inputDispatchMouseEvent, ["type": "mouseWheel", "x": WebRun.viewport.width / 2,
+                                                         "y": WebRun.viewport.height / 2, "deltaX": 0, "deltaY": dy])])
+    }
+
+    private static func key(_ key: NamedKey) -> [(CDPMethod, CDPParameters)] {
+        let (name, code, keyCode, text) = WebRun.keys[key]!
+        var down: [String: Any] = ["type": "keyDown", "key": name, "code": code, "windowsVirtualKeyCode": keyCode]
+        if let text { down["text"] = text }
+        return [(.inputDispatchKeyEvent, CDPParameters(down)),
+                (.inputDispatchKeyEvent, ["type": "keyUp", "key": name, "code": code, "windowsVirtualKeyCode": keyCode])]
+    }
+
+    private func refusal(_ value: JSONValue?) -> HostReply {
+        if case .string("kind")? = value { return .rejected(.notPermitted) }
+        return .rejected(.staleTarget)
+    }
+
+    /// Sends input only while the agent holds control of the same document. Input the browser may
+    /// have received without confirming makes the effect unknown; it is never sent again.
+    private func dispatch(_ target: SiteTarget?, _ events: [(CDPMethod, CDPParameters)]) async -> HostReply {
+        if let target { guard await current(target) else { return .rejected(.staleTarget) } }
+        guard let session, mode == .agent, !ended else { return .rejected(.humanControl) }
+        for (method, params) in events {
+            guard !ended, mode == .agent else { return .siteUnknown }
+            guard (try? await pipe.call(method, params, session: session, timeout: 2)) != nil else { return .siteUnknown }
+        }
+        await settle(loadedAfter: nil)
+        return await outcome()
+    }
+
+    /// Whether `target` names the live document, the current control epoch and the agent's control.
+    private func current(_ target: SiteTarget) async -> Bool {
+        guard mode == .agent, target.control == control, let (_, page) = await currentDocument() else { return false }
+        return mode == .agent && target.control == control && target.document == page.epoch
+    }
+
+    private func outcome() async -> HostReply {
+        if ended { return .rejected(.unknownRun) }
+        if let failure = network?.takeFailure() { return .failed(failure) }
+        return await observation()
+    }
+
+    // MARK: Observation
+
+    private func observation() async -> HostReply {
+        guard !ended else { return .rejected(.unknownRun) }
+        // A document can be replaced between reading its identity and its contents: read again.
+        for _ in 0..<3 {
+            guard let (url, page) = await currentDocument() else { return .failed(.rendererUnavailable) }
+            guard mode == .agent, let origin = WebOrigin(url: url), policy.navigation.contains(origin) else {
+                return .site(summary(page.epoch))
+            }
+            let value = await run(.observe, origins: policy.navigation, [:])
+            guard await currentDocument()?.document.epoch == page.epoch else { continue }
+            guard case .object(let fields)? = value, let title = fields["title"]?.string,
+                  let items = fields["elements"]?.array, let lines = fields["text"]?.array else { continue }
+            let elements = items.compactMap(Self.element)
+            let text = lines.compactMap { $0.string.map { Self.clipped($0, SiteObservation.maximumTextBytes) } }
+            guard let observed = SiteObservation(
+                document: page.epoch, control: control, mode: mode, auth: auth, origin: origin.serialized,
+                path: Self.clipped(url.path, SiteObservation.maximumPathBytes),
+                title: Self.clipped(title, SiteElement.maximumLabelBytes),
+                elements: Array(elements.prefix(SiteObservation.maximumElements)),
+                text: Array(text.prefix(SiteObservation.maximumTextItems))) else { continue }
+            return .site(HostWire.fitted(observed))
+        }
+        return .failed(.rendererUnavailable)
+    }
+
+    /// Identity only: what a person in control, or a page outside the policy, lets the agent know.
+    private func summary(_ epoch: UInt64) -> SiteObservation {
+        SiteObservation(document: epoch, control: control, mode: mode, auth: auth, origin: "", path: "", title: "",
+                        elements: [], text: [])!
+    }
+
+    private static func element(_ item: JSONValue) -> SiteElement? {
+        guard let ref = item["ref"]?.double, let role = item["role"]?.string.flatMap(SiteRole.init(rawValue:)),
+              let label = item["label"]?.string, let value = item["value"]?.string,
+              let options = item["options"]?.array else { return nil }
+        return SiteElement(ref: Int(ref), role: role, label: clipped(label, SiteElement.maximumLabelBytes),
+                           value: role == .password ? "" : clipped(value, SiteElement.maximumValueBytes),
+                           options: role == .select ? options.compactMap { $0.string.map { clipped($0, SiteElement.maximumLabelBytes) } }
+                                                         .prefix(SiteElement.maximumOptions).map { $0 } : [])
+    }
+
+    /// At most `bytes` UTF-8 bytes, cut on a character boundary.
+    private static func clipped(_ text: String, _ bytes: Int) -> String {
+        guard text.utf8.count > bytes else { return text }
+        var result = ""
+        for character in text {
+            guard result.utf8.count + character.utf8.count <= bytes else { break }
+            result.append(character)
+        }
+        return result
+    }
+
+    // MARK: CDP helpers
+
+    /// The main frame's URL and document, numbering a new document the first time it is seen.
+    private func currentDocument() async -> (url: URL, document: Document)? {
+        guard !ended, let session, let tree = try? await pipe.call(.pageGetFrameTree, [:], session: session),
+              let frame = tree["frameTree"]?["frame"], let text = frame["url"]?.string, let url = URL(string: text),
+              let loader = frame["loaderId"]?.string, !ended else { return nil }
+        if document?.loader != loader { document = Document(loader: loader, epoch: epochs.next(), world: nil) }
+        return (url, document!)
+    }
+
+    /// The current document's isolated world, created once per document.
+    private func world() async -> Int? {
+        guard let page = document, let session, let target else { return nil }
+        if let world = page.world { return world }
+        guard let made = try? await pipe.call(.pageCreateIsolatedWorld, ["frameId": target, "worldName": "agentvault-site",
+                                                                        "grantUniveralAccess": false], session: session),
+              let world = made["executionContextId"]?.double, document?.loader == page.loader else { return nil }
+        document?.world = Int(world)
+        return Int(world)
+    }
+
+    /// Runs a fixed site recipe in the current document's world, which a page script cannot reach.
+    private func run(_ recipe: SiteRecipe, origins: [WebOrigin], _ values: [String: Any]) async -> JSONValue? {
+        guard !ended, let session, let world = await world() else { return nil }
+        var arguments = values
+        arguments["origins"] = origins.map(\.serialized)
+        guard Set(arguments.keys) == Set(recipe.parameters) else { return nil }
+        let call: CDPParameters = [
+            "functionDeclaration": recipe.declaration, "executionContextId": world,
+            "arguments": recipe.parameters.map { ["value": arguments[$0]!] }, "returnByValue": true, "awaitPromise": false,
+        ]
+        guard let result = try? await pipe.call(.runtimeCallFunctionOn, call, session: session),
+              result["exceptionDetails"] == nil else { return nil }
+        return result["result"]?["value"]
+    }
+
+    private func load(_ url: URL) async -> HostFailure? {
+        guard let session else { return .rendererUnavailable }
+        let before = network?.loads ?? 0
+        guard let result = try? await pipe.call(.pageNavigate, ["url": url.absoluteString], session: session,
+                                                timeout: timing.load) else { return network?.takeFailure() ?? .loadFailed }
+        if result["errorText"]?.string != nil { return network?.takeFailure() ?? .loadFailed }
+        await settle(loadedAfter: before)
+        return network?.takeFailure()
+    }
+
+    /// Waits for a navigation the last action started, if any, to finish loading. With `loadedAfter`
+    /// it also waits for a load event past that count, for actions that always navigate.
+    private func settle(loadedAfter required: Int?) async {
+        try? await Task.sleep(for: timing.settle)
+        let deadline = Date().addingTimeInterval(timing.load)
+        while Date() < deadline, !ended {
+            let loads = network?.loads ?? 0
+            let waiting = network?.isLoading == true || required.map { loads <= $0 } == true
+            guard waiting else { return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+}

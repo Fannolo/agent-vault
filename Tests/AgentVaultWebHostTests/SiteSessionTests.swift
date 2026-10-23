@@ -1,0 +1,256 @@
+import AgentVaultCredentials
+@testable import AgentVaultWebHost
+import AgentVaultBrowserFixture
+import AgentVaultContracts
+import AgentVaultWebHostProtocol
+import Foundation
+import Testing
+
+// Continuing-site sessions against the real headless shell and the synthetic loopback site. These
+// extend `RealBrowserTests`, so they run serialized with it and share its owned-browser cleanup.
+
+private func observed(_ reply: HostReply) -> SiteObservation? { if case .site(let page) = reply { page } else { nil } }
+
+private extension SiteObservation {
+    func element(_ role: SiteRole, _ label: String) -> SiteElement? {
+        elements.first { $0.role == role && $0.label == label }
+    }
+    func ref(_ role: SiteRole, _ label: String) -> SiteTarget? { element(role, label).flatMap(target) }
+    func need(_ role: SiteRole, _ label: String) throws -> SiteTarget {
+        guard let found = ref(role, label) else { throw Missing(description: "no \(role) \"\(label)\" on \(path)") }
+        return found
+    }
+}
+
+private struct Missing: Error, CustomStringConvertible { let description: String }
+
+private extension Host {
+    func open(_ session: UUID = UUID(), lifetime: Int = 120) async -> (UUID, HostReply) {
+        (session, await service.perform(.openSite(session: session, site: .syntheticFixture, lifetime: lifetime)))
+    }
+
+    func login(_ session: UUID, operation: UUID = UUID(), user: String = FixtureSite.loginName,
+               password: String = FixtureSite.password) async -> HostReply {
+        let credential = WebLoginCredential(FixtureSite.credential(user: user, password: password))!
+        return await service.perform(.siteLogin(session: session, operation: operation, credential: credential))
+    }
+
+    func operate(_ session: UUID, _ command: SiteCommand, operation: UUID = UUID()) async -> HostReply {
+        await service.perform(.siteOperate(session: session, operation: operation, command: command))
+    }
+
+    func observe(_ session: UUID) async -> HostReply { await service.perform(.siteObserve(session: session)) }
+
+    func url(_ path: String) -> String { site.origin.absoluteString + path }
+
+    /// Every request any fixture origin saw that carried the synthetic password.
+    var passwordSightings: [FixtureRequest] {
+        (site.trusted.requests + site.partner.requests + site.elsewhereRequests).filter {
+            String(decoding: $0.body, as: UTF8.self).contains("synthetic-password") || $0.target.contains("synthetic-password")
+        }
+    }
+}
+
+/// The reply as the broker would receive it: nothing secret or session-bearing may be in it.
+private func expectNoSecret(_ reply: HostReply, _ session: UUID, sourceLocation: SourceLocation = #_sourceLocation) throws {
+    let wire = String(decoding: try HostWire.encode(HostResponse(request: 1, run: session, reply: reply)), as: UTF8.self)
+    for forbidden in [FixtureSite.password, "sid=", "cookie", "HttpOnly"] {
+        #expect(!wire.lowercased().contains(forbidden.lowercased()), "reply carries \(forbidden)", sourceLocation: sourceLocation)
+    }
+}
+
+extension RealBrowserTests {
+    @Test func continuingSessionLogsInPrivatelyThenSubmitsAnAuthenticatedFormAndSeesTheResult() async throws {
+        try await Host.using { h in
+            let (session, opened) = await h.open()
+            let login = try #require(observed(opened))
+            #expect(login.path == "/login" && login.auth == .signedOut && login.mode == .agent)
+            let password = try #require(login.elements.first { $0.role == .password })
+            #expect(password.value.isEmpty)
+
+            let signedIn = await h.login(session)
+            try expectNoSecret(signedIn, session)
+            let home = try #require(observed(signedIn))
+            #expect(home.auth == .signedIn && home.path == "/home" && home.document > login.document)
+            #expect(h.posts.filter { $0.path == "/session" }.count == 1)
+
+            let notes = try #require(observed(await h.operate(session, .click(try home.need(.link, "Notes")))))
+            #expect(notes.path == "/notes" && notes.document > home.document)
+            let typed = try #require(observed(await h.operate(session, .typePublic(try notes.need(.textField, "Note"),
+                                                                                   "Buy synthetic milk"))))
+            #expect(typed.document == notes.document && typed.element(.textField, "Note")?.value == "Buy synthetic milk")
+            let chosen = try #require(observed(await h.operate(session, .select(try typed.need(.select, "Priority"), option: 1))))
+            #expect(chosen.element(.select, "Priority")?.value == "high")
+
+            let save = SiteCommand.click(try chosen.need(.submit, "Save note"))
+            let submitID = UUID()
+            let submitted = await h.operate(session, save, operation: submitID)
+            try expectNoSecret(submitted, session)
+            let result = try #require(observed(submitted))
+            #expect(result.path == "/notes" && result.document > chosen.document)
+            #expect(result.text.contains("Saved: Buy synthetic milk (high)"))
+            #expect(h.site.notes == ["Buy synthetic milk (high)"])
+            // The same context kept the private login: the submission carried its session cookie.
+            let notePost = try #require(h.posts.last { $0.path == "/notes" })
+            #expect(notePost.headers["cookie"]?.contains("sid=") == true)
+
+            let again = try #require(observed(await h.observe(session)))
+            #expect(again.text.contains("Saved: Buy synthetic milk (high)") && again.auth == .signedIn)
+
+            // Retrying the operation returns its first reply and never submits again; reusing the
+            // ID for anything else is refused; a new ID cannot reuse the old document's target.
+            #expect(await h.operate(session, save, operation: submitID) == submitted)
+            #expect(await h.operate(session, .scroll(dy: 100), operation: submitID) == .rejected(.operationConflict))
+            #expect(await h.operate(session, save) == .rejected(.staleTarget))
+            #expect(h.site.notes.count == 1)
+
+            #expect(h.passwordSightings.allSatisfy { $0.path == "/session" && $0.method == "POST" })
+            #expect(h.passwordSightings.count == 1, "the password reached only the trusted login POST, once")
+            #expect(h.site.partner.requests.isEmpty && h.site.elsewhereRequests.isEmpty)
+
+            #expect(await h.service.perform(.end(run: session)) == .ended)
+            #expect(await h.service.liveSessions == 0)
+            #expect(await h.observe(session) == .rejected(.unknownRun))
+            #expect(await h.operate(session, .scroll(dy: 100)) == .rejected(.unknownRun))
+        }
+    }
+
+    @Test func targetsAreBoundToTheirSessionDocumentAndControlEpoch() async throws {
+        try await Host.using { h in
+            let (first, firstReply) = await h.open()
+            let (second, secondReply) = await h.open()
+            let a = try #require(observed(firstReply)), b = try #require(observed(secondReply))
+            #expect(a.document != b.document, "document epochs are host-wide")
+            let user = try #require(a.elements.first { $0.role == .textField }.flatMap(a.target))
+            #expect(await h.operate(second, .typePublic(user, "cross")) == .rejected(.staleTarget), "another session's target")
+            let field = try #require(a.elements.first { $0.role == .password }.flatMap(a.target))
+            #expect(await h.operate(first, .typePublic(field, "guess")) == .rejected(.notPermitted), "password fields are never typed into")
+
+            // Takeover fences every agent command and expires earlier targets for good.
+            let taken = try #require(observed(await h.service.perform(.siteTakeover(session: first))))
+            #expect(taken.mode == .human && taken.control > a.control && taken.elements.isEmpty && taken.text.isEmpty)
+            #expect(await h.observe(first) == .rejected(.humanControl))
+            #expect(await h.operate(first, .typePublic(user, "during")) == .rejected(.humanControl))
+            #expect(await h.login(first) == .rejected(.humanControl))
+            let released = try #require(observed(await h.service.perform(.siteRelease(session: first))))
+            #expect(released.mode == .agent && released.control > taken.control && released.document == a.document)
+            #expect(await h.operate(first, .typePublic(user, "after")) == .rejected(.staleTarget), "a target from before takeover")
+            let fresh = try #require(released.elements.first { $0.role == .textField }.flatMap(released.target))
+            let typed = try #require(observed(await h.operate(first, .typePublic(fresh, "after"))))
+            #expect(typed.elements.first { $0.role == .textField }?.value == "after")
+
+            // One operation at a time: a second command while the first is in flight is refused, not queued.
+            async let pending = h.operate(first, .navigate(h.url("/login")))
+            try await Task.sleep(for: .milliseconds(40))
+            #expect(await h.observe(first) == .rejected(.busy))
+            #expect(await h.operate(first, .press(.tab)) == .rejected(.busy))
+            #expect(observed(await pending) != nil)
+
+            // A navigation replaces the document: its targets expire.
+            let moved = try #require(observed(await h.operate(first, .navigate(h.url("/login")))))
+            #expect(moved.document > typed.document)
+            #expect(await h.operate(first, .typePublic(fresh, "stale")) == .rejected(.staleTarget))
+
+            // Fixed runs and sessions never accept each other's commands.
+            let (run, paused) = await h.start(user: "mfa-user")
+            #expect(paused == .humanStep(.mfa))
+            #expect(await h.observe(run) == .rejected(.unknownRun))
+            #expect(await h.operate(run, .navigate(h.url("/home"))) == .rejected(.unknownRun))
+            #expect(await h.service.perform(.siteTakeover(session: run)) == .rejected(.unknownRun))
+            #expect(await h.service.perform(.classify(run: second)) == .rejected(.unknownRun))
+            #expect(await h.service.perform(.showHuman(run: second, step: 1)) == .rejected(.unknownRun))
+            #expect(await h.service.perform(.openSite(session: run, site: .syntheticFixture, lifetime: 60)) == .rejected(.duplicateRun))
+            await h.service.end(run)
+            #expect(await h.service.perform(.openSite(session: run, site: .syntheticFixture, lifetime: 60)) == .rejected(.unknownRun))
+            await h.service.end(first); await h.service.end(second)
+            #expect(await h.service.liveSessions == 0)
+            #expect(await h.service.liveRuns == 0)
+        }
+    }
+
+    @Test func credentialEligibilityComesFromTheObservedPageNeverTheCallerURL() async throws {
+        try await Host.using { h in
+            let (session, _) = await h.open()
+            // A navigable origin that is not a credential origin, reached directly or by a redirect
+            // from a credential-origin URL: the observed page decides, and nothing is filled.
+            let partner = try #require(observed(await h.operate(session, .navigate(h.site.partner.origin + "/signin"))))
+            #expect(partner.origin == h.site.partner.origin && partner.elements.contains { $0.role == .password })
+            #expect(await h.login(session) == .rejected(.credentialOrigin))
+            let redirected = try #require(observed(await h.operate(session, .navigate(h.url("/to-partner")))))
+            #expect(redirected.origin == h.site.partner.origin)
+            #expect(await h.login(session) == .rejected(.credentialOrigin))
+            #expect(h.site.partner.requests.allSatisfy { $0.method == "GET" }, "the partner never received a form post")
+            #expect(h.passwordSightings.isEmpty)
+
+            // Off-policy destinations: refused before loading, or stopped by the gate after a redirect.
+            #expect(await h.operate(session, .navigate(h.site.elsewhere.origin + "/x")) == .rejected(.notPermitted))
+            #expect(await h.operate(session, .navigate("javascript:alert(1)")) == .rejected(.notPermitted))
+            #expect(await h.operate(session, .navigate(h.url("/to-elsewhere"))) == .failed(.originMismatch))
+            let stranded = try #require(observed(await h.observe(session)))
+            #expect(stranded.origin.isEmpty && stranded.elements.isEmpty, "a refused page shows nothing")
+
+            _ = await h.operate(session, .navigate(h.url("/login")))
+            let home = try #require(observed(await h.login(session)))
+            #expect(home.auth == .signedIn)
+            let notes = try #require(observed(await h.operate(session, .navigate(h.url("/notes")))))
+            #expect(await h.operate(session, .click(try notes.need(.link, "Leave"))) == .failed(.originMismatch))
+            let back = try #require(observed(await h.operate(session, .navigate(h.url("/notes")))))
+            let leak = try back.need(.textField, "Leak")
+            let filled = try #require(observed(await h.operate(session, .typePublic(leak, "public words"))))
+            // The document's CSP refuses the off-policy form in the renderer, or the gate refuses its request.
+            let sent = await h.operate(session, .click(try filled.need(.submit, "Send elsewhere")))
+            #expect(sent == .failed(.originMismatch) || observed(sent)?.path == "/notes", "\(sent)")
+            #expect(h.site.elsewhereRequests.isEmpty, "no request ever reached the off-policy origin")
+            // The session survives refusals and carries on.
+            #expect(observed(await h.operate(session, .navigate(h.url("/notes"))))?.path == "/notes")
+            // A credential-origin page without a login form: nothing is filled.
+            #expect(await h.login(session) == .rejected(.unsupportedLogin))
+            #expect(h.passwordSightings.count == 1)
+        }
+    }
+
+    @Test func loginOutcomesAreTypedAndAOneTimeCodeHandsTheSessionToAPerson() async throws {
+        try await Host.using { h in
+            let (wrong, _) = await h.open()
+            let rejected = try #require(observed(await h.login(wrong, password: "wrong")))
+            #expect(rejected.auth == .rejected && rejected.mode == .agent)
+
+            let (mfa, _) = await h.open()
+            let step = try #require(observed(await h.login(mfa, user: "mfa-user")))
+            #expect(step.auth == .humanRequired && step.mode == .human && step.elements.isEmpty)
+            #expect(await h.observe(mfa) == .rejected(.humanControl))
+            #expect(await h.operate(mfa, .press(.enter)) == .rejected(.humanControl))
+            let released = try #require(observed(await h.service.perform(.siteRelease(session: mfa))))
+            #expect(released.mode == .agent && released.auth == .humanRequired, "the code is still required")
+
+            // An ambiguous form is refused before anything is filled or posted.
+            h.site.loginPage = .duplicateLoginFields
+            let (ambiguous, _) = await h.open()
+            #expect(await h.login(ambiguous) == .rejected(.unsupportedLogin))
+            #expect(h.posts.filter { $0.path == "/session" }.count == 2, "only the two earlier logins posted")
+        }
+    }
+
+    @Test func lifetimeEndAndTeardownStopSessionsAndProductionCompilesNoSite() async throws {
+        try await Host.using { h in
+            let (session, opened) = await h.open(lifetime: 2)
+            #expect(observed(opened) != nil)
+            #expect(await eventually(5) { await h.service.liveSessions == 0 }, "the host's own lifetime cap ends the session")
+            #expect(await h.observe(session) == .rejected(.unknownRun))
+            #expect(await h.open(session).1 == .rejected(.unknownRun), "an expired session ID never opens again")
+
+            let (other, _) = await h.open()
+            #expect(await h.service.perform(.siteTakeover(session: other)) != .rejected(.unknownRun))
+            await h.service.teardown()
+            #expect(await h.service.liveSessions == 0)
+            #expect(await h.observe(other) == .rejected(.unknownRun))
+            #expect(await h.open().1 == .rejected(.unknownRun), "nothing opens after teardown")
+        }
+        // Production policy: the site path exists but nothing can open it, and no browser starts.
+        let production = HostService(policy: .production, binary: URL(fileURLWithPath: "/nonexistent"),
+                                     runDirectory: FileManager.default.temporaryDirectory, onFatal: {})
+        #expect(await production.perform(.openSite(session: UUID(), site: .syntheticFixture, lifetime: 60))
+                == .rejected(.unsupportedSite))
+        #expect(await production.launched == nil)
+    }
+}

@@ -4,10 +4,11 @@ import AgentVaultWebHostProtocol
 import Darwin
 import Foundation
 
-/// Serial owner of the single browser process and every run in it.
+/// Serial owner of the single browser process and every run and continuing-site session in it.
 ///
 /// It decides nothing about authority: the broker does. It only keeps each run inside its fixed
-/// workflow, bounds its lifetime, and makes teardown final. After `teardown`, or after the
+/// workflow and each session inside its site policy, bounds their lifetimes, and makes teardown
+/// final. Runs and sessions share one ID namespace, capacity and tombstone set. After `teardown`, or after the
 /// browser dies or stops confirming a disposal, the service is terminal: no context is created
 /// again, and `onFatal` lets the process end so the broker sees the loss of every run at once.
 actor HostService {
@@ -27,6 +28,8 @@ actor HostService {
     /// The browser this service started, kept after teardown so its owner can confirm it is gone.
     private(set) var launched: ChromiumPipe?
     private var runs: [UUID: WebRun] = [:]
+    private var sessions: [UUID: SiteSession] = [:]
+    private let epochs = DocumentEpochs()
     private var lifetimes: [UUID: Task<Void, Never>] = [:]
     private var tombstones: Set<UUID> = []
     private var tombstoneOrder: [UUID] = []
@@ -57,29 +60,72 @@ actor HostService {
         case .input(let run, let step, let frame, let batch):
             guard let web = runs[run] else { return .rejected(.unknownRun) }
             return await web.input(step: step, frame: frame, batch)
+        case .openSite(let id, let site, let lifetime):
+            return await openSite(id, site: site, lifetime: lifetime)
+        case .siteObserve(let id):
+            guard let site = sessions[id] else { return .rejected(.unknownRun) }
+            return await site.observe()
+        case .siteLogin(let id, let operation, let credential):
+            guard let site = sessions[id] else { return .rejected(.unknownRun) }
+            return await site.login(operation, credential)
+        case .siteOperate(let id, let operation, let command):
+            guard let site = sessions[id] else { return .rejected(.unknownRun) }
+            return await site.operate(operation, command)
+        case .siteTakeover(let id):
+            guard let site = sessions[id] else { return .rejected(.unknownRun) }
+            return await site.takeover()
+        case .siteRelease(let id):
+            guard let site = sessions[id] else { return .rejected(.unknownRun) }
+            return await site.release()
         }
     }
 
     private func start(_ id: UUID, workflow: HostWorkflow, credential: WebLoginCredential, lifetime: Int) async -> HostReply {
         guard admissible(id) else { return .rejected(.unknownRun) }
-        guard runs[id] == nil else { return .rejected(.duplicateRun) }
+        guard !live(id) else { return .rejected(.duplicateRun) }
         guard let definition = policy.workflows[workflow] else { return .rejected(.unsupportedWorkflow) }
-        guard runs.count < Self.maximumRuns else { return .rejected(.busy) }
+        guard live < Self.maximumRuns else { return .rejected(.busy) }
         guard let pipe = await browser() else { return .failed(.rendererUnavailable) }
         // Launching the browser suspended: everything checked above may have changed.
-        guard admissible(id), runs[id] == nil else { return .rejected(.unknownRun) }
-        guard runs.count < Self.maximumRuns else { return .rejected(.busy) }
+        guard admissible(id), !live(id) else { return .rejected(.unknownRun) }
+        guard live < Self.maximumRuns else { return .rejected(.busy) }
         // Registered before the first suspension, so `end` and teardown can always find it.
         let web = WebRun(id: id, pipe: pipe, router: router, gate: RequestGate(policy: policy, workflow: definition),
                          timing: timing)
         runs[id] = web
+        expire(id, after: lifetime)
+        let reply = await web.start(credential)
+        return await settle(id, reply)
+    }
+
+    /// A session stays open after login until `end`, its lifetime, teardown or a fatal browser loss.
+    private func openSite(_ id: UUID, site: HostSite, lifetime: Int) async -> HostReply {
+        guard admissible(id) else { return .rejected(.unknownRun) }
+        guard !live(id) else { return .rejected(.duplicateRun) }
+        guard let sitePolicy = policy.sites[site] else { return .rejected(.unsupportedSite) }
+        guard live < Self.maximumRuns else { return .rejected(.busy) }
+        guard let pipe = await browser() else { return .failed(.rendererUnavailable) }
+        guard admissible(id), !live(id) else { return .rejected(.unknownRun) }
+        guard live < Self.maximumRuns else { return .rejected(.busy) }
+        let session = SiteSession(id: id, pipe: pipe, router: router, policy: sitePolicy, epochs: epochs, timing: timing)
+        sessions[id] = session
+        expire(id, after: lifetime)
+        let reply = await session.open()
+        guard !terminal, sessions[id] != nil else { return .rejected(.unknownRun) }
+        if case .site = reply { return reply }
+        await end(id)
+        return reply
+    }
+
+    private func expire(_ id: UUID, after lifetime: Int) {
         lifetimes[id] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(lifetime))
             await self?.end(id)
         }
-        let reply = await web.start(credential)
-        return await settle(id, reply)
     }
+
+    private func live(_ id: UUID) -> Bool { runs[id] != nil || sessions[id] != nil }
+    private var live: Int { runs.count + sessions.count }
 
     /// Keeps a run only while a person must act on it; anything else disposes it now. Either way
     /// a run ID is used once: a concluded run can never be started again.
@@ -94,8 +140,15 @@ actor HostService {
     func end(_ id: UUID) async {
         bury(id)
         lifetimes.removeValue(forKey: id)?.cancel()
-        guard let web = runs.removeValue(forKey: id) else { return }
-        guard await web.dispose() else {
+        let disposed: Bool
+        if let web = runs.removeValue(forKey: id) {
+            disposed = await web.dispose()
+        } else if let site = sessions.removeValue(forKey: id) {
+            disposed = await site.dispose()
+        } else {
+            return
+        }
+        guard disposed else {
             // The browser no longer confirms teardown: end all of it.
             await fail()
             return
@@ -107,9 +160,10 @@ actor HostService {
         terminal = true
         for task in lifetimes.values { task.cancel() }
         lifetimes = [:]
-        let ended = runs
-        runs = [:]
+        let ended = runs, closed = sessions
+        runs = [:]; sessions = [:]
         for web in ended.values { _ = await web.dispose() }
+        for site in closed.values { _ = await site.dispose() }
         pipe?.terminate()
         pipe = nil
     }
@@ -118,6 +172,7 @@ actor HostService {
     private func admissible(_ id: UUID) -> Bool { !terminal && !tombstones.contains(id) }
 
     var liveRuns: Int { runs.count }
+    var liveSessions: Int { sessions.count }
     var refusedRequests: Int { router.refusedRequests }
     var browserProcessGroup: pid_t? { pipe?.processGroup }
 

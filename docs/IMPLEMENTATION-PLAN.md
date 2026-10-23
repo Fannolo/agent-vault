@@ -27,6 +27,36 @@ is absent from Contracts, has no password property, and cannot reveal bytes with
 This integration is awaiting independent review. It does not prove installed custody or
 erase transient copies made by validation and the JSON/CDP serializer.
 
+A continuing-site host slice adds a separate entry beside fixed workflows: `openSite`,
+`siteObserve`, `siteLogin`, `siteOperate`, `siteTakeover` and `siteRelease` on the existing
+authenticated host wire. A closed `HostSite` names a compiled `SitePolicy`; a `HostWorkflow`
+grant cannot name one. Navigation, credential, authentication and passive-resource origins
+are separate; there is no cross-origin GET allowance. The host creates the context and
+loads the policy's own entry page. The password is filled only when the main-frame origin
+the host reads from the browser is a credential origin and the single login form posts to
+one; a caller URL only requests navigation. Observations are typed and bounded and omit
+password values. Targets bind a host-wide document epoch, the control epoch and an element
+row held in an isolated world; they are rechecked before input. Operations are navigate,
+click, plain-text typing, select, named keys and scroll, one at a time per session.
+Takeover fences agent observation and input; end, lifetime and teardown dispose the context.
+Operation IDs return the first reply on retry and refuse reuse for another command.
+
+Synthetic acceptance on the loopback fixture and Chromium 149.0.7827.55: private login, then
+navigation, typing, selection and an authenticated form submission in the same context,
+whose result the next observation shows. Negative tests cover stale, cross-session and
+pre-takeover targets, partner/redirected credential origins, off-policy navigation and form
+posts, duplicate submission, operation-ID conflicts, unsupported login forms, one-time-code
+handover, lifetime, end, teardown and run/session command separation. The fixed workflow
+browser tests still pass.
+
+Limits: `HostPolicy.production.sites` is empty, and neither Core, the host link nor MCP can
+send site commands. The operation journal is volatile host memory, bounded per session and
+lost with the host; durable broker journaling before dispatch must be integrated before any
+production external effect. A person in control has no raster relay for sessions yet.
+Uploads, downloads, popups, extra tabs, history, coordinates, iframe and multi-step logins
+are unsupported. Input sent just before a takeover is not recalled, and a receiving site can
+still reflect a password it was given.
+
 Local Linux attempts are retained as failures. One lost the Docker connection; a later run
 passed all 55 Swift tests on each platform but interleaved framework output with corpus JSON,
 which the strict recorder correctly refused. U1 recording commands now select `--no-parallel`.

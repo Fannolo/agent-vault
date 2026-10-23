@@ -4,7 +4,8 @@ import re
 
 REVEAL_IMPORTS = {
     "SecretReveal": {"Sources/AgentVaultCredentials/WebLoginCredential.swift"},
-    "CredentialUse": {"Sources/AgentVaultWebHostProtocol/HostWire.swift", "Sources/AgentVaultWebHost/WebRun.swift"},
+    "CredentialUse": {"Sources/AgentVaultWebHostProtocol/HostWire.swift", "Sources/AgentVaultWebHost/WebRun.swift",
+                      "Sources/AgentVaultWebHost/SiteSession.swift"},
 }
 
 

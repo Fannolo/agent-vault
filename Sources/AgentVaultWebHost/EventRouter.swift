@@ -1,29 +1,49 @@
 import AgentVaultWebHostProtocol
 import Foundation
 
-/// Network state of one run, shared by its page session and any frame sessions under it.
-final class RunNetwork: @unchecked Sendable {
-    let gate: RequestGate
+/// What the router needs from a page's network state, whichever gate it uses.
+protocol PageNetwork: AnyObject, Sendable {
+    var mainFrame: String { get }
+    func decide(_ request: GateRequest) -> GateDecision
+    func contentSecurityPolicy() -> String
+    func record(_ failure: HostFailure)
+    func loaded()
+    func mainFrameLoading(_ loading: Bool)
+}
+
+/// Network state of one run or session, shared by its page session and any frame sessions under it.
+final class RunNetwork<Gate: PhasedGate>: PageNetwork, @unchecked Sendable {
+    let gate: Gate
     let mainFrame: String
     private let lock = NSLock()
-    private var currentPhase: GatePhase = .login
+    private var currentPhase: Gate.Phase
     private var firstFailure: HostFailure?
     private var loadCount = 0
+    private var loading = false
 
-    init(gate: RequestGate, mainFrame: String) { self.gate = gate; self.mainFrame = mainFrame }
+    init(gate: Gate, mainFrame: String, phase: Gate.Phase) {
+        self.gate = gate; self.mainFrame = mainFrame; currentPhase = phase
+    }
 
-    var phase: GatePhase {
+    var phase: Gate.Phase {
         get { lock.withLock { currentPhase } }
         set { lock.withLock { currentPhase = newValue } }
     }
     /// The first refused request decides how the run fails at its next checkpoint.
     var failure: HostFailure? { lock.withLock { firstFailure } }
     var loads: Int { lock.withLock { loadCount } }
+    /// The main frame started a navigation that has not stopped loading yet.
+    var isLoading: Bool { lock.withLock { loading } }
 
     func record(_ failure: HostFailure) {
         lock.withLock { if firstFailure == nil || failure == .originMismatch { firstFailure = failure } }
     }
-    func loaded() { lock.withLock { loadCount += 1 } }
+    /// Returns and clears the refusal, so a continuing session judges each operation on its own.
+    func takeFailure() -> HostFailure? { lock.withLock { defer { firstFailure = nil }; return firstFailure } }
+    func loaded() { lock.withLock { loadCount += 1; loading = false } }
+    func mainFrameLoading(_ value: Bool) { lock.withLock { loading = value } }
+    func decide(_ request: GateRequest) -> GateDecision { gate.decide(request, phase: phase) }
+    func contentSecurityPolicy() -> String { gate.contentSecurityPolicy(phase: phase) }
 }
 
 /// Routes browser events to runs and polices every target the browser creates.
@@ -39,7 +59,7 @@ final class EventRouter: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private var sessions: [String: RunNetwork] = [:]
+    private var sessions: [String: any PageNetwork] = [:]
     private var ownTargets: Set<String> = []
     /// Paused sessions of our own new pages, waiting for their run to configure and resume them.
     private var ownSessions: [String: String] = [:]
@@ -55,7 +75,7 @@ final class EventRouter: @unchecked Sendable {
     func endCreation(_ target: String?) {
         lock.withLock { creations -= 1; if let target { ownTargets.insert(target) } }
     }
-    func register(session: String, network: RunNetwork) { lock.withLock { sessions[session] = network } }
+    func register(session: String, network: any PageNetwork) { lock.withLock { sessions[session] = network } }
     /// The auto-attached, still paused session of a page this host created.
     func claimSession(for target: String, within seconds: TimeInterval = 5) async -> String? {
         let deadline = Date().addingTimeInterval(seconds)
@@ -73,7 +93,7 @@ final class EventRouter: @unchecked Sendable {
             for session in forgotten { sessions.removeValue(forKey: session) }
         }
     }
-    private func network(_ session: String?) -> RunNetwork? {
+    private func network(_ session: String?) -> (any PageNetwork)? {
         guard let session else { return nil }
         return lock.withLock { sessions[session] }
     }
@@ -85,6 +105,9 @@ final class EventRouter: @unchecked Sendable {
             Task { await self.gate(event.params, network: network, session: session) }
         case "Page.loadEventFired":
             network(event.session)?.loaded()
+        case "Page.frameStartedLoading", "Page.frameStoppedLoading":
+            guard let network = network(event.session), event.params["frameId"]?.string == network.mainFrame else { return }
+            network.mainFrameLoading(event.method == "Page.frameStartedLoading")
         case "Network.webSocketCreated":
             // Tripwire: the policy should make this impossible.
             network(event.session)?.record(.originMismatch)
@@ -95,7 +118,7 @@ final class EventRouter: @unchecked Sendable {
         }
     }
 
-    private func gate(_ params: JSONValue, network: RunNetwork, session: String) async {
+    private func gate(_ params: JSONValue, network: any PageNetwork, session: String) async {
         guard let pipe, let id = params["requestId"]?.string, let request = params["request"],
               let text = request["url"]?.string, let url = URL(string: text) else { return }
         if let status = params["responseStatusCode"]?.double {
@@ -103,9 +126,9 @@ final class EventRouter: @unchecked Sendable {
                           network: network, session: session, pipe: pipe)
             return
         }
-        let decision = network.gate.decide(GateRequest(
+        let decision = network.decide(GateRequest(
             url: url, method: request["method"]?.string ?? "GET", resourceType: params["resourceType"]?.string ?? "Other",
-            isMainFrame: params["frameId"]?.string == network.mainFrame), phase: network.phase)
+            isMainFrame: params["frameId"]?.string == network.mainFrame))
         switch decision {
         case .allow:
             _ = try? await pipe.call(.fetchContinueRequest, ["requestId": id], session: session, timeout: 5)
@@ -122,7 +145,7 @@ final class EventRouter: @unchecked Sendable {
     }
 
     /// Documents are delivered with the gate's Content-Security-Policy added to their own.
-    private func respond(_ id: String, status: Int, headers: [JSONValue], network: RunNetwork,
+    private func respond(_ id: String, status: Int, headers: [JSONValue], network: any PageNetwork,
                          session: String, pipe: ChromiumPipe) async {
         if (300..<400).contains(status) {
             _ = try? await pipe.call(.fetchContinueRequest, ["requestId": id], session: session, timeout: 5)
@@ -139,7 +162,7 @@ final class EventRouter: @unchecked Sendable {
             guard let name = header["name"]?.string, let value = header["value"]?.string else { return nil }
             return ["name": name, "value": value]
         }
-        fields.append(["name": "Content-Security-Policy", "value": network.gate.contentSecurityPolicy(phase: network.phase)])
+        fields.append(["name": "Content-Security-Policy", "value": network.contentSecurityPolicy()])
         _ = try? await pipe.call(.fetchFulfillRequest, ["requestId": id, "responseCode": status,
                                                          "responseHeaders": fields, "body": encoded],
                                  session: session, timeout: 5)

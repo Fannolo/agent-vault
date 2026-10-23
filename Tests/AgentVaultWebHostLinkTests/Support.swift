@@ -106,6 +106,7 @@ let pausingHost: @Sendable (HostCommand) async -> HostReply = { command in
     case .end: .ended
     case .showHuman, .input: .accepted
     case .frame(_, let step, _): .frame(step: step, HumanFrame(sequence: 1, width: 4, height: 2, jpeg: tinyJPEG)!)
+    case .openSite, .siteObserve, .siteLogin, .siteOperate, .siteTakeover, .siteRelease: .rejected(.unsupportedSite)
     }
 }
 

@@ -4,7 +4,8 @@ import Foundation
 
 // The broker <-> web host vocabulary. Credential bytes cross only in `start`, so this module is
 // linked by the broker daemon's host link and by the host, never by Core, the app or the bridge.
-// No command names a URL, origin, selector, script, CDP method or policy: the host owns those.
+// No command names an origin, selector, script, CDP method or policy: the host owns those. The
+// one URL a command carries (`SiteCommand.navigate`) is a request the host's site policy decides.
 
 /// One Mach service, accepted only from the broker's UID and code requirement.
 @objc public protocol WebHostRPC {
@@ -31,12 +32,28 @@ public enum HostCommand: Sendable, Equatable {
     /// Events aimed at frame `frame` of `step`; refused unless that frame is still the latest.
     case input(run: UUID, step: UInt64, frame: UInt64, batch: HumanInputBatch)
 
+    // Continuing-site sessions. Their IDs share the run namespace: `end` disposes either, and an
+    // ended ID is never opened or started again. Run commands never reach a session and vice versa.
+
+    /// A new context on the site's own entry page. No credential crosses.
+    case openSite(session: UUID, site: HostSite, lifetime: Int)
+    case siteObserve(session: UUID)
+    /// Fills and submits the credential only if the page the host observes is eligible for it.
+    case siteLogin(session: UUID, operation: UUID, credential: WebLoginCredential)
+    /// `operation` deduplicates retries: the same ID with a different command is refused.
+    case siteOperate(session: UUID, operation: UUID, command: SiteCommand)
+    /// A person takes control: agent observation and input are refused until release.
+    case siteTakeover(session: UUID)
+    case siteRelease(session: UUID)
+
     public static let maximumLifetime = 900
 
     public var run: UUID {
         switch self {
         case .start(let run, _, _, _), .classify(let run), .end(let run), .showHuman(let run, _),
              .frame(let run, _, _), .input(let run, _, _, _): run
+        case .openSite(let session, _, _), .siteObserve(let session), .siteLogin(let session, _, _),
+             .siteOperate(let session, _, _), .siteTakeover(let session), .siteRelease(let session): session
         }
     }
 
@@ -45,7 +62,8 @@ public enum HostCommand: Sendable, Equatable {
         switch self {
         case .end: .teardown
         case .frame: .frame
-        case .start, .classify, .showHuman, .input: .control
+        case .start, .classify, .showHuman, .input, .openSite, .siteObserve, .siteLogin, .siteOperate,
+             .siteTakeover, .siteRelease: .control
         }
     }
 }
@@ -80,6 +98,22 @@ public enum HostRejection: String, CaseIterable, Sendable {
     case staleStep = "stale_step"
     /// The challenge region could not be established, so nothing is shown.
     case captureUnavailable = "capture_unavailable"
+    /// No site policy is compiled for this site in this build.
+    case unsupportedSite = "unsupported_site"
+    /// The target's document, control epoch or element is no longer current, or is not that kind.
+    case staleTarget = "stale_target"
+    /// The site policy does not allow this navigation or input.
+    case notPermitted = "not_permitted"
+    /// A person has control of the session.
+    case humanControl = "human_control"
+    /// This operation ID already names a different command.
+    case operationConflict = "operation_conflict"
+    /// This operation ID is still being performed.
+    case operationInFlight = "operation_in_flight"
+    /// The observed page is not on a credential origin of the site: nothing was filled.
+    case credentialOrigin = "credential_origin"
+    /// The page has no single login form this host supports; a person must sign in.
+    case unsupportedLogin = "unsupported_login"
 }
 
 public enum HostReply: Sendable, Equatable {
@@ -91,6 +125,9 @@ public enum HostReply: Sendable, Equatable {
     case accepted
     case ended
     case rejected(HostRejection)
+    case site(SiteObservation)
+    /// The operation was dispatched but its effect is uncertain. Never performed again.
+    case siteUnknown
 
     /// The replies each command may receive; anything else is a protocol violation.
     public func answers(_ command: HostCommand) -> Bool {
@@ -100,7 +137,12 @@ public enum HostReply: Sendable, Equatable {
              (.end, .ended),
              (.showHuman, .accepted), (.showHuman, .rejected),
              (.input, .accepted), (.input, .rejected),
-             (.frame, .rejected):
+             (.frame, .rejected),
+             (.openSite, .site), (.openSite, .failed), (.openSite, .rejected),
+             (.siteObserve, .site), (.siteObserve, .rejected),
+             (.siteLogin, .site), (.siteLogin, .failed), (.siteLogin, .rejected), (.siteLogin, .siteUnknown),
+             (.siteOperate, .site), (.siteOperate, .failed), (.siteOperate, .rejected), (.siteOperate, .siteUnknown),
+             (.siteTakeover, .site), (.siteTakeover, .rejected), (.siteRelease, .site), (.siteRelease, .rejected):
             true
         case (.frame(_, let step, let after), .frame(let replyStep, let frame)):
             replyStep == step && frame.sequence > after

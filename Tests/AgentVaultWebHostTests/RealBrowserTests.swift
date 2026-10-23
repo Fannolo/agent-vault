@@ -9,16 +9,16 @@ import ImageIO
 import Testing
 
 /// Path to a Chrome for Testing `chrome-headless-shell`. These tests run only when it is set.
-private let chromium: URL? = ProcessInfo.processInfo.environment["AGENT_VAULT_TEST_CHROMIUM"].map(URL.init(fileURLWithPath:))
+let chromium: URL? = ProcessInfo.processInfo.environment["AGENT_VAULT_TEST_CHROMIUM"].map(URL.init(fileURLWithPath:))
 
-private final class Flag: @unchecked Sendable {
+final class Flag: @unchecked Sendable {
     private let lock = NSLock(); private var value = false
     func set() { lock.withLock { value = true } }
     var isSet: Bool { lock.withLock { value } }
 }
 
 /// The real host service, the real headless shell with its sandbox on, and the synthetic site.
-private struct Host {
+struct Host {
     let site: FixtureSite
     let service: HostService
     let runDirectory: URL
@@ -31,7 +31,7 @@ private struct Host {
         guard let created = mkdtemp(&template) else { throw CDPError.closed }
         let runDirectory = URL(fileURLWithPath: String(cString: created))
         let fatal = Flag()
-        let service = HostService(policy: HostPolicy.fixture(primary: site.origin)!, binary: chromium!,
+        let service = HostService(policy: HostPolicy.fixture(primary: site.origin, partner: site.partnerURL)!, binary: chromium!,
                                   runDirectory: runDirectory, timing: timing, onFatal: { fatal.set() })
         return Host(site: site, service: service, runDirectory: runDirectory, fatal: fatal)
     }
@@ -69,7 +69,7 @@ private struct Host {
 private let fixtureProfile = HostReply.profile(AccountProfile(login: FixtureSite.loginName, userID: FixtureSite.userID)!)
 
 /// Waits until `condition` holds, for at most `seconds`.
-private func eventually(_ seconds: Double = 5, _ condition: @Sendable () async -> Bool) async -> Bool {
+func eventually(_ seconds: Double = 5, _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(seconds)
     while Date() < deadline {
         if await condition() { return true }

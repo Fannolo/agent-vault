@@ -2,7 +2,9 @@ import Foundation
 
 /// Synthetic website that imitates the shape of the real login/profile workflow, plus
 /// hostile variants. Users, passwords and ids are fake. `elsewhere` is a second server
-/// that stands in for any origin the browser must never reach.
+/// that stands in for any origin the browser must never reach. `partner` is a third origin a
+/// continuing session may navigate to but must never send a credential to. After login, `/notes`
+/// is an ordinary authenticated page with a form whose submissions are counted.
 public final class FixtureSite: @unchecked Sendable {
     public static let password = "synthetic-password-1"
     public static let loginName = "fixture-user"
@@ -47,8 +49,10 @@ public final class FixtureSite: @unchecked Sendable {
     private var _loginPage = LoginPage.normal
     private var _profile = Profile.normal
     private var _sessions: Set<String> = []
+    private var _notes: [String] = []
     public let trusted: FixtureHTTPServer
     public let elsewhere: FixtureHTTPServer
+    public let partner: FixtureHTTPServer
 
     public var loginPage: LoginPage {
         get { lock.withLock { _loginPage } }
@@ -61,26 +65,34 @@ public final class FixtureSite: @unchecked Sendable {
 
     private var elsewhereOrigin = ""
     private var trustedOrigin = ""
+    private var partnerOrigin = ""
 
     public init() {
         elsewhere = FixtureHTTPServer { _ in .html("<html><body>elsewhere</body></html>") }
         let box = Box()
         trusted = FixtureHTTPServer { box.site?.route($0) ?? FixtureResponse(status: 500) }
+        partner = FixtureHTTPServer { box.site?.partnerRoute($0) ?? FixtureResponse(status: 500) }
         box.site = self
     }
 
     public func start() async throws {
         try await elsewhere.start()
+        try await partner.start()
         try await trusted.start()
         elsewhereOrigin = elsewhere.origin
+        partnerOrigin = partner.origin
         trustedOrigin = trusted.origin
     }
 
-    public func stop() { trusted.stop(); elsewhere.stop() }
+    public func stop() { trusted.stop(); elsewhere.stop(); partner.stop() }
 
     public var origin: URL { URL(string: trusted.origin)! }
+    public var partnerURL: URL { URL(string: partner.origin)! }
+    public var elsewhereURL: URL { URL(string: elsewhere.origin)! }
     public var elsewhereRequests: [FixtureRequest] { elsewhere.requests }
     public var sessionCount: Int { lock.withLock { _sessions.count } }
+    /// Notes saved through the authenticated form, in order.
+    public var notes: [String] { lock.withLock { _notes } }
 
     /// Wire-format credential accepted by the fixture: `username`, LF, `password`.
     public static func credential(user: String = loginName, password: String = FixtureSite.password) -> Data {
@@ -94,9 +106,14 @@ public final class FixtureSite: @unchecked Sendable {
         case ("GET", "/login"): return loginResponse()
         case ("POST", "/session"): return session(request)
         case ("GET", "/home"): return home(request)
-        case ("GET", "/mfa"): return step(title: "Two-factor authentication", field: "<input id=\"otp\" name=\"otp\">", action: "/step")
+        case ("GET", "/mfa"): return step(title: "Two-factor authentication",
+                                          field: "<input id=\"otp\" name=\"otp\" autocomplete=\"one-time-code\">", action: "/step")
         case ("GET", "/captcha"): return step(title: "Verify you are human", field: "<div id=\"captcha-container\">challenge</div>", action: "/step")
         case ("POST", "/step"): return completeStep(request)
+        case ("GET", "/notes"): return notesPage(request)
+        case ("POST", "/notes"): return saveNote(request)
+        case ("GET", "/to-partner"): return .redirect(to: partnerOrigin + "/signin")
+        case ("GET", "/to-elsewhere"): return .redirect(to: elsewhereOrigin + "/landing")
         case ("GET", "/pixel"): return FixtureResponse(status: 200, headers: ["Content-Type": "image/gif"],
                                                        body: Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")!)
         case ("GET", "/sw.js"), ("GET", "/worker.js"):
@@ -197,13 +214,53 @@ public final class FixtureSite: @unchecked Sendable {
         let login = profile == .invalidLogin ? "bad login!" : Self.loginName
         let real = "<meta name=\"user-login\" content=\"\(login)\"><meta name=\"octolytics-actor-id\" content=\"\(Self.userID)\">"
         switch profile {
-        case .normal, .invalidLogin: return page(head: real, body: "<h1>Dashboard</h1>")
+        case .normal, .invalidLogin: return page(head: real, body: "<h1>Dashboard</h1><p><a href=\"/notes\">Notes</a></p>")
         case .reflectedMetaInHead: return page(head: "<meta name=\"user-login\" content=\"attacker\">" + real, body: "")
         case .reflectedMetaInBody:
             return page(head: real, body: "<div><meta name=\"user-login\" content=\"attacker\"></div>")
         case .reflectedEscapedText:
             return page(head: real, body: "<p>&lt;meta name=\"user-login\" content=\"attacker\"&gt;</p>")
         }
+    }
+
+    /// An authenticated page with ordinary controls: a text field, a select and a submit button.
+    /// It also links to the partner origin and offers a form that posts off-policy.
+    private func notesPage(_ request: FixtureRequest) -> FixtureResponse {
+        guard authenticated(request) else { return .redirect(to: "/login") }
+        let saved = notes.map { "<li>Saved: \(Self.escaped($0))</li>" }.joined()
+        return page(body: """
+            <h1>Notes</h1><ul id="notes">\(saved)</ul>
+            <form action="/notes" method="post">
+            <label for="note">Note</label><input type="text" id="note" name="note">
+            <label for="priority">Priority</label><select id="priority" name="priority"><option>low</option><option>high</option></select>
+            <button type="submit">Save note</button>
+            </form>
+            <p><a href="\(partnerOrigin)/">Partner site</a> <a href="/to-elsewhere">Leave</a></p>
+            <form action="\(elsewhereOrigin)/steal" method="post"><input type="text" name="leak" aria-label="Leak">
+            <button type="submit">Send elsewhere</button></form>
+            """)
+    }
+
+    private func saveNote(_ request: FixtureRequest) -> FixtureResponse {
+        guard authenticated(request) else { return .redirect(to: "/login") }
+        let form = Self.formFields(request.body)
+        let note = "\(form["note"] ?? "") (\(form["priority"] ?? "none"))"
+        lock.withLock { _notes.append(note) }
+        return FixtureResponse(status: 303, headers: ["Location": "/notes"])
+    }
+
+    /// A navigable origin that is not a credential origin, with a login-shaped form of its own.
+    private func partnerRoute(_ request: FixtureRequest) -> FixtureResponse {
+        switch (request.method, request.path) {
+        case ("GET", "/"): return page(body: "<h1>Partner</h1><p><a href=\"\(trustedOrigin)/notes\">Back to notes</a></p>")
+        case ("GET", "/signin"): return page(body: "<h1>Partner sign in</h1>" + loginForm())
+        default: return FixtureResponse(status: 404)
+        }
+    }
+
+    private static func escaped(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
     }
 
     private static func formFields(_ body: Data) -> [String: String] {
