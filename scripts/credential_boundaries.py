@@ -3,8 +3,9 @@ import re
 
 
 REVEAL_IMPORTS = {
-    "SecretReveal": {"Sources/AgentVaultCredentials/WebLoginCredential.swift"},
-    "CredentialUse": {"Sources/AgentVaultWebHostProtocol/HostWire.swift", "Sources/AgentVaultWebHost/WebRun.swift"},
+    "SecretReveal": {"Sources/AgentVaultCredentials/WebLoginCredential.swift", "Sources/AgentVaultCredentials/CloudAccessToken.swift"},
+    "CredentialUse": {"Sources/AgentVaultWebHostProtocol/HostWire.swift", "Sources/AgentVaultWebHost/WebRun.swift",
+                      "Sources/AgentVaultCloud/SupabaseTransport.swift"},
 }
 
 
@@ -26,7 +27,7 @@ def check_credentials(root, targets, records=()):
             raise SystemExit("credential_source_symlink")
         source = path.read_text()
         for spi, allowed in REVEAL_IMPORTS.items():
-            if spi == "CredentialUse" and relative == "Sources/AgentVaultCredentials/WebLoginCredential.swift":
+            if spi == "CredentialUse" and relative in REVEAL_IMPORTS["SecretReveal"]:
                 # This module declares the SPI; it does not import its own reveal API.
                 continue
             if re.search(r"@\s*_spi\s*\(\s*" + spi + r"\s*\)", source) and relative not in allowed:
@@ -45,3 +46,16 @@ def check_credentials(root, targets, records=()):
             todo.extend(targets.get(current, []))
         if "AgentVaultCredentials" in seen:
             raise SystemExit("credential_target_forbidden: " + name)
+
+    # Cloud sessions are held by the trusted service, never by its agent or browser roles.
+    for name in ("AgentVaultBridge", "AgentVaultMCPBridge", "AgentVaultMCPTransport", "AgentVaultWebHost",
+                 "AgentVaultWebHostProtocol", "AgentVaultApp", "AgentVaultAppSupport", "AgentVaultIPC"):
+        seen, todo = set(), [name]
+        while todo:
+            current = todo.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            todo.extend(targets.get(current, []))
+        if "AgentVaultCloud" in seen:
+            raise SystemExit("cloud_transport_target_forbidden: " + name)

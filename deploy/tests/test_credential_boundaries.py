@@ -58,6 +58,15 @@ class CredentialBoundaryTests(unittest.TestCase):
         guard.check_credentials(self.root, {"AgentVaultCore": {"AgentVaultCredentials"},
                                            "AgentVaultWebHost": {"AgentVaultCredentials"}})
 
+    def test_cloud_transport_is_unavailable_to_agent_and_browser_roles(self):
+        for target in ["AgentVaultBridge", "AgentVaultMCPBridge", "AgentVaultMCPTransport", "AgentVaultWebHost", "AgentVaultIPC", "AgentVaultAppSupport"]:
+            with self.subTest(target=target), self.assertRaisesRegex(SystemExit, "cloud_transport_target_forbidden"):
+                guard.check_credentials(self.root, {target: {"Wrapper"}, "Wrapper": {"AgentVaultCloud"}})
+
+    def test_broker_can_own_cloud_transport(self):
+        guard.check_credentials(self.root, {"AgentVaultBrokerDaemon": {"AgentVaultCloud"},
+                                           "AgentVaultCloud": {"AgentVaultCredentials"}})
+
     def test_custom_target_path_cannot_bypass_reveal_check(self):
         self.write("Custom/Module/Bad.swift", "@_spi(CredentialUse) import AgentVaultCredentials")
         with self.assertRaisesRegex(SystemExit, "credential_reveal_import_forbidden"):

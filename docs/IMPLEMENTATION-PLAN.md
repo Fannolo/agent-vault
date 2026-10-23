@@ -2,6 +2,15 @@
 
 ## Headless delivery work: 23 October 2026
 
+The trusted `AgentVaultCloud` client now implements the fixed ciphertext transport routes,
+bounded streaming replies, digest/cursor validation and explicit unconfirmed-write results.
+A redacted owned access-token type and graph/SPI/API checks keep token use outside agent,
+browser and app roles. Nine native client tests pass; root reports 371 tests with existing
+opt-ins skipped. Twelve boundary/timeout tests pass normally and optimized, and ten real
+compiler probes plus MCP checks pass. Independent review and Linux runtime remain pending.
+This module is not composed into production. Signup, token refresh/custody, pairing and
+durable verified sync remain unfinished; see [CLOUD-TRANSPORT.md](CLOUD-TRANSPORT.md).
+
 The first opaque cloud transport migration is implemented under `supabase/`. Native
 PostgreSQL 17.11 checks pass in an invocation-owned private cluster with TCP disabled:
 owner/cross-user/anonymous rules, immutable objects, size and quota limits, exact retry,

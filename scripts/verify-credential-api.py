@@ -29,6 +29,10 @@ PROBES = (
      "has no member 'bytes'"),
     ("no_storage_access", 'import AgentVaultCredentials\nfunc f(_ c: WebLoginCredential) { _ = c.storage }\n',
      "inaccessible due to 'private' protection level"),
+    ("no_cloud_token_reveal", 'import AgentVaultCredentials\nfunc f(_ c: CloudAccessToken) { c.withTokenBytes { _ in } }\n',
+     "inaccessible due to '@_spi' protection level"),
+    ("no_cloud_token_storage", 'import AgentVaultCredentials\nfunc f(_ c: CloudAccessToken) { _ = c.storage }\n',
+     "inaccessible due to 'private' protection level"),
 )
 
 
