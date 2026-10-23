@@ -31,7 +31,7 @@ def check_credentials(root, targets, records=()):
                 continue
             if re.search(r"@\s*_spi\s*\(\s*" + spi + r"\s*\)", source) and relative not in allowed:
                 raise SystemExit("credential_reveal_import_forbidden: " + relative)
-        if re.search(r"\bimport\s+VaultSecret\b", source) and relative not in REVEAL_IMPORTS["SecretReveal"]:
+        if re.search(r"\bimport\s+(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?VaultSecret\b", source) and relative not in REVEAL_IMPORTS["SecretReveal"]:
             raise SystemExit("credential_storage_import_forbidden: " + relative)
 
     for name in ("AgentVaultContracts", "AgentVaultBridge", "AgentVaultMCPBridge", "AgentVaultApp",

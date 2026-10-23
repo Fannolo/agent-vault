@@ -20,10 +20,23 @@ PROBES = (
     ("no_public_reveal", 'import AgentVaultCredentials\n'
      'func f(_ c: WebLoginCredential) { c.withCanonicalBytes { _ in } }\n',
      "inaccessible due to '@_spi' protection level"),
+    ("no_login_reveal", 'import AgentVaultCredentials\n'
+     'func f(_ c: WebLoginCredential) { c.withLoginBytes { _, _ in } }\n',
+     "inaccessible due to '@_spi' protection level"),
+    ("no_username_property", 'import AgentVaultCredentials\nfunc f(_ c: WebLoginCredential) { _ = c.username }\n',
+     "has no member 'username'"),
+    ("no_bytes_property", 'import AgentVaultCredentials\nfunc f(_ c: WebLoginCredential) { _ = c.bytes }\n',
+     "has no member 'bytes'"),
+    ("no_storage_access", 'import AgentVaultCredentials\nfunc f(_ c: WebLoginCredential) { _ = c.storage }\n',
+     "inaccessible due to 'private' protection level"),
 )
 
 
 def main():
+    code, _ = owned.run_owned(["swift", "build", "--target", "AgentVaultCredentials", "--force-resolved-versions"],
+                              timeout=300, cwd=ROOT)
+    if code:
+        raise SystemExit("credential_api_build_failed")
     code, output = owned.run_owned(["swift", "build", "--show-bin-path"], timeout=30, cwd=ROOT)
     if code:
         raise SystemExit("credential_api_build_path_unavailable")

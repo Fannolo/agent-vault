@@ -39,9 +39,12 @@ class CredentialBoundaryTests(unittest.TestCase):
                     path.unlink()
 
     def test_raw_secret_module_is_unavailable_to_agent_modules(self):
-        self.write("Sources/AgentVaultMCPBridge/Bad.swift", "internal import VaultSecret")
-        with self.assertRaisesRegex(SystemExit, "credential_storage_import_forbidden"):
-            guard.check_credentials(self.root, {})
+        for declaration in ["internal import VaultSecret", "import class VaultSecret.SecretBytes",
+                            "import struct VaultSecret.LoginSecret"]:
+            with self.subTest(declaration=declaration):
+                self.write("Sources/AgentVaultMCPBridge/Bad.swift", declaration)
+                with self.assertRaisesRegex(SystemExit, "credential_storage_import_forbidden"):
+                    guard.check_credentials(self.root, {})
 
     def test_transitive_credential_dependency_is_forbidden(self):
         with self.assertRaisesRegex(SystemExit, "credential_target_forbidden"):

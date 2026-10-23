@@ -18,6 +18,10 @@ jobs:
         run: swift package resolve --force-resolved-versions
       - name: Verify module boundaries
         run: python3 scripts/verify-boundaries.py
+      - name: Verify credential reveal boundaries
+        run: python3 -I deploy/tests/test_credential_boundaries.py
+      - name: Verify credential boundaries with Python assertions disabled
+        run: python3 -I -O deploy/tests/test_credential_boundaries.py
       - name: Verify fixture-only boundary guard
         run: python3 -I deploy/tests/test_vault_fixture_boundary.py
       - name: Verify fixture-only guard with Python assertions disabled
@@ -30,6 +34,8 @@ jobs:
         run: swift test --package-path Packages/VaultSecret --no-parallel
       - name: Build and test pinned dependencies
         run: swift test --force-resolved-versions
+      - name: Verify credential public API cannot reveal bytes
+        run: python3 -I scripts/verify-credential-api.py
       - name: Verify stdio MCP with synthetic data
         run: python3 scripts/verify-mcp.py
       - name: Verify installer guards without root

@@ -55,7 +55,10 @@ Contracts. It retains immutable private `VaultSecret` storage and exposes no rea
 String/Data properties. The authenticated host-wire serializer and host fill adapter alone
 import its scoped reveal SPI; a source/target guard checks the allowlist. SPI and source
 checks are architectural maintenance controls, not hostile-code isolation. Trusted adapters
-can copy borrowed bytes. The existing validator and JSON/CDP serialization still allocate
+can copy borrowed bytes. `HostWire.encode` produces a plaintext-bearing authenticated wire;
+any trusted module allowed to link that wire can read its encoded credential. Existing
+graph checks restrict those production roles to the broker/link and private host. The
+existing validator and JSON/CDP serialization still allocate
 transient String/Data copies; their erasure is not established. The legacy CLI links Core
 as a development fixture and remains excluded from distribution.
 

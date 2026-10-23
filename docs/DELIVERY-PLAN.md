@@ -89,7 +89,7 @@ in the public repository.
 ## Current deployment constraints
 
 The user selected Bite hosting and explicitly requested that OrbStack stay stopped.
-Linux portability checks therefore run in isolated CI runners; the local full Docker-based
+Linux portability checks are therefore configured for disposable CI containers; the local full Docker-based
 recording remains pending rather than being weakened to a passing label. The Bite Supabase
 connection exposes one Bite organization. A dedicated `agent-vault` project is proposed at
 the connector's quoted $10/month; the user declined paid provisioning. Do not create it.
@@ -97,7 +97,8 @@ Existing `prod`, `stage` and
 `meeting-copilot` projects are not deployment targets.
 
 The managed-host review accepted a dedicated Supabase project as the hosted reference,
-subject to implementation and deployment checks. It replaces hosted Keycloak/Vapor;
+subject to implementation and deployment checks and an approved hosting option. If provisioned,
+it replaces hosted Keycloak/Vapor;
 the sync contract stays independent of that choice for future self-hosting. The
 private-browser, client-side encryption, paired approval and explicit restart boundaries
 remain unchanged. No cloud project has been created and no cloud feature is complete.
@@ -135,7 +136,7 @@ controls; possession of a slot identifier is not device authentication.
 
 Public signup requires a configured SMTP sender. The default email service is not public
 signup acceptance. Initial hosted work keeps signup closed while two-user/anonymous RLS,
-immutable retry, conditional-head races, quota and cursor-order tests run against the
-dedicated project. Existing Bite projects remain untouched. Free or existing approved
+immutable retry, conditional-head races, quota and cursor-order tests run against that
+dedicated project if provisioned. Existing Bite projects remain untouched. Free or existing approved
 hosting and SMTP configuration are distinct deployment dependencies; neither blocks
 reversible source work.
