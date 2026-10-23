@@ -254,3 +254,47 @@ extension RealBrowserTests {
         #expect(await production.launched == nil)
     }
 }
+
+/// Runs `action` once, the first time `session` reaches `point`, while the session waits there.
+private func at(_ point: SiteSession.Checkpoint, of session: UUID, _ action: @escaping @Sendable () async -> Void) {
+    let once = Flag()
+    SiteSession.hooks.hook = { id, reached in
+        guard id == session, reached == point, !once.isSet else { return }
+        once.set()
+        await action()
+    }
+}
+
+// Regressions for the eight source-review findings on c4bdb69 (verification-logs/continuing-site/astra-review-v1.md).
+extension RealBrowserTests {
+    /// Finding 1: the submit button's overrides, or a submit listener, must not send the filled
+    /// credential to a navigation-only origin.
+    @Test(arguments: [FixtureSite.LoginPage.submitterOverridesToPartner, .submitterTargetsFrame,
+                      .submitListenerRedirectsToPartner, .submitListenerTargetsFrame])
+    func loginSubmissionCannotBeRedirectedBySubmitterOrListener(_ variant: FixtureSite.LoginPage) async throws {
+        try await Host.using { h in
+            h.site.loginPage = variant
+            let (session, opened) = await h.open()
+            #expect(observed(opened)?.path == "/login")
+            let reply = await h.login(session)
+            if variant == .submitterOverridesToPartner || variant == .submitterTargetsFrame {
+                #expect(reply == .rejected(.credentialOrigin), "refused before anything is filled: \(reply)")
+            } else {
+                // The listener runs after the host's checks; the gate refuses what it rewrote.
+                #expect(observed(reply)?.auth != .signedIn, "\(reply)")
+            }
+            #expect(h.passwordSightings.isEmpty, "the password left the browser: \(h.passwordSightings.map(\.target))")
+            #expect(!h.site.partner.requests.contains { $0.path == "/collect" }, "the partner received the login")
+            #expect(h.posts.filter { $0.path == "/session" }.isEmpty)
+        }
+    }
+
+    @Test func aSubmitButtonWhoseOverridesStayOnACredentialOriginStillLogsIn() async throws {
+        try await Host.using { h in
+            h.site.loginPage = .submitterOverridesWithinPolicy
+            let (session, _) = await h.open()
+            #expect(observed(await h.login(session))?.auth == .signedIn)
+            #expect(h.passwordSightings.count == 1 && h.passwordSightings.allSatisfy { $0.path == "/session" && $0.method == "POST" })
+        }
+    }
+}

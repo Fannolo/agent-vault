@@ -150,6 +150,12 @@ protocol PhasedGate: Sendable {
     associatedtype Phase: Equatable & Sendable
     func decide(_ request: GateRequest, phase: Phase) -> GateDecision
     func contentSecurityPolicy(phase: Phase) -> String
+    /// The phase after `request` was allowed in `phase`; `RunNetwork` applies it atomically.
+    func phase(after request: GateRequest, from phase: Phase) -> Phase
+}
+
+extension PhasedGate {
+    func phase(after request: GateRequest, from phase: Phase) -> Phase { phase }
 }
 
 /// Pure, phase-aware decisions for every request the page makes. No state, no I/O.
@@ -238,8 +244,11 @@ struct SitePolicy: Sendable {
 enum SitePhase: Equatable, Sendable {
     /// The agent operates: navigation origins only.
     case agent
-    /// The private login is being filled and submitted.
+    /// The private login is filled and not yet sent: its POST to a credential origin is the only
+    /// document that may load, and nothing else may be sent to another origin.
     case login
+    /// The filled form was sent: its redirects and the pages after it.
+    case submitted
     /// A person has control: navigation, credential and authentication origins.
     case human
     /// Ended: nothing loads.
@@ -254,7 +263,7 @@ struct SiteGate: PhasedGate {
     private func documents(_ phase: SitePhase) -> [WebOrigin] {
         switch phase {
         case .agent: policy.navigation
-        case .login, .human: policy.navigation + policy.credential + policy.authentication
+        case .login, .submitted, .human: policy.navigation + policy.credential + policy.authentication
         case .locked: []
         }
     }
@@ -268,17 +277,29 @@ struct SiteGate: PhasedGate {
         if request.resourceType == "Document" {
             guard phase != .locked else { return .deny(.unexpectedPage) }
             guard request.isMainFrame else {
-                // Frames: navigation origins, read only. Never a credential or authentication page.
-                return policy.navigation.contains(origin) && readOnly ? .allow : .deny(.originMismatch)
+                // Frames: navigation origins, read only. Never a credential or authentication page, and
+                // none while a filled login form waits to be sent (its submitter could target one).
+                return policy.navigation.contains(origin) && readOnly && phase != .login ? .allow : .deny(.originMismatch)
             }
             guard documents(phase).contains(origin) else { return .deny(.originMismatch) }
-            if phase == .login && !readOnly && !policy.credential.contains(origin) { return .deny(.originMismatch) }
+            if phase == .login || phase == .submitted, !readOnly, !policy.credential.contains(origin) {
+                return .deny(.originMismatch)
+            }
+            // Before it is sent, a filled form becomes a document only as a POST to a credential origin:
+            // a submit button or listener cannot turn it into a GET carrying the credential in a URL.
+            if phase == .login && readOnly { return .deny(.unexpectedPage) }
             return .allow
         }
         if phase == .locked { return .block }
+        if phase == .login && !readOnly && !policy.credential.contains(origin) { return .block }
         if documents(phase).contains(origin) { return .allow }
         if readOnly && policy.resources.contains(origin) { return .allow }
         return .block
+    }
+
+    /// The filled form's POST was allowed: what follows it is no longer the filled page.
+    func phase(after request: GateRequest, from phase: SitePhase) -> SitePhase {
+        phase == .login && request.resourceType == "Document" ? .submitted : phase
     }
 
     /// Like the workflow policy, added to every document. It is fixed when the document loads, so

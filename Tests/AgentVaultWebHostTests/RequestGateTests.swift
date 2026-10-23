@@ -115,6 +115,18 @@ private func site(_ url: String, _ method: String = "GET", _ type: String = "Doc
 }
 
 @Suite struct SiteGateTests {
+    @Test func theFilledFormsOwnPostIsTheOnlyWayOutOfTheLoginPhase() {
+        let network = RunNetwork(gate: siteGate, mainFrame: "frame", phase: .login)
+        func document(_ url: String, _ method: String) -> GateRequest {
+            GateRequest(url: URL(string: url)!, method: method, resourceType: "Document", isMainFrame: true)
+        }
+        let away = document("http://127.0.0.1:4200/home", "GET")
+        #expect(network.decide(away) == .deny(.unexpectedPage) && network.phase == .login)
+        #expect(network.decide(document("http://127.0.0.1:4200/session", "POST")) == .deny(.originMismatch) && network.phase == .login)
+        #expect(network.decide(document("http://127.0.0.1:4000/session", "POST")) == .allow && network.phase == .submitted)
+        #expect(network.decide(away) == .allow, "its redirect")
+    }
+
     @Test func navigationCredentialAndResourceOriginsAreSeparate() {
         // The agent may load and submit to navigation origins, including the partner.
         #expect(site("http://127.0.0.1:4000/notes", "POST", in: .agent) == .allow)
@@ -124,13 +136,24 @@ private func site(_ url: String, _ method: String = "GET", _ type: String = "Doc
         #expect(site("http://127.0.0.1:4000/session", "POST", in: .login) == .allow)
         #expect(site("http://127.0.0.1:4200/session", "POST", in: .login) == .deny(.originMismatch))
         // Nothing reaches an origin outside the policy: documents, frames, or GET subresources.
-        for phase in [SitePhase.agent, .login, .human] {
+        for phase in [SitePhase.agent, .login, .submitted, .human] {
             #expect(site("http://127.0.0.1:4001/x", in: phase) == .deny(.originMismatch))
             #expect(site("http://127.0.0.1:4001/x", main: false, in: phase) == .deny(.originMismatch))
             #expect(site("http://127.0.0.1:4001/pixel?d=secret", "GET", "Image", in: phase) == .block)
             #expect(site("http://localhost:4000/x", in: phase) == .deny(.originMismatch))
             #expect(site("data:text/html,x", in: phase) == .deny(.originMismatch))
         }
+        // A filled form waits to be sent: its own POST to a credential origin is the only document,
+        // and no other origin receives anything that could carry the credential.
+        #expect(site("http://127.0.0.1:4000/session?password=x", in: .login) == .deny(.unexpectedPage))
+        #expect(site("http://127.0.0.1:4200/collect?password=x", in: .login) == .deny(.unexpectedPage))
+        #expect(site("http://127.0.0.1:4200/collect?password=x", main: false, in: .login) == .deny(.originMismatch))
+        #expect(site("http://127.0.0.1:4200/api", "POST", "XHR", in: .login) == .block)
+        #expect(site("http://127.0.0.1:4000/api", "POST", "XHR", in: .login) == .allow)
+        // After it is sent, its redirects may land on any page origin, and frames load again.
+        #expect(site("http://127.0.0.1:4200/home", in: .submitted) == .allow)
+        #expect(site("http://127.0.0.1:4200/frame", main: false, in: .submitted) == .allow)
+        #expect(site("http://127.0.0.1:4200/session", "POST", in: .submitted) == .deny(.originMismatch))
         // Frames are read-only, and nothing loads once a session is locked.
         #expect(site("http://127.0.0.1:4000/frame", "POST", main: false, in: .agent) == .deny(.originMismatch))
         #expect(site("http://127.0.0.1:4000/home", in: .locked) == .deny(.unexpectedPage))
