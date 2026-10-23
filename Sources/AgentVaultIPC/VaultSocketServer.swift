@@ -106,24 +106,19 @@ public final class VaultSocketServer: @unchecked Sendable {
     private func accept(_ listener: Listener) {
         defer { listener.finished.signal() }
         let endpoint = endpoint(listener.role)
-        while true {
-            switch SocketIO.wait(listener.fd, wake: wake.read, events: Int32(AV_WAIT_READ), deadline: .never) {
-            case .ready: break
-            case .woken, .expired, .failed: return
-            }
-            while true {
-                let fd = av_socket_accept(listener.fd)
-                if fd >= 0 { admit(fd, role: listener.role, endpoint: endpoint); continue }
-                let failure = errno
-                if failure == EINTR || failure == ECONNABORTED { continue }
-                if failure != EAGAIN && failure != EWOULDBLOCK {
-                    // Descriptor or memory exhaustion: back off instead of spinning on a ready listener.
-                    if case .woken = SocketIO.wait(wake.read, wake: -1, events: Int32(AV_WAIT_READ), deadline: .after(0.05)) {
-                        return
-                    }
-                }
-                break
-            }
+        Self.acceptLoop(listener.fd, wake: wake.read) { fd in admit(fd, role: listener.role, endpoint: endpoint) }
+    }
+
+    /// Hands each accepted descriptor to `admit` until `wake` fires or the listener fails. Every
+    /// accept waits first, so peers that keep connecting cannot hold off `stop()`.
+    static func acceptLoop(_ listenFD: Int32, wake: Int32, _ admit: (Int32) -> Void) {
+        while case .ready = SocketIO.wait(listenFD, wake: wake, events: Int32(AV_WAIT_READ), deadline: .never) {
+            let fd = av_socket_accept(listenFD)
+            if fd >= 0 { admit(fd); continue }
+            let failure = errno
+            if failure == EINTR || failure == ECONNABORTED || failure == EAGAIN || failure == EWOULDBLOCK { continue }
+            // Descriptor or memory exhaustion: back off instead of spinning on a ready listener.
+            if case .woken = SocketIO.wait(wake, wake: -1, events: Int32(AV_WAIT_READ), deadline: .after(0.05)) { return }
         }
     }
 

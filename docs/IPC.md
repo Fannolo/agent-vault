@@ -272,7 +272,10 @@ Identity and framing:
 - An idle connection stays open. Once a frame starts, it must complete within 5 seconds.
   A reply write must complete within 5 seconds. Client calls have one monotonic deadline
   covering connect, write and reply. `EINTR`, partial reads and partial writes recompute the
-  remaining time from that deadline. Writes use `MSG_NOSIGNAL` or `SO_NOSIGPIPE`.
+  remaining time from that deadline. Every read and write attempt first checks the deadline
+  and the server's stop signal, so a peer that always has bytes ready cannot outlast either,
+  and a client call that expired while queued is never sent. The accept loop checks stop
+  before each accept. Writes use `MSG_NOSIGNAL` or `SO_NOSIGPIPE`.
 
 Capacity and lifetime:
 
