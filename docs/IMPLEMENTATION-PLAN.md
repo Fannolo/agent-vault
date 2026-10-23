@@ -85,8 +85,10 @@ against 34ceaa9 behaviour on new hostile fixture pages, then fixed:
   submission whose response replaced the page returned `rejected(staleTarget)`; a fill that
   threw after the page had submitted returned `rejected(unsupportedLogin)`. Only refusals from
   before the first value is set now mean nothing was done. After the fill, a login answers
-  with an observation or `siteUnknown`, including a takeover after the fill. If the page sent
-  the form itself, the host does not send it again and reports where that led.
+  with an observation or `siteUnknown`, including a takeover after the fill. If the host sees
+  that the page already sent the form (the gate allowed its POST), the host does not submit it
+  again and reports where that led. A page that submits after that check is the timer limit
+  below.
 - After a takeover interrupted a login, the login cleared the host-filled password field with
   no control check, erasing what the person typed after the takeover was acknowledged. The
   login now clears only while it holds control. A handover (takeover, or a one-time-code page)
@@ -96,18 +98,43 @@ against 34ceaa9 behaviour on new hostile fixture pages, then fixed:
   inside a disabled fieldset or for an option in a disabled optgroup. They now use the
   effective `:disabled` state, so such controls are not offered and no event fires.
 
+A third independent source review (49c6d92) found one more defect. A takeover could answer
+before an agent call that had already passed its control check reached the page.
+`ChromiumPipe.call` is a nonisolated async function, so the session actor is free again
+before the command is queued for the browser. Every earlier fence assumed that the check and
+the queueing were one step. The second review had not accepted this window, and this plan
+had described it only as unreproduced. A debug-only seam in that gap reproduced it against
+49c6d92 behaviour for every agent effect. After takeover answered, the click's form POST and
+the login submit's POST reached the site, and the navigation was requested. Typing,
+selection, a named key and a wheel event reached the page. The login fill put the password
+into a field the person then controlled.
+
+Each call sent under an agent hold is now admitted on the session actor, in the same step
+as its control check. The pipe queues it only if it was not withdrawn, and checks that in
+the same step that queues it. A handover withdraws admitted calls that are not yet queued,
+and they are never sent. It waits for queued calls to be answered, bounded by each call's
+own deadline (10 s for a recipe, 5 s for navigation, 2 s per input event). Only then does it
+clear a pending fill and answer. A lost answer (timeout or closed pipe) does not count as
+drained: the takeover refuses with `unknownRun`, and the session ends and its context is
+disposed, as for `end`. Every later handover of a session with a lost answer ends it the
+same way. Tests cover all eight effect kinds (click, typing, selection, navigation, named
+key, scroll, login fill and login submit), a takeover that waits for a queued call, a busy
+page whose answer is lost, and a second takeover that waits for the clear the first started.
+
+After it acknowledges a person's control, the host sends no new call under the agent's
+hold. It does not stop what the page or site does on its own, or the consequences of calls
+answered before the acknowledgement, such as a form submission a click started.
+
 Remaining limits noticed while fixing, from source reading and not reproduced: a document
 response near the 8 MiB document cap can exceed the 8 MiB pipe message cap once escaped or
 base64-encoded in `Fetch.getResponseBody`, which would end the browser (shared with fixed
 workflows, not changed here); named keys still go to whatever element the page focused; a
 credential-origin page's own script can read the filled password and send it to a navigation
-origin, except non-read-only requests during the pre-submission window. Control checks run in
-the session actor just before a recipe call is sent. The call then leaves the actor, so a
-takeover can, in principle, answer before an already-checked fill, submit or other effect
-call reaches the renderer; only clears are awaited by the handover. No test reproduces that
-window. A page timer that submits the filled form between the host's
-check and its own submit can produce a second login POST to the credential origin; the login
-still answers with an observation or `siteUnknown`.
+origin, except non-read-only requests during the pre-submission window. A page timer that
+submits the filled form between the host's check and its own submit can produce a second
+login POST to the credential origin; the login still answers with an observation or
+`siteUnknown`. A page that keeps the renderer busy past an agent call's deadline makes that
+answer lost, and the session then ends at its next handover instead of passing to a person.
 
 Limits: `HostPolicy.production.sites` is empty, and neither Core, the host link nor MCP can
 send site commands. The operation journal is volatile host memory, bounded per session and
