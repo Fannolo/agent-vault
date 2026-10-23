@@ -149,6 +149,9 @@ public final class FixtureSite: @unchecked Sendable {
             let typing = lock.withLock { _passwordField = state; return _personTypes }
             return FixtureResponse(status: 200, headers: ["Content-Type": "text/plain"], body: Data((typing ? "type" : "").utf8))
         case ("GET", "/huge"): return huge()
+        case ("GET", "/effects"): return effects()
+        // The server sees each submission from the effects page; the page then reloads.
+        case ("POST", "/effects"): return FixtureResponse(status: 303, headers: ["Location": "/effects?sent"])
         case ("GET", "/churn"): return page(body: "<script>location.reload()</script><p>churning</p>")
         // Commits, then lands on a page that never holds still long enough to be observed.
         case ("GET", "/commit-churn"):
@@ -216,6 +219,32 @@ public final class FixtureSite: @unchecked Sendable {
                 document.getElementById('events').appendChild(item);
             }, true);
             document.querySelector('[aria-label=Lock]').addEventListener('click', () => { document.getElementById('box').disabled = true; });
+            </script>
+            """)
+    }
+
+    /// Every agent effect leaves a trace: "Send" posts the form, which the server sees, and the page
+    /// lists each input, change, key and wheel event in `#log`. "Hang" keeps the page busy for 11
+    /// seconds, longer than any host call waits for its answer, then requests `/effects?late`.
+    private func effects() -> FixtureResponse {
+        page(body: """
+            <h1>Effects</h1><ul id="log"></ul>
+            <form action="/effects" method="post"><input type="text" name="word" aria-label="Word">
+            <select name="size" aria-label="Size"><option>small</option><option>large</option></select>
+            <button type="submit">Send</button></form>
+            <button type="button" aria-label="Hang">Hang</button>
+            <script>
+            const log = (text) => {
+                const item = document.createElement('li'); item.textContent = text; document.getElementById('log').appendChild(item);
+            };
+            for (const type of ['input', 'change']) document.addEventListener(type, (e) => log(type + ' on ' + e.target.getAttribute('aria-label')), true);
+            document.addEventListener('keydown', (e) => log('key ' + e.key), true);
+            addEventListener('wheel', () => log('wheel'), { passive: true });
+            document.querySelector('[aria-label=Hang]').addEventListener('click', () => {
+                const end = Date.now() + 11000;
+                while (Date.now() < end) {}
+                fetch('/effects?late');
+            });
             </script>
             """)
     }
