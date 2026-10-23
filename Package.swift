@@ -22,6 +22,8 @@ let package = Package(
         .target(name: "AgentVaultCredentials", dependencies: ["AgentVaultContracts", .product(name: "VaultSecret", package: "VaultSecret")]),
         .testTarget(name: "AgentVaultCredentialsTests", dependencies: ["AgentVaultCredentials", "AgentVaultContracts"]),
         .target(name: "AgentVaultJSON"),
+        .target(name: "AgentVaultCloud", dependencies: ["AgentVaultCredentials", portableCrypto]),
+        .testTarget(name: "AgentVaultCloudTests", dependencies: ["AgentVaultCloud", "AgentVaultCredentials"]),
         .target(name: "AgentVaultApproval", dependencies: ["AgentVaultContracts", portableCrypto]),
         .testTarget(name: "AgentVaultApprovalTests", dependencies: ["AgentVaultApproval", "AgentVaultContracts"]),
         .target(name: "AgentVaultAppSupport", dependencies: ["AgentVaultContracts", "AgentVaultApproval", "AgentVaultIPC", "AgentVaultRuntime"],
@@ -97,6 +99,7 @@ let portableTargets: Set<String> = [
     "CAgentVaultSocket", "AgentVaultIPC", "AgentVaultBrokerDaemon", "AgentVaultSocketTests",
     "CAgentVaultStdio", "AgentVaultMCPTransport", "AgentVaultMCPTransportTests",
     "AgentVaultMCPBridge", "AgentVaultMCPBridgeTests", "AgentVaultBridge",
+    "AgentVaultCloud", "AgentVaultCloudTests",
 ]
 package.products = [.library(name: "AgentVaultCore", targets: ["AgentVaultCore"]),
                     .executable(name: "agent-vault-bridge", targets: ["AgentVaultBridge"])]
