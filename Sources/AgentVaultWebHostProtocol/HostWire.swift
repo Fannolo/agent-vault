@@ -1,3 +1,4 @@
+@_spi(CredentialUse) import AgentVaultCredentials
 import AgentVaultContracts
 import AgentVaultJSON
 import Foundation
@@ -33,7 +34,7 @@ public enum HostWire {
         switch command {
         case .start(_, let workflow, let credential, let lifetime):
             object["op"] = "start"; object["workflow"] = workflow.rawValue
-            object["credential"] = credential.bytes.base64EncodedString(); object["lifetime"] = lifetime
+            object["credential"] = credential.withCanonicalBytes { Data($0).base64EncodedString() }; object["lifetime"] = lifetime
         case .classify: object["op"] = "classify"
         case .end: object["op"] = "end"
         case .showHuman(_, let step): object["op"] = "showHuman"; object["step"] = step
@@ -58,7 +59,7 @@ public enum HostWire {
         case "start":
             guard let workflow = HostWorkflow(rawValue: try fields.string("workflow")),
                   let bytes = Data(base64Encoded: try fields.string("credential")),
-                  let credential = WebLoginCredential(bytes), credential.bytes == bytes else { throw .invalidRequest }
+                  let credential = WebLoginCredential(bytes) else { throw .invalidRequest }
             let lifetime = try fields.integer("lifetime", 1...HostCommand.maximumLifetime)
             command = .start(run: run, workflow: workflow, credential: credential, lifetime: lifetime)
         case "classify": command = .classify(run: run)

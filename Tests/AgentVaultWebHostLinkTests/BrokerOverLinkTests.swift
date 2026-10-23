@@ -43,7 +43,7 @@ private struct Composition {
         let client = try await broker.registerClient()
         var accounts: [Account] = []
         for _ in 0..<count {
-            let account = try await broker.enroll(service: .githubWeb, credential: credential.bytes)
+            let account = try await broker.enroll(service: .githubWeb, credential: credentialData)
             _ = try await broker.grant(clientID: client.id, accountID: account.id, duration: 3600, callLimit: 3)
             accounts.append(account)
         }
@@ -75,7 +75,7 @@ private final class Clock: @unchecked Sendable {
         }
         let link = link({ raw.endpoint }, budgets: .standard)
         let broker = Broker(state: State(), secrets: Secrets(), webSessions: link, now: { clock.now() })
-        let account = try await broker.enroll(service: .githubWeb, credential: credential.bytes)
+        let account = try await broker.enroll(service: .githubWeb, credential: credentialData)
         let client = try await broker.registerClient()
         _ = try await broker.grant(clientID: client.id, accountID: account.id, duration: 2, callLimit: 1)
         await #expect(throws: VaultError.denied) {

@@ -14,11 +14,18 @@ run. Native backend-masking evidence now requires a compiler line for the mutate
 The Python suite passes 64 tests in normal and optimized modes. Fresh complete recording
 and controls remain pending; historical receipts are not evidence for these changed bytes.
 
-A new standalone `Packages/VaultSecret` provides a redacted immutable owned buffer and scoped
-trusted byte access. Six native tests pass, including concurrent reads, diagnostic redaction,
-copy-on-write alias behavior and the clearing helper. Opus accepted the initial four-test
-component; follow-up tests/documentation make the alias limitation explicit. The package is
-not linked to the app; credential-type replacement and reveal-import enforcement remain open.
+`Packages/VaultSecret` provides a redacted immutable owned buffer and scoped trusted byte
+access. Development integration now moves `WebLoginCredential` from agent-visible Contracts
+to `AgentVaultCredentials`. Readable username/password/bytes properties are removed. Only
+the private wire serializer and host fill adapter import its reveal SPI. A source/graph
+allowlist rejects reveal imports elsewhere, including declared custom source paths.
+Seven native buffer tests and four credential tests pass. The default root suite reports
+356 passing tests, with existing opt-ins skipped. With Chromium 149.0.7827.55 enabled,
+26 synthetic browser/continuation/secret-boundary tests pass. The 7 guard tests pass normally
+and optimized; module boundaries and MCP checks pass. Compiler probes confirm the credential
+is absent from Contracts, has no password property, and cannot reveal bytes without SPI.
+This integration is awaiting independent review. It does not prove installed custody or
+erase transient copies made by validation and the JSON/CDP serializer.
 
 Local Linux attempts are retained as failures. One lost the Docker connection; a later run
 passed all 55 Swift tests on each platform but interleaved framework output with corpus JSON,
@@ -30,8 +37,10 @@ the cleanup gate or Linux product integration complete.
 
 The user selected Bite for hosting. The connected Bite Supabase organization has existing
 application projects; Agent Vault needs separate project/storage. New-project provisioning
-is awaiting explicit acceptance of the quoted $10/month. No existing app schema, data or
-credentials have been changed. A managed-auth design revision is under review.
+was declined by the user at the quoted $10/month. Do not provision a paid project. No
+existing app schema, data or credentials have been changed. The managed-auth design revision
+is accepted as an architecture option; deployment needs free or existing approved hosting
+and an SMTP sender for public signup. Source work continues without paid provisioning.
 
 ## Membership implementation checkpoint: 22 October 2026
 

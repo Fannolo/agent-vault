@@ -7,6 +7,24 @@ private func synthetic() throws -> SecretBytes {
     return try SecretBytes(consuming: &source)
 }
 
+@Test func trustedComparisonChecksEveryPositionAndLength() throws {
+    let original = try synthetic()
+    let same = try synthetic()
+    let equal = original.matches(same)
+    #expect(equal)
+    for position in Array("AV_SECRET_BUFFER_SYNTHETIC_6B3C".utf8).indices {
+        var bytes = Array("AV_SECRET_BUFFER_SYNTHETIC_6B3C".utf8)
+        bytes[position] ^= 1
+        let changed = try SecretBytes(consuming: &bytes)
+        let different = !original.matches(changed)
+        #expect(different)
+    }
+    var shorter = Array("short".utf8)
+    let short = try SecretBytes(consuming: &shorter)
+    let differentLength = !original.matches(short)
+    #expect(differentLength)
+}
+
 @Test func consumingInputDoesNotEraseAnEarlierArrayAlias() throws {
     var source = Array("AV_SECRET_BUFFER_SYNTHETIC_6B3C".utf8)
     let alias = source

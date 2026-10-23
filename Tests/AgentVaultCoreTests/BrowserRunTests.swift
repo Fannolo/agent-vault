@@ -14,7 +14,7 @@ import Testing
         else { Issue.record("no human step"); return }
         #expect(run.uuid != approval.uuid)
         #expect(f.callsUsed == 1 && f.secrets.reads == 1 && f.host.startCount == 1)
-        #expect(f.host.startedUsernames == ["synthetic-user"])
+        #expect(f.host.fixtureCredentialMatches == 1)
 
         // Polling is free, and the consumed approval's 120 s window does not end the 600 s pause.
         f.clock.advance(300)

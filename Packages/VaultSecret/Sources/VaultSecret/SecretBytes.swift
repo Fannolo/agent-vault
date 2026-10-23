@@ -44,6 +44,14 @@ public final class SecretBytes: @unchecked Sendable,
         allocation.deallocate()
     }
 
+    /// Content comparison for trusted adapters. Length is not hidden; equal-length reads
+    /// visit every byte without a content-dependent early return.
+    @_spi(SecretReveal)
+    public func matches(_ other: SecretBytes) -> Bool {
+        guard count == other.count else { return false }
+        return av_secret_equal(allocation, other.allocation, count) != 0
+    }
+
     public var description: String { "SecretBytes(<redacted>)" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }

@@ -24,9 +24,8 @@ private func inspectCommand(_ data: Data, context: FuzzCase) throws -> Bool {
     guard let request = try? HostWire.decodeRequest(data) else { return false }
     try check(data.count <= HostWire.maximumCommandBytes, context, "command size bound")
     switch request.command {
-    case .start(_, _, let credential, let lifetime):
+    case .start(_, _, _, let lifetime):
         try check((1...HostCommand.maximumLifetime).contains(lifetime), context, "lifetime bound")
-        try check(WebLoginCredential(credential.bytes) == credential, context, "credential grammar")
     case .input(_, let step, let frame, let batch):
         try check(step >= 1 && frame >= 1 && (1...32).contains(batch.events.count), context, "input bounds")
         try check(batch.events.allSatisfy { $0.fits() }, context, "event bounds")

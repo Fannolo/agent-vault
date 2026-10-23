@@ -78,7 +78,7 @@ SENTINELS += [bytes([0xC1]).decode("utf-8", "replace").encode("utf-8") * 32]
 HARNESS = (
     "scripts/verify-membership.py", "scripts/verify-membership-controls.py", "scripts/membership_spec.py",
     "deploy/tests/test_membership_verifier.py", "scripts/verify-portable-vault.py",
-    "scripts/verify-webhost-link-mutations.py", "scripts/verify-boundaries.py",
+    "scripts/verify-webhost-link-mutations.py", "scripts/verify-boundaries.py", "scripts/credential_boundaries.py",
     "deploy/tests/test_vault_fixture_boundary.py", ".github/workflows/ci.yml",
 )
 

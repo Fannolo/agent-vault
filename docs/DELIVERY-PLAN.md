@@ -92,9 +92,50 @@ The user selected Bite hosting and explicitly requested that OrbStack stay stopp
 Linux portability checks therefore run in isolated CI runners; the local full Docker-based
 recording remains pending rather than being weakened to a passing label. The Bite Supabase
 connection exposes one Bite organization. A dedicated `agent-vault` project is proposed at
-the connector's quoted $10/month; cost acceptance is pending. Existing `prod`, `stage` and
+the connector's quoted $10/month; the user declined paid provisioning. Do not create it.
+Existing `prod`, `stage` and
 `meeting-copilot` projects are not deployment targets.
 
-This concrete managed-host option triggers a narrow review of Supabase Auth plus protected
-ciphertext APIs as an alternative to operating Keycloak/Vapor. The private-browser,
-client-side encryption, paired approval and explicit restart boundaries remain unchanged.
+The managed-host review accepted a dedicated Supabase project as the hosted reference,
+subject to implementation and deployment checks. It replaces hosted Keycloak/Vapor;
+the sync contract stays independent of that choice for future self-hosting. The
+private-browser, client-side encryption, paired approval and explicit restart boundaries
+remain unchanged. No cloud project has been created and no cloud feature is complete.
+
+### Managed cloud implementation constraints
+
+Only the trusted broker/daemon may hold cloud sessions. Each device obtains its own
+session; refresh is serialized and the replacement token is saved atomically. Neither
+the MCP bridge nor the browser host may receive cloud tokens. Account recovery restores
+transport access, not vault keys or device enrollment. Transport session revocation is
+coarse and must be described separately from cryptographic device revocation.
+
+Native controller login uses PKCE. Headless login uses an authenticated encrypted pairing
+channel: the headless daemon retains the verifier, the controller initiates the email
+flow with its challenge, and the callback code is relayed encrypted to that daemon.
+There is no terminal OTP fallback. The complete callback, pairing and token-custody path
+must be tested before claiming headless login. Supabase's OAuth server is not assumed to
+provide a device authorization grant.
+
+The server stores bounded opaque immutable ciphertext objects and a conditional head.
+Clients verify digests, signatures, membership and pinned checkpoints. Database cursors,
+timestamps and conditional updates are not cryptographic freshness or enrollment evidence.
+The transport object cap must accommodate the reviewed successor format; the review's
+suggested 64 KiB cap is too small for the existing synthetic codec's maximum record.
+
+Database ownership comes from `auth.uid()`, never editable user metadata. Anonymous
+sign-ins stay disabled. Every exposed table needs least-privilege grants and RLS;
+administrative keys never ship in clients or CI. Direct head writes must be unavailable:
+implement conditional writes with a narrowly granted RPC and explicit owner checks.
+If its private implementation needs definer rights, pin its search path, revoke default
+execution and validate ownership inside that function before touching private counters.
+Quota and sequence allocation must serialize per vault without allowing committed rows
+to be skipped by a cursor. Pairing relay rows require separate bounded expiry and abuse
+controls; possession of a slot identifier is not device authentication.
+
+Public signup requires a configured SMTP sender. The default email service is not public
+signup acceptance. Initial hosted work keeps signup closed while two-user/anonymous RLS,
+immutable retry, conditional-head races, quota and cursor-order tests run against the
+dedicated project. Existing Bite projects remain untouched. Free or existing approved
+hosting and SMTP configuration are distinct deployment dependencies; neither blocks
+reversible source work.

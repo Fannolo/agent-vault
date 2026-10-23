@@ -1,3 +1,4 @@
+import AgentVaultCredentials
 import AgentVaultContracts
 import AgentVaultWebHostProtocol
 import Darwin

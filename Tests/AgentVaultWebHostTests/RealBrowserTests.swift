@@ -1,3 +1,4 @@
+import AgentVaultCredentials
 @testable import AgentVaultWebHost
 import AgentVaultBrowserFixture
 import AgentVaultContracts
