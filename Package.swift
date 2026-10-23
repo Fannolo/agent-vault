@@ -22,6 +22,8 @@ let package = Package(
         .target(name: "AgentVaultCredentials", dependencies: ["AgentVaultContracts", .product(name: "VaultSecret", package: "VaultSecret")]),
         .testTarget(name: "AgentVaultCredentialsTests", dependencies: ["AgentVaultCredentials", "AgentVaultContracts"]),
         .target(name: "AgentVaultJSON"),
+        .target(name: "AgentVaultCloud", dependencies: ["AgentVaultCredentials", portableCrypto]),
+        .testTarget(name: "AgentVaultCloudTests", dependencies: ["AgentVaultCloud", "AgentVaultCredentials"]),
         .target(name: "AgentVaultApproval", dependencies: ["AgentVaultContracts", portableCrypto]),
         .testTarget(name: "AgentVaultApprovalTests", dependencies: ["AgentVaultApproval", "AgentVaultContracts"]),
         .target(name: "AgentVaultAppSupport", dependencies: ["AgentVaultContracts", "AgentVaultApproval", "AgentVaultIPC", "AgentVaultRuntime"],
@@ -85,6 +87,7 @@ let package = Package(
 let portableTargets: Set<String> = [
     "AgentVaultContracts", "AgentVaultCredentials", "AgentVaultCredentialsTests", "AgentVaultJSON",
     "AgentVaultApproval", "AgentVaultApprovalTests", "AgentVaultCore", "AgentVaultCoreTests",
+    "AgentVaultCloud", "AgentVaultCloudTests",
 ]
 package.products = [.library(name: "AgentVaultCore", targets: ["AgentVaultCore"])]
 package.targets = package.targets.filter { portableTargets.contains($0.name) }

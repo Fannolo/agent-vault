@@ -29,6 +29,18 @@ PROBES = (
      "has no member 'bytes'"),
     ("no_storage_access", 'import AgentVaultCredentials\nfunc f(_ c: WebLoginCredential) { _ = c.storage }\n',
      "inaccessible due to 'private' protection level"),
+    ("no_cloud_token_reveal", 'import AgentVaultCredentials\nfunc f(_ c: CloudAccessToken) { c.withTokenBytes { _ in } }\n',
+     "inaccessible due to '@_spi' protection level"),
+    # The browser roles' reveal group compiles for login fields but never reaches the cloud token.
+    ("credential_use_control", '@_spi(CredentialUse) import AgentVaultCredentials\n'
+     'func f(_ c: WebLoginCredential) { c.withCanonicalBytes { _ in } }\n', None),
+    ("credential_use_no_cloud_token_reveal", '@_spi(CredentialUse) import AgentVaultCredentials\n'
+     'func f(_ c: CloudAccessToken) { c.withTokenBytes { _ in } }\n',
+     "inaccessible due to '@_spi' protection level"),
+    ("cloud_token_use_control", '@_spi(CloudTokenUse) import AgentVaultCredentials\n'
+     'func f(_ c: CloudAccessToken) { c.withTokenBytes { _ in } }\n', None),
+    ("no_cloud_token_storage", 'import AgentVaultCredentials\nfunc f(_ c: CloudAccessToken) { _ = c.storage }\n',
+     "inaccessible due to 'private' protection level"),
 )
 
 
@@ -57,7 +69,7 @@ def main():
             ], timeout=30, cwd=ROOT)
             if not probe_passes(code, output, diagnostic):
                 raise SystemExit("credential_api_probe_failed: " + name)
-    print("PASS: agent contracts and normal credential imports cannot reveal login fields")
+    print("PASS: normal imports reveal no login field or cloud token; CredentialUse cannot reveal the cloud token")
 
 
 if __name__ == "__main__":
