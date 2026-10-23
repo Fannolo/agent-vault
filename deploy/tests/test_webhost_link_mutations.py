@@ -89,6 +89,58 @@ class OwnedProcessTests(unittest.TestCase):
         self.assertEqual([sig for _, sig in self.signalled if sig != 0], [])
         self.assertIsNone(self.sentinel.poll())
 
+    def test_stopped_child_is_not_treated_as_exited(self):
+        child = subprocess.Popen(["/bin/sleep", "60"], start_new_session=True)
+        try:
+            child.send_signal(signal.SIGSTOP)
+            self.assertFalse(harness.wait_for_exit_without_reaping(child.pid, 0.1))
+        finally:
+            child.send_signal(signal.SIGCONT)
+            harness.terminate_group(child.pid)
+            child.wait()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux waitid proof; macOS retains kqueue ownership checks")
+    def test_exit_wait_keeps_the_child_unreaped_for_group_cleanup(self):
+        child = subprocess.Popen([sys.executable, "-I", "-c", "pass"], start_new_session=True)
+        unreaped = False
+        try:
+            self.assertTrue(harness.wait_for_exit_without_reaping(child.pid, 3))
+            event = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+            unreaped = event is not None and event.si_pid == child.pid
+            self.assertTrue(unreaped, "exit observation must retain the child PID until cleanup")
+        finally:
+            if unreaped:
+                harness.terminate_group(child.pid)
+            child.wait()
+
+    def test_linux_group_membership_ignores_zombies_and_unrelated_groups(self):
+        def record(pid, state, group):
+            path = self.work / str(pid)
+            path.mkdir(exist_ok=True)
+            (path / "stat").write_text(f"{pid} (a name ) with parens) {state} 1 {group} 0 0\n")
+        record(10, "Z", 10)
+        record(11, "S", 99)
+        self.assertFalse(harness.linux_group_has_live_members(10, self.work))
+        record(12, "S", 10)
+        self.assertTrue(harness.linux_group_has_live_members(10, self.work))
+
+    def test_pidfd_open_failure_preserves_error_without_using_kqueue(self):
+        failure = OSError("synthetic_pidfd_unavailable")
+        with mock.patch.object(harness.sys, "platform", "linux"), \
+                mock.patch.object(harness.os, "pidfd_open", create=True, side_effect=failure), \
+                mock.patch.object(harness.select, "kqueue", create=True) as kqueue:
+            with self.assertRaises(OSError) as caught:
+                harness.wait_for_exit_without_reaping(12345, 1)
+        self.assertIs(caught.exception, failure)
+        kqueue.assert_not_called()
+
+    def test_unreadable_linux_membership_is_conservative_and_does_not_signal(self):
+        path = self.work / "99"
+        path.mkdir()
+        (path / "stat").write_bytes(b"99 (invalid-\xff-name) S 1 99 0 0\n")
+        self.assertTrue(harness.linux_group_has_live_members(10, self.work))
+        self.assertEqual(self.signalled, [])
+
     def test_interrupted_wait_cleans_the_owned_group_before_returning(self):
         children = []
         spawn = subprocess.Popen

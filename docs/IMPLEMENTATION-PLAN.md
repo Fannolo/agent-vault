@@ -2,6 +2,16 @@
 
 ## Headless delivery work: 23 October 2026
 
+The first opaque cloud transport migration is implemented under `supabase/`. Native
+PostgreSQL 17.11 checks pass in an invocation-owned private cluster with TCP disabled:
+owner/cross-user/anonymous rules, immutable objects, size and quota limits, exact retry,
+conditional-head races and commit-ordered cursors. Removing the vault owner-read predicate
+makes the real SQL assertion fail; restoring it passes. This is database behavior only.
+The SQL auth functions are synthetic test stubs, not a test of hosted JWT validation or
+PostgREST. No hosted project, signup, pairing mailbox, token custody or client sync engine
+exists yet. The database CI job and independent source review remain pending. See
+[`supabase/README.md`](../supabase/README.md) for the transport contract and deployment gates.
+
 Shared broker Core, approval and credential modules now compile on Linux. GitHub Actions
 run [39880214643](https://github.com/Fannolo/agent-vault/actions/runs/39880214643), at
 `2219b11`, passed both jobs: Linux ran 55 VaultCore tests, 7 VaultSecret tests and 131
