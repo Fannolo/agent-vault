@@ -112,6 +112,9 @@ enum SiteRecipe: CaseIterable, Sendable {
             const s = window.getComputedStyle(e);
             return s.visibility !== "hidden" && s.display !== "none";
         };
+        // Disabled as the page shows it: also by a disabled fieldset or optgroup, which leaves the
+        // element's own `disabled` false.
+        const disabled = (e) => Element.prototype.matches.call(e, ":disabled");
         const clip = (t, n) => {
             const s = String.prototype.toWellFormed.call(String(t == null ? "" : t))
                 .replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, " ").replace(/\\s+/g, " ").trim();
@@ -144,7 +147,7 @@ enum SiteRecipe: CaseIterable, Sendable {
         const e = table[index];
         if (!e || !e.isConnected) return "stale";
         if (!Array.prototype.includes.call(roles, roleOf(e))) return "kind";
-        if (e.disabled === true || !shown(e)) return "stale";
+        if (disabled(e) || !shown(e)) return "stale";
         """
 
     private static let loginForm = """
@@ -208,7 +211,7 @@ enum SiteRecipe: CaseIterable, Sendable {
             for (const e of found) {
                 if (elements.length >= \(SiteObservation.maximumElements)) break;
                 const role = roleOf(e);
-                if (role === null || e.disabled === true || !shown(e)) continue;
+                if (role === null || disabled(e) || !shown(e)) continue;
                 let ref = table.indexOf(e);
                 if (ref < 0) {
                     if (table.length > \(SiteTarget.maximumElement)) continue;
@@ -262,7 +265,7 @@ enum SiteRecipe: CaseIterable, Sendable {
             return "ok";
             """
         case .choose: Self.common + Self.resolve + """
-            if (option < 0 || option >= e.options.length || e.options[option].disabled) return "stale";
+            if (option < 0 || option >= e.options.length || disabled(e.options[option])) return "stale";
             Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "selectedIndex").set.call(e, option);
             e.dispatchEvent(new Event("input", { bubbles: true }));
             e.dispatchEvent(new Event("change", { bubbles: true }));

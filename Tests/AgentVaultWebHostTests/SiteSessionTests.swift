@@ -467,3 +467,31 @@ extension RealBrowserTests {
         }
     }
 }
+
+// Regressions for the three source-review findings on 34ceaa9 (verification-logs/continuing-site/astra-review-v2.md).
+extension RealBrowserTests {
+    /// Finding 3: a control disabled by its fieldset, or an option in a disabled group, is disabled.
+    /// It is never observed as operable, and typing or choosing is refused before any event fires.
+    @Test func controlsDisabledByAnAncestorAreNeitherObservedNorOperated() async throws {
+        try await Host.using { h in
+            let (session, _) = await h.open()
+            let page = try #require(observed(await h.operate(session, .navigate(h.url("/disabled")))))
+            #expect(page.ref(.textField, "Locked note") == nil, "a field in a disabled fieldset was offered")
+            let inside = try page.need(.textField, "Inside"), size = try page.need(.select, "Inside size")
+
+            let priority = try page.need(.select, "Priority")
+            #expect(await h.operate(session, .select(priority, option: 1)) == .rejected(.staleTarget))
+            let locked = try #require(observed(await h.operate(session, .click(try page.need(.button, "Lock")))))
+            #expect(locked.ref(.textField, "Inside") == nil && locked.ref(.select, "Inside size") == nil)
+            #expect(await h.operate(session, .typePublic(inside, "words")) == .rejected(.staleTarget))
+            #expect(await h.operate(session, .select(size, option: 1)) == .rejected(.staleTarget))
+
+            let after = try #require(observed(await h.observe(session)))
+            #expect(after.element(.select, "Priority")?.value == "open")
+            #expect(!after.text.contains { $0.hasPrefix("input on") || $0.hasPrefix("change on") }, "events fired: \(after.text)")
+            // An enabled option in the same select is still chosen.
+            #expect(observed(await h.operate(session, .select(try after.need(.select, "Priority"), option: 0)))?
+                .text.contains("change on Priority") == true)
+        }
+    }
+}
