@@ -105,7 +105,10 @@ M = [
   "        return mode == .agent && target.control == control && target.document == page.epoch\n",
   "        guard mode == .agent, let (_, page) = await currentDocument() else { return false }\n"
   "        return mode == .agent && target.document == page.epoch\n",
-  "targetsAreBoundToTheirSessionDocumentAndControlEpoch"),
+  "targetsAreBoundToTheirSessionDocumentAndControlEpoch",
+  # The recipe call's own hold on the target's control epoch is the second layer.
+  ("values.merging([\"index\": target.element]) { $1 }, while: target.control) {",
+   "values.merging([\"index\": target.element]) { $1 }) {")),
  ("takeover does not fence agent operations", H + "SiteSession.swift",
   "            guard command.fits else { return .rejected(.notPermitted) }\n            guard mode == .agent else { return .rejected(.humanControl) }\n",
   "            guard command.fits else { return .rejected(.notPermitted) }\n",

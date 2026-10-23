@@ -36,10 +36,11 @@ loads the policy's own entry page. The password is filled only when the main-fra
 the host reads from the browser is a credential origin and the single login form posts to
 one; a caller URL only requests navigation. Observations are typed and bounded and omit
 password values. Targets bind a host-wide document epoch, the control epoch and an element
-row held in an isolated world; they are rechecked before input. Operations are navigate,
-click, plain-text typing, select, named keys and scroll, one at a time per session.
-Takeover fences agent observation and input; end, lifetime and teardown dispose the context.
-Operation IDs return the first reply on retry and refuse reuse for another command.
+row held in an isolated world; the element is rechecked and acted on in one recipe call.
+Operations are navigate, click, plain-text typing, select, named keys and scroll, one at a
+time per session. Takeover fences agent observation and input; end, lifetime and teardown
+dispose the context. Operation IDs return the first reply on retry and refuse reuse for
+another command; a login ID is bound to the broker's credential item and version.
 
 Synthetic acceptance on the loopback fixture and Chromium 149.0.7827.55: private login, then
 navigation, typing, selection and an authenticated form submission in the same context,
@@ -48,6 +49,41 @@ pre-takeover targets, partner/redirected credential origins, off-policy navigati
 posts, duplicate submission, operation-ID conflicts, unsupported login forms, one-time-code
 handover, lifetime, end, teardown and run/session command separation. The fixed workflow
 browser tests still pass.
+
+An independent source review of that slice (c4bdb69) found eight defects. Each was first
+reproduced against c4bdb69 behaviour on the synthetic fixture with Chromium 149.0.7827.55,
+using a debug-only checkpoint seam for the races, and then fixed:
+
+- A login submit button's `formaction`/`formmethod`, or a submit listener, sent the filled
+  password as a GET to the navigation-only partner. The recipes now check the submitter's
+  overrides, and until the filled form's own POST to a credential origin is allowed, the
+  gate admits no other document, no frame and no non-read-only request to another origin.
+  Named-frame variants produced no request in this browser either way; the cause is not
+  established and the gate rule is covered by unit tests.
+- Click and typing checked the element, then sent CDP input separately; a page timer could
+  move focus to a password field or swap the button. They now run as DOM actions (`click()`,
+  the value setter, input/change events) in the checking call. Those events are untrusted
+  (`isTrusted` false); sites that require trusted input will not react.
+- Login and observation checked control only before suspending; a takeover and release could
+  let a login submit, and a takeover could release page contents. Operations now hold a
+  control generation, rechecked after every suspension and before every recipe call.
+- After dispatch, a session end or later failure returned `rejected`/`failed` although the
+  site had committed. Any error after dispatch is now `siteUnknown`.
+- Observation text was bounded per string only; a page with over 16 MiB of option text broke
+  the shared 8 MiB pipe and ended every session. The recipe cuts all strings from one budget.
+- A reused login operation ID returned the first credential's reply for another credential.
+- A page without a password field counted as signed in (CAPTCHA, error page), and the claim
+  outlived a return to the login form. Signed in now needs a policy-named signed-in page;
+  otherwise the new `unknown` state is reported.
+- observe/takeover/release could answer `failed`, which the wire contract refused. observe may
+  now fail; takeover and release always report the change of control.
+
+Remaining limits noticed while fixing, from source reading and not reproduced: a document
+response near the 8 MiB document cap can exceed the 8 MiB pipe message cap once escaped or
+base64-encoded in `Fetch.getResponseBody`, which would end the browser (shared with fixed
+workflows, not changed here); named keys still go to whatever element the page focused; a
+credential-origin page's own script can read the filled password and send it to a navigation
+origin, except non-read-only requests during the pre-submission window.
 
 Limits: `HostPolicy.production.sites` is empty, and neither Core, the host link nor MCP can
 send site commands. The operation journal is volatile host memory, bounded per session and
