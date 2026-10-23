@@ -143,6 +143,7 @@ public struct AdminReply: Codable, Sendable {
     public init(status: String, id: UUID? = nil) { self.status = status; self.id = id }
 }
 
+#if canImport(ObjectiveC)
 @objc public protocol VaultReadRPC {
     func perform(_ data: Data, reply: @escaping (Data) -> Void)
 }
@@ -154,3 +155,4 @@ public struct AdminReply: Codable, Sendable {
     /// Frame, input and conclusion for a lease opened on this same connection.
     func continueHuman(_ data: Data, reply: @escaping (Data) -> Void)
 }
+#endif

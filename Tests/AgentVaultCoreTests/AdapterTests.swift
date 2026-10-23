@@ -1,6 +1,9 @@
 import AgentVaultContracts
 import AgentVaultCore
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 
 @Test func githubOutputDropsUnknownSensitiveFields() throws {
