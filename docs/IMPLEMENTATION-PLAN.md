@@ -150,6 +150,15 @@ clear (the session ends, the other session continues and the host stays healthy)
 release overlapping a takeover, a fill held before the writer, and a release reply that
 overlaps a later takeover.
 
+A fifth independent review (da4f099) closed those three handover findings and identified
+one terminal-reply error: ending a session during the control reply's frame-tree read
+could still produce a successful cached human/agent identity. A deterministic test ends
+the session at that read for takeover and release; both fail against da4f099 behavior.
+Control replies now recheck termination after observation and before identity fallback,
+returning `unknownRun` for an ended session while retaining fallback for a live unreadable
+page. The frame-read scheduling hook is DEBUG-only. Current-source proof is recorded
+separately from the earlier 390-test and split mutation results.
+
 After it acknowledges a person's control, the host sends no call under the agent's hold,
 and no handover clear can still arrive. It does not stop what the page or site does on its
 own, or the consequences of calls answered before the acknowledgement, such as a form

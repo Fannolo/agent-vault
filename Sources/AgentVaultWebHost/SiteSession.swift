@@ -72,7 +72,7 @@ actor SiteSession {
 
     /// Named suspension points. Debug builds await a test hook there, so a test can interleave a
     /// command at exactly that point; release builds do nothing.
-    enum Checkpoint: Sendable { case loginDocument, loginFilled, beforeInput, dispatched, observed, beforeSend, afterSend, clearing }
+    enum Checkpoint: Sendable { case loginDocument, loginFilled, beforeInput, dispatched, observed, beforeSend, afterSend, clearing, documentRead }
 
     #if DEBUG
     typealias Hook = @Sendable (UUID, Checkpoint) async -> Void
@@ -269,6 +269,7 @@ actor SiteSession {
         while true {
             if case .handingOver(let handover) = holder, !(await handover.value) { return .rejected(.unknownRun) }
             var reply = await observation()
+            guard !ended else { return .rejected(.unknownRun) }
             if case .failed = reply, let page = document { reply = .site(summary(page.epoch)) }
             guard case .site(let page) = reply, page.control != control || isHandingOver else { return reply }
         }
@@ -530,8 +531,10 @@ actor SiteSession {
 
     /// The main frame's URL and document, numbering a new document the first time it is seen.
     private func currentDocument() async -> (url: URL, document: Document)? {
-        guard !ended, let session, let tree = try? await pipe.call(.pageGetFrameTree, [:], session: session),
-              let frame = tree["frameTree"]?["frame"], let text = frame["url"]?.string, let url = URL(string: text),
+        guard !ended, let session else { return nil }
+        let tree = try? await pipe.call(.pageGetFrameTree, [:], session: session)
+        await pause(.documentRead)
+        guard let tree, let frame = tree["frameTree"]?["frame"], let text = frame["url"]?.string, let url = URL(string: text),
               let loader = frame["loaderId"]?.string, !ended else { return nil }
         if document?.loader != loader { document = Document(loader: loader, epoch: epochs.next(), world: nil) }
         return (url, document!)

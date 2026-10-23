@@ -894,3 +894,21 @@ private final class Slot<Value: Sendable>: @unchecked Sendable {
         set { lock.withLock { stored = newValue } }
     }
 }
+
+
+extension RealBrowserTests {
+    @Test(arguments: [false, true])
+    func controlRepliesRefuseASessionEndedDuringTheFrameRead(releasing: Bool) async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            let (session, _) = await h.open()
+            if releasing {
+                #expect(observed(await h.service.perform(.siteTakeover(session: session)))?.mode == .human)
+            }
+            at(.documentRead, of: session) { await h.service.end(session) }
+            let command: HostCommand = releasing ? .siteRelease(session: session) : .siteTakeover(session: session)
+            #expect(await h.service.perform(command) == .rejected(.unknownRun))
+            #expect(await h.observe(session) == .rejected(.unknownRun))
+        }
+    }
+}
