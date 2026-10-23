@@ -23,6 +23,7 @@ public final class VaultSocketServer: @unchecked Sendable {
         let fd: Int32
         let path: String
         let identity: FileIdentity
+        let lock: Int32
         let finished: Completion
     }
 
@@ -31,6 +32,7 @@ public final class VaultSocketServer: @unchecked Sendable {
     private let timeouts: SocketTimeouts
     private let handlers: BrokerHandlers
     private let lanes: SocketLanes
+    private let didBind: @Sendable (SocketRole) -> Void
     private let tracker = WorkTracker()
     private let stopped = Completion()
     private let lock = NSLock()
@@ -45,14 +47,17 @@ public final class VaultSocketServer: @unchecked Sendable {
         self.init(validated: configuration, limits: limits, timeouts: .standard, handlers: handlers)
     }
 
+    /// `didBind` is a test seam: it runs after each socket is bound and before it listens.
     init(validated configuration: SocketConfiguration, limits: IPCLimits, timeouts: SocketTimeouts,
-         handlers: BrokerHandlers) {
+         handlers: BrokerHandlers, didBind: @escaping @Sendable (SocketRole) -> Void = { _ in }) {
         self.configuration = configuration; self.limits = limits; self.timeouts = timeouts
-        self.handlers = handlers; lanes = SocketLanes(limits: limits)
+        self.handlers = handlers; self.didBind = didBind; lanes = SocketLanes(limits: limits)
     }
 
-    /// Binds both sockets in their protected directories and starts accepting. A stale socket left
-    /// by an earlier broker is replaced only if nothing answers on it; any other file is refused.
+    /// Binds both sockets in their protected directories and starts accepting. Each path is held
+    /// under its lock file from before the stale check until stop, so a second broker fails
+    /// `unavailable` instead of racing this one. A stale socket left by an earlier broker is
+    /// replaced only if nothing answers on it; any other file is refused.
     public func start() throws(IPCError) {
         lock.lock()
         defer { lock.unlock() }
@@ -62,7 +67,8 @@ public final class VaultSocketServer: @unchecked Sendable {
         wake = (fds[0], fds[1])
         do {
             for role in [SocketRole.read, .admin] {
-                listeners.append(try Self.bind(endpoint(role), role: role, backlog: limits.maxConnectionsPerService))
+                listeners.append(try Self.bind(endpoint(role), role: role, backlog: limits.maxConnectionsPerService,
+                                               didBind: { didBind(role) }))
             }
         } catch {
             for listener in listeners { Self.remove(listener) }
@@ -150,26 +156,38 @@ public final class VaultSocketServer: @unchecked Sendable {
 
     // MARK: Socket files
 
-    private static func bind(_ endpoint: SocketConfiguration.Endpoint, role: SocketRole, backlog: Int) throws(IPCError) -> Listener {
+    private static func bind(_ endpoint: SocketConfiguration.Endpoint, role: SocketRole, backlog: Int,
+                             didBind: () -> Void) throws(IPCError) -> Listener {
         let path = endpoint.path
         try SocketPath.requireProtectedDirectory(of: path)
-        try SocketPath.clearStale(path)
-        let fd = av_socket_bind(path)
-        guard fd >= 0 else { throw .unavailable }
-        // Permissions are final before listen(), so no client can connect under a looser mode.
-        guard let identity = SocketPath.ownedSocket(path),
-              chmod(path, 0o660) == 0, chown(path, UInt32.max, endpoint.group) == 0,
-              av_socket_listen(fd, Int32(backlog)) == 0 else {
-            close(fd)
-            SocketPath.remove(path, ifStill: SocketPath.ownedSocket(path))
-            throw .unavailable
+        let lock = try SocketPath.lock(path)
+        do throws(IPCError) {
+            try SocketPath.clearStale(path)
+            let fd = av_socket_bind(path)
+            guard fd >= 0 else { throw .unavailable }
+            // Under the lock no other broker can replace the file: this identity is our own, and
+            // it alone decides what a rollback or stop may unlink.
+            guard let identity = SocketPath.ownedSocket(path) else { close(fd); throw .unavailable }
+            didBind()
+            // Permissions are final before listen(), so no client can connect under a looser mode.
+            guard chmod(path, 0o660) == 0, chown(path, UInt32.max, endpoint.group) == 0,
+                  av_socket_listen(fd, Int32(backlog)) == 0 else {
+                close(fd)
+                SocketPath.remove(path, ifStill: identity)
+                throw .unavailable
+            }
+            return Listener(role: role, fd: fd, path: path, identity: identity, lock: lock, finished: Completion())
+        } catch {
+            close(lock)
+            throw error
         }
-        return Listener(role: role, fd: fd, path: path, identity: identity, finished: Completion())
     }
 
+    /// Unlinks the socket before releasing its lock, so a successor never sees this one's file.
     private static func remove(_ listener: Listener) {
         close(listener.fd)
         SocketPath.remove(listener.path, ifStill: listener.identity)
+        close(listener.lock)
     }
 }
 
@@ -410,6 +428,23 @@ enum SocketPath {
                 throw .invalidConfiguration
             }
         }
+    }
+
+    /// Takes the exclusive `flock` on `<path>.lock` that serializes every broker's startup, stale
+    /// replacement and removal of `path`. It is held until stop; the lock file itself stays.
+    static func lock(_ path: String) throws(IPCError) -> Int32 {
+        let fd = open(path + ".lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw .invalidConfiguration }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == geteuid() else {
+            close(fd)
+            throw .invalidConfiguration
+        }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            throw .unavailable
+        }
+        return fd
     }
 
     /// Removes a socket file left by an earlier broker run. Anything that is not a socket owned by

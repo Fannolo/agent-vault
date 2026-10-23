@@ -257,4 +257,45 @@ import Glibc
             #expect(admitted, "the slot is free once cleanup finished")
         }
     }
+
+    // MARK: Startup ownership
+
+    @Test func aConcurrentStartCannotTakeOverOrRemoveAStartingServersSockets() async throws {
+        let directory = try OwnedDirectory()
+        defer { directory.remove() }
+        let config = configuration(directory)
+        let firstEvents = Events(), rivalEvents = Events(), outcome = Events()
+        let rival = VaultSocketServer(validated: config, limits: .standard, timeouts: testTimeouts,
+                                      handlers: stubHandlers(rivalEvents))
+        // The rival starts while the first server has bound its read socket but not yet listened.
+        let first = VaultSocketServer(validated: config, limits: .standard, timeouts: testTimeouts,
+                                      handlers: stubHandlers(firstEvents), didBind: { role in
+            guard role == .read else { return }
+            do throws(IPCError) { try rival.start(); outcome.record("rival started") } catch {
+                outcome.record("rival \(error.rawValue)")
+            }
+        })
+        var firstError: IPCError?
+        do throws(IPCError) { try first.start() } catch { firstError = error }
+        #expect(outcome.all == ["rival unavailable"])
+        #expect(firstError == nil)
+        if outcome.all == ["rival started"] {
+            // The rival must keep both of its sockets whatever the first server did.
+            var info = stat()
+            #expect(lstat(config.read.path, &info) == 0, "the rival's live read socket was unlinked")
+        }
+        if firstError == nil {
+            let read = VaultSocketReadClient(channel: SocketChannel(path: config.read.path, brokerUID: me, limits: .standard,
+                                                                    timeout: 3, timeouts: testTimeouts))
+            _ = try await read.perform(ReadRequest(operation: .accounts))
+            await read.close()
+            #expect(firstEvents.all == ["read accounts uid=\(me)"] && rivalEvents.all.isEmpty)
+        }
+        await first.stop()
+        await rival.stop()
+        // Once the first server stopped, its paths are free for the next start.
+        let next = VaultSocketServer(validated: config, limits: .standard, timeouts: testTimeouts, handlers: stubHandlers())
+        try next.start()
+        await next.stop()
+    }
 }

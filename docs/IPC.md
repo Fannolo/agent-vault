@@ -292,10 +292,10 @@ Capacity and lifetime:
   their reply is dropped if the connection is gone, and the client reports `timeout` or
   `connection_failed` for an unknown outcome. Nothing retries a mutation.
 - Each admin connection gets an `AdminConnection` minted at accept. Its liveness is cleared
-  when the connection ends, before the broker's closed callback runs. The connection's slot
-  stays taken until that callback finishes, so reconnecting cannot outrun it. A continuation lease
+  when the connection ends, before the broker's closed callback runs. A continuation lease
   therefore needs the client's one persistent connection; after a reconnect it needs a new
-  signed open.
+  signed open. The connection's slot stays taken until the closed callback finishes, so
+  reconnecting cannot outrun the broker's cleanup.
 - Only a connection's writer queue closes its descriptor, after the reader thread exits.
   `stop()` wakes every thread, closes listeners and peers, and returns only after every
   descriptor is closed and every handler task has finished.
@@ -305,11 +305,17 @@ Socket files:
 - The socket directory and every ancestor must be a real directory owned by root or the
   broker UID. The directory itself must not be group/other writable. An ancestor may be
   writable only with the sticky bit, as `/tmp` is.
-- An existing path is replaced only if it is a socket owned by the broker UID that refuses
-  connections. A live socket fails `unavailable`. Any other file fails
+- Each socket path has a lock file, `<path>.lock`, mode 0600 and owned by the broker UID. A
+  server takes an exclusive `flock` on it before it checks the path and holds it until stop,
+  so a second broker starting on the same path fails `unavailable` and cannot replace or
+  unlink the first one's socket. A lock file that is not a regular file owned by the broker
+  UID fails `invalid_configuration`. Lock files stay after stop.
+- Under that lock, an existing path is replaced only if it is a socket owned by the broker
+  UID that refuses connections. A live socket fails `unavailable`. Any other file fails
   `invalid_configuration` and is left in place.
-- Mode 0660 and the group are set before `listen()`. `stop()` unlinks a socket only while
-  its device and inode still match the one this server bound.
+- The socket's device and inode are recorded right after `bind()`. Mode 0660 and the group
+  are set before `listen()`. A failed start and `stop()` unlink a socket only while it still
+  has that recorded identity, and stop unlinks it before releasing the lock.
 
 The Linux `agent-vault-broker` validates `sockets.json` for the broker role and then exits
 with `custody_unavailable`. Vault key custody through a systemd encrypted credential is the

@@ -251,7 +251,7 @@ import Glibc
             return AdminChallenge(id: UUID(), payload: Data(repeating: 7, count: 32), expiresAt: Date() + 60)
         })
         let directory = try OwnedDirectory()
-        defer { directory.remove(["unrelated"]) }
+        defer { directory.remove(["unrelated", "read.sock.lock", "admin.sock.lock"]) }
         #expect(FileManager.default.createFile(atPath: directory.file("unrelated"), contents: Data("keep".utf8)))
         let server = VaultSocketServer(validated: configuration(directory), limits: .standard, timeouts: testTimeouts,
                                        handlers: handlers)
@@ -288,7 +288,7 @@ import Glibc
 
     @Test func startRefusesUnsafePathsAndNeverUnlinksForeignFiles() async throws {
         let directory = try OwnedDirectory()
-        defer { directory.remove(["read.sock", "admin.sock", "elsewhere"]) }
+        defer { directory.remove(["read.sock", "admin.sock", "read.sock.lock", "admin.sock.lock", "elsewhere", "target"]) }
         let config = configuration(directory)
         func server() -> VaultSocketServer {
             VaultSocketServer(validated: config, limits: .standard, timeouts: testTimeouts, handlers: stubHandlers())
@@ -310,6 +310,14 @@ import Glibc
         #expect(throws: IPCError.invalidConfiguration) {
             try VaultSocketServer(validated: linked, limits: .standard, timeouts: testTimeouts, handlers: stubHandlers()).start()
         }
+
+        // A lock file that is a symlink is refused and its target left alone.
+        #expect(FileManager.default.createFile(atPath: directory.file("target"), contents: Data("keep".utf8)))
+        _ = unlink(config.read.path + ".lock")
+        #expect(symlink(directory.file("target"), config.read.path + ".lock") == 0)
+        #expect(throws: IPCError.invalidConfiguration) { try server().start() }
+        #expect(FileManager.default.contents(atPath: directory.file("target")) == Data("keep".utf8))
+        _ = unlink(config.read.path + ".lock")
 
         // A stale socket from an earlier run is replaced; a live one is not.
         let stale = av_socket_bind(config.read.path)

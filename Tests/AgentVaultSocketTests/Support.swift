@@ -60,7 +60,7 @@ final class OwnedDirectory: @unchecked Sendable {
 
     func file(_ name: String) -> String { path + "/" + name }
 
-    func remove(_ names: [String] = ["read.sock", "admin.sock"]) {
+    func remove(_ names: [String] = ["read.sock", "admin.sock", "read.sock.lock", "admin.sock.lock"]) {
         for name in names { _ = unlink(file(name)) }
         _ = rmdir(path)
     }
