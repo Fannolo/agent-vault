@@ -133,14 +133,15 @@ actor SiteSession {
         await journaled(operation, .operate(command)) {
             guard command.fits else { return .rejected(.notPermitted) }
             guard mode == .agent else { return .rejected(.humanControl) }
+            let held = control
             _ = network?.takeFailure()
             switch command {
-            case .navigate(let text): return await navigate(text)
+            case .navigate(let text): return await navigate(text, held)
             case .click(let target): return await click(target)
             case .typePublic(let target, let text): return await type(target, text)
             case .select(let target, let option): return await choose(target, option)
-            case .press(let key): return await press(key)
-            case .scroll(let dy): return await scroll(dy)
+            case .press(let key): return await dispatch(Self.key(key), held)
+            case .scroll(let dy): return await scroll(dy, held)
             }
         }
     }
@@ -160,10 +161,13 @@ actor SiteSession {
 
     private func attemptLogin(_ credential: WebLoginCredential) async -> HostReply {
         guard mode == .agent else { return .rejected(.humanControl) }
+        let held = control
         _ = network?.takeFailure()
         guard let (url, page) = await currentDocument(), let origin = WebOrigin(url: url),
               policy.credential.contains(origin) else { return .rejected(.credentialOrigin) }
         await pause(.loginDocument)
+        // Taken over (and perhaps released) while reading the page: nothing is filled.
+        guard holds(held) else { return fenced }
         network?.phase = .login
         defer { restorePhase() }
         var fields: [String: Any] = [:]
@@ -171,25 +175,25 @@ actor SiteSession {
             fields["username"] = String(decoding: username, as: UTF8.self)
             fields["password"] = String(decoding: password, as: UTF8.self)
         }
-        let filled = await run(.loginFill, origins: policy.credential, fields).value
+        let filled = await run(.loginFill, origins: policy.credential, fields, while: held)
         fields = [:]
         switch filled {
-        case .string("ok")?: break
-        case .string("origin")?: return .rejected(.credentialOrigin)
+        case .sent(.string("ok")?): break
+        case .sent(.string("origin")?): return .rejected(.credentialOrigin)
+        case .notRun where !holds(held): return fenced
         default: return .rejected(.unsupportedLogin)
         }
         try? await Task.sleep(for: timing.settle)
         await pause(.loginFilled)
         // Taken over, ended or replaced while filling: the form stays unsubmitted.
-        guard !ended, mode == .agent, await currentDocument()?.document.epoch == page.epoch else {
-            return .rejected(.staleTarget)
-        }
+        guard holds(held) else { return fenced }
+        guard await currentDocument()?.document.epoch == page.epoch else { return .rejected(.staleTarget) }
         if let failure = network?.takeFailure() { return .failed(failure) }
         let before = network?.loads ?? 0
-        switch await run(.loginSubmit, origins: policy.credential, [:]) {
+        switch await run(.loginSubmit, origins: policy.credential, [:], while: held) {
         case .sent(.string("ok")?): break
         case .sent(.string?): return .rejected(.unsupportedLogin)
-        case .notRun: return .rejected(.staleTarget)
+        case .notRun: return holds(held) ? .rejected(.staleTarget) : fenced
         case .sent: return .siteUnknown
         }
         await pause(.dispatched)
@@ -216,6 +220,15 @@ actor SiteSession {
             if auth == .humanRequired || auth == .rejected { await judgeLogin(handOver: false) }
         }
         return await observation()
+    }
+
+    /// Whether the agent still holds the control generation an operation began under. Takeover and
+    /// release both bump `control`, so after any suspension an operation goes on only while this holds.
+    private func holds(_ held: UInt64) -> Bool { !ended && mode == .agent && control == held }
+
+    /// The refusal for an operation whose hold ended before it acted.
+    private var fenced: HostReply {
+        ended ? .rejected(.unknownRun) : mode == .human ? .rejected(.humanControl) : .rejected(.staleTarget)
     }
 
     private func fence(_ next: SiteMode) {
@@ -263,10 +276,12 @@ actor SiteSession {
         return reply
     }
 
-    private func navigate(_ text: String) async -> HostReply {
+    private func navigate(_ text: String, _ held: UInt64) async -> HostReply {
         guard let url = URL(string: text), let origin = WebOrigin(url: url), policy.navigation.contains(origin) else {
             return .rejected(.notPermitted)
         }
+        await pause(.beforeInput)
+        guard holds(held) else { return fenced }
         if let failure = await load(url) { return .failed(failure) }
         return await outcome()
     }
@@ -290,7 +305,7 @@ actor SiteSession {
     private func act(_ recipe: SiteRecipe, _ target: SiteTarget, _ values: [String: Any]) async -> HostReply {
         await pause(.beforeInput)
         guard await current(target) else { return .rejected(.staleTarget) }
-        switch await run(recipe, origins: policy.navigation, values.merging(["index": target.element]) { $1 }) {
+        switch await run(recipe, origins: policy.navigation, values.merging(["index": target.element]) { $1 }, while: target.control) {
         case .notRun: return .rejected(.staleTarget)
         case .sent(.string("ok")?): break
         case .sent(.string("kind")?): return .rejected(.notPermitted)
@@ -302,11 +317,9 @@ actor SiteSession {
         return await outcome()
     }
 
-    private func press(_ key: NamedKey) async -> HostReply { await dispatch(Self.key(key)) }
-
-    private func scroll(_ dy: Int) async -> HostReply {
+    private func scroll(_ dy: Int, _ held: UInt64) async -> HostReply {
         await dispatch([(.inputDispatchMouseEvent, ["type": "mouseWheel", "x": WebRun.viewport.width / 2,
-                                                         "y": WebRun.viewport.height / 2, "deltaX": 0, "deltaY": dy])])
+                                                    "y": WebRun.viewport.height / 2, "deltaX": 0, "deltaY": dy])], held)
     }
 
     private static func key(_ key: NamedKey) -> [(CDPMethod, CDPParameters)] {
@@ -319,10 +332,11 @@ actor SiteSession {
 
     /// Sends untargeted input (keys, wheel) only while the agent holds control. Input the browser may
     /// have received without confirming makes the effect unknown; it is never sent again.
-    private func dispatch(_ events: [(CDPMethod, CDPParameters)]) async -> HostReply {
-        guard let session, mode == .agent, !ended else { return .rejected(.humanControl) }
-        for (method, params) in events {
-            guard !ended, mode == .agent else { return .siteUnknown }
+    private func dispatch(_ events: [(CDPMethod, CDPParameters)], _ held: UInt64) async -> HostReply {
+        await pause(.beforeInput)
+        guard let session, holds(held) else { return fenced }
+        for (index, (method, params)) in events.enumerated() {
+            guard holds(held) else { return index == 0 ? fenced : .siteUnknown }
             guard (try? await pipe.call(method, params, session: session, timeout: 2)) != nil else { return .siteUnknown }
         }
         await pause(.dispatched)
@@ -346,15 +360,18 @@ actor SiteSession {
 
     private func observation() async -> HostReply {
         guard !ended else { return .rejected(.unknownRun) }
-        // A document can be replaced between reading its identity and its contents: read again.
+        // A document can be replaced, or control can change, between reading the document's identity
+        // and its contents: read again under the new state.
         for _ in 0..<3 {
+            guard !ended else { return .rejected(.unknownRun) }
             guard let (url, page) = await currentDocument() else { return .failed(.rendererUnavailable) }
+            let held = control
             guard mode == .agent, let origin = WebOrigin(url: url), policy.navigation.contains(origin) else {
                 return .site(summary(page.epoch))
             }
-            let value = await run(.observe, origins: policy.navigation, [:]).value
+            let value = await run(.observe, origins: policy.navigation, [:], while: held).value
             await pause(.observed)
-            guard await currentDocument()?.document.epoch == page.epoch else { continue }
+            guard await currentDocument()?.document.epoch == page.epoch, holds(held) else { continue }
             guard case .object(let fields)? = value, let title = fields["title"]?.string,
                   let items = fields["elements"]?.array, let lines = fields["text"]?.array else { continue }
             let elements = items.compactMap(Self.element)
@@ -428,11 +445,12 @@ actor SiteSession {
 
     /// Runs a fixed site recipe in the current document's world, which a page script cannot reach.
     /// The world belongs to one document: if that document is gone, the call fails without running.
-    private func run(_ recipe: SiteRecipe, origins: [WebOrigin], _ values: [String: Any]) async -> Ran {
+    /// With `held`, the call is sent only while the agent still holds that control generation.
+    private func run(_ recipe: SiteRecipe, origins: [WebOrigin], _ values: [String: Any], while held: UInt64? = nil) async -> Ran {
         guard !ended, let session, let world = await world() else { return .notRun }
         var arguments = values
         arguments["origins"] = origins.map(\.serialized)
-        guard Set(arguments.keys) == Set(recipe.parameters), !ended else { return .notRun }
+        guard Set(arguments.keys) == Set(recipe.parameters), !ended, held.map(holds) ?? true else { return .notRun }
         let call: CDPParameters = [
             "functionDeclaration": recipe.declaration, "executionContextId": world,
             "arguments": recipe.parameters.map { ["value": arguments[$0]!] }, "returnByValue": true, "awaitPromise": false,

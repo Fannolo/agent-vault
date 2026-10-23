@@ -320,4 +320,43 @@ extension RealBrowserTests {
             #expect(observed(await h.observe(session))?.text.contains("delete clicked") == false)
         }
     }
+
+    /// Finding 3: a takeover while a login or observation is suspended fences what resumes.
+    @Test func takeoverWhileALoginOrObservationIsSuspendedFencesIt() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            // Taken over and released at once: the mode is the agent's again, the generation is not.
+            for point in [SiteSession.Checkpoint.loginDocument, .loginFilled] {
+                let (session, _) = await h.open()
+                at(point, of: session) {
+                    _ = await h.service.perform(.siteTakeover(session: session))
+                    _ = await h.service.perform(.siteRelease(session: session))
+                }
+                let reply = await h.login(session)
+                #expect(reply == .rejected(.staleTarget), "\(point): \(reply)")
+                #expect(h.posts.filter { $0.path == "/session" }.isEmpty, "\(point): submitted under a later control epoch")
+                await h.service.end(session)
+            }
+            // Taken over and kept: nothing is filled or submitted while the person has control.
+            let (kept, _) = await h.open()
+            at(.loginDocument, of: kept) { _ = await h.service.perform(.siteTakeover(session: kept)) }
+            #expect(await h.login(kept) == .rejected(.humanControl))
+            #expect(h.posts.filter { $0.path == "/session" }.isEmpty)
+
+            let (session, _) = await h.open()
+            at(.observed, of: session) { _ = await h.service.perform(.siteTakeover(session: session)) }
+            let seen = try #require(observed(await h.observe(session)))
+            #expect(seen.mode == .human)
+            #expect(seen.elements.isEmpty && seen.text.isEmpty && seen.title.isEmpty, "contents released during human control")
+
+            // Untargeted input and navigation are fenced the same way.
+            _ = await h.service.perform(.siteRelease(session: session))
+            at(.beforeInput, of: session) { _ = await h.service.perform(.siteTakeover(session: session)) }
+            #expect(await h.operate(session, .navigate(h.url("/home"))) == .rejected(.humanControl))
+            #expect(!h.site.trusted.requests.contains { $0.path == "/home" }, "the navigation was sent")
+            _ = await h.service.perform(.siteRelease(session: session))
+            at(.beforeInput, of: session) { _ = await h.service.perform(.siteTakeover(session: session)) }
+            #expect(await h.operate(session, .press(.enter)) == .rejected(.humanControl))
+        }
+    }
 }
