@@ -63,12 +63,29 @@ one of 192 tests: `unwrittenRepliesKeepTheirServiceCapacity` failed its recovery
 asynchronous writer cleanup. A private macOS experiment with a one-second writer-cleanup
 delay reproduces this failure mode. A bounded recovery wait passes with the delay
 and still fails when reply completion never releases capacity. Production socket code is
-unchanged by this test correction; the corrected Linux CI run remains pending.
+unchanged by this test correction. Corrected head `5dbc4dd` passed all three CI jobs in
+run [39892014230](https://github.com/Fannolo/agent-vault/actions/runs/39892014230): Linux
+reported 55 codec tests, 7 secret-buffer tests and 192 root tests passing. PR #14 merged
+as `cfcd221`. This proves portability and synthetic socket behavior, not installed custody.
 
 The Linux MCP bridge now builds with portable bounded stdio and the kernel-authenticated
 read socket client. It retains the same four tools and fixed installed configuration. The
 broker exits `custody_unavailable` until vault key custody exists. Dedicated accounts,
 systemd units and an installed host remain unproven.
+
+Password-ready storage design now selects one SQLite authority, signature-excluding body
+identities, an independently retained pending/stable pin and one journaled credential-use
+path. Both design candidates chose SQLite over immutable files with a manifest. The first
+executable unit is an isolated committed, canonically padded record codec; it remains blocked
+from every root product. The complete AWS 0x0478 inner profile and custom outer signature/HPKE
+binding passed focused design analysis, with explicit dependence on independently trusted
+writer authority. The closed GitHub token tag and common pinned Ed25519 verifier profile
+now have design acceptance. Actual effective signature outcomes on both platforms must
+still be measured before format freeze. Source implementation, AWS reference decryption
+and cross-platform byte exchange remain pending. The collection
+protocol still must resolve at least 4,096-item capacity and append-only lifetime quotas;
+the draft 512-item snapshot limit is not accepted as the final product limit. Neither a
+database MAC nor paths for custody establish protection against whole-machine rollback.
 
 The user authorized completion of private website login and continuing browser operation,
 native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
