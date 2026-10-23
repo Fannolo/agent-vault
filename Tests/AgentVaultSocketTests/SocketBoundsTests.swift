@@ -117,4 +117,110 @@ import Glibc
         }
         #expect(admitted == 1)
     }
+
+    // MARK: Reply backlog
+
+    @Test func repliesHoldWorkCapacityUntilTheyAreWritten() async throws {
+        let events = Events()
+        // The largest valid read reply: few fit in a socket buffer, so the writer soon stalls.
+        let many = (0..<128).map { _ in AccountSummary(id: UUID(), service: .demo) }
+        let handlers = stubHandlers(events, read: { _, _ in
+            events.record("read")
+            return ReadReply(.outcome(.completed), accounts: many)
+        })
+        var limits = IPCLimits.standard
+        limits.maxInFlightPerConnection = 2
+        try await withStack(handlers: handlers, limits: limits) { stack in
+            let raw = try await RawPeer(stack.configuration.read.path)
+            defer { raw.close() }
+            // The peer paces its reads so each could finish before the next, and never reads a reply.
+            let read = try WireCodec.encode(ReadRequest(operation: .accounts))
+            try await blocking {
+                for id in UInt32(1)...500 {
+                    guard SocketIO.writeAll(raw.fd, wake: -1, SocketFrame.request(id: id, opcode: .read, body: read),
+                                            deadline: .after(0.2)) else { break }
+                    Thread.sleep(forTimeInterval: 0.002)
+                }
+            }
+            // Through the stalled write's deadline and the close that follows it, only replies
+            // the kernel buffered plus the per-connection limit reached the broker.
+            let served = await events.await("read", times: 64, within: testTimeouts.write + 1)
+            #expect(!served, "\(events.count("read")) reads served to a peer that read no reply")
+        }
+    }
+
+    @Test func errorRepliesCountAgainstTheReplyBacklog() async throws {
+        try await withStack(handlers: stubHandlers()) { stack in
+            let raw = try await RawPeer(stack.configuration.read.path)
+            defer { raw.close() }
+            // Malformed requests of the largest admitted size, whose error replies are never read.
+            let junk = SocketFrame.request(id: 9, opcode: .read,
+                                           body: Data(repeating: UInt8(ascii: "x"), count: IPCLimits.standard.maxRequestBytes))
+            let written = try await blocking { () -> Int in
+                let window = Deadline.after(1)
+                var written = 0
+                while written < 64 << 20, window.pollTimeout != nil,
+                      SocketIO.writeAll(raw.fd, wake: -1, junk, deadline: .after(0.2)) {
+                    written += junk.count
+                }
+                return written
+            }
+            #expect(written < 32 << 20, "the server read \(written) bytes from a peer that read no reply")
+        }
+    }
+
+    /// A read that runs until cancelled, then large replies that stall the writer and fill the
+    /// backlog, so the reader is held waiting for the writer.
+    private func stallBehindABlockedRead(_ stack: Stack, _ events: Events) async throws -> RawPeer {
+        let raw = try await RawPeer(stack.configuration.read.path)
+        let run = try WireCodec.encode(ReadRequest(operation: .run, accountID: UUID(), action: .demoStatus))
+        let read = try WireCodec.encode(ReadRequest(operation: .accounts))
+        #expect(await raw.request(id: 1, .read, run))
+        #expect(await events.await("run started"))
+        try await blocking {
+            for id in UInt32(2)...200 {
+                guard SocketIO.writeAll(raw.fd, wake: -1, SocketFrame.request(id: id, opcode: .read, body: read),
+                                        deadline: .after(0.2)) else { break }
+            }
+        }
+        return raw
+    }
+
+    private func stallHandlers(_ events: Events) -> BrokerHandlers {
+        let many = (0..<128).map { _ in AccountSummary(id: UUID(), service: .demo) }
+        return stubHandlers(events, read: { _, request in
+            guard request.operation == .run else { return ReadReply(.outcome(.completed), accounts: many) }
+            events.record("run started")
+            await withTaskCancellationHandler { try? await Task.sleep(for: .seconds(30)) } onCancel: { events.record("run cancelled") }
+            return ReadReply(.outcome(.completed), accounts: [])
+        })
+    }
+
+    @Test func aDisconnectStillCancelsReadsWhileTheReaderWaitsForTheWriter() async throws {
+        let events = Events()
+        var limits = IPCLimits.standard
+        limits.maxInFlightPerConnection = 2
+        try await withStack(handlers: stallHandlers(events), limits: limits) { stack in
+            let raw = try await stallBehindABlockedRead(stack, events)
+            let closed = Date()
+            raw.close()
+            // Well before the stalled write's own deadline.
+            #expect(await events.await("run cancelled", within: testTimeouts.write * 0.5))
+            #expect(Date().timeIntervalSince(closed) < testTimeouts.write * 0.5)
+        }
+    }
+
+    @Test func stopIsPromptWhileTheReaderWaitsForTheWriter() async throws {
+        let events = Events()
+        var limits = IPCLimits.standard
+        limits.maxInFlightPerConnection = 2
+        let stack = try Stack(handlers: stallHandlers(events), limits: limits)
+        let raw = try await stallBehindABlockedRead(stack, events)
+        defer { raw.close() }
+        let server = stack.server
+        let stopped = await finishes(within: testTimeouts.write * 0.5) { await server.stop() }
+        #expect(stopped, "stop must not wait for a stalled reply write's deadline")
+        #expect(events.count("run cancelled") == 1)
+        await stack.shutdown()
+    }
 }

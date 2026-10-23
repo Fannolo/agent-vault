@@ -281,6 +281,13 @@ Capacity and lifetime:
 
 - Connection, per-connection and per-service limits are the `IPCLimits` values used by XPC,
   with the same separate admin and continuation lanes. Excess connections are closed.
+- Every reply, including `busy` and other error replies, counts against a per-connection
+  backlog of `maxInFlightPerConnection` from the moment it is queued until it is written or
+  dropped. A handler keeps its connection and service capacity for the same span. While the
+  backlog is full the server reads no further request from that connection. A peer that
+  stops reading its replies therefore stops being served, and the first reply write that
+  misses its deadline closes the connection; requests it had sent but the server had not
+  read get no reply, and the client reports `timeout` or `connection_failed` for them.
 - A read handler is cancelled when its connection ends. Admin handlers run to completion;
   their reply is dropped if the connection is gone, and the client reports `timeout` or
   `connection_failed` for an unknown outcome. Nothing retries a mutation.

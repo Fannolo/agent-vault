@@ -195,6 +195,11 @@ final class SocketLanes: Sendable {
 /// One accepted connection. Its descriptor is used by the reader thread until that thread exits,
 /// and otherwise only on `writer`; `writer` alone closes it, so a late reply can never reach a
 /// reused descriptor.
+///
+/// Every reply, error replies included, counts against a backlog from the moment it is queued
+/// until it is written or dropped, and a handler's work capacity is held just as long. While the
+/// backlog is full the reader takes no further frame, so a peer that does not read its replies
+/// stops being served; the first write that misses its deadline ends the connection.
 final class ServerConnection: @unchecked Sendable {
     private let fd: Int32
     private let role: SocketRole
@@ -213,6 +218,10 @@ final class ServerConnection: @unchecked Sendable {
     private let lock = NSLock()
     private var inFlight: Set<UInt32> = []
     private var closed = false   // writer-confined
+    private let backlog = NSCondition()
+    private let replyLimit: Int
+    private var queued = 0         // guarded by `backlog`
+    private var writable = true    // guarded by `backlog`; false once a reply write failed
     let finished = Completion()
 
     init(fd: Int32, role: SocketRole, uid: UInt32, limits: IPCLimits, timeouts: SocketTimeouts, lanes: SocketLanes,
@@ -221,6 +230,7 @@ final class ServerConnection: @unchecked Sendable {
         self.lanes = lanes; self.handlers = handlers; self.tracker = tracker; self.wake = wake
         identity = role == .admin ? AdminConnection(uid: uid) : nil
         connectionWork = Gate(limit: limits.maxInFlightPerConnection)
+        replyLimit = max(1, limits.maxInFlightPerConnection)
     }
 
     func run(released: @escaping @Sendable () -> Void) {
@@ -236,7 +246,8 @@ final class ServerConnection: @unchecked Sendable {
             switch SocketIO.readFrame(fd, wake: wake, headerSize: SocketFrame.requestHeader, maxBody: limits.maxRequestBytes,
                                       timeout: timeouts.frame) {
             case .success(.complete(let header, let body)):
-                guard dispatch(id: SocketFrame.number(header, at: 4), opcode: header[8], body: Data(body)) else { return }
+                guard awaitReplyRoom(),
+                      dispatch(id: SocketFrame.number(header, at: 4), opcode: header[8], body: Data(body)) else { return }
             case .success(.oversized(let header)):
                 // The stream cannot be resynchronized without reading the body; answer and close.
                 send(id: SocketFrame.number(header, at: 4), WireCodec.errorReply(.requestTooLarge))
@@ -310,22 +321,39 @@ final class ServerConnection: @unchecked Sendable {
         let registry = self.work, key = cancellable ? registry.reserve() : nil
         let task = Task { [self] in
             let data = await work(input)
-            connection.release(); service.release()
             if let key { registry.complete(key) }
             lock.withLock { _ = inFlight.remove(id) }
-            send(id: id, data)
+            send(id: id, data) { connection.release(); service.release() }
             tracker.leave()
         }
         if let key, !registry.register(key, task) { task.cancel() }
         return true
     }
 
-    private func send(id: UInt32, _ body: Data) {
+    /// Queues one reply on the backlog; `then` runs once it is written or dropped.
+    private func send(id: UInt32, _ body: Data, then: @escaping @Sendable () -> Void = {}) {
         let frame = SocketFrame.reply(id: id, body: body), deadline = Deadline.after(timeouts.write)
+        backlog.withLock { queued += 1 }
         writer.async { [self] in
-            guard !closed else { return }
-            if !SocketIO.writeAll(fd, wake: wake, frame, deadline: deadline) { _ = av_socket_shutdown(fd) }
+            let written = !closed && SocketIO.writeAll(fd, wake: wake, frame, deadline: deadline)
+            if !written && !closed { _ = av_socket_shutdown(fd) }
+            backlog.withLock {
+                queued -= 1
+                if !written { writable = false }
+                backlog.broadcast()
+            }
+            then()
         }
+    }
+
+    /// Holds the reader while the backlog is full. Each queued write ends by its deadline or at
+    /// stop, and fails at once on a closed peer, so this wait cannot outlast any of them.
+    /// Returns `false` once a write has failed: the connection takes no further request.
+    private func awaitReplyRoom() -> Bool {
+        backlog.lock()
+        defer { backlog.unlock() }
+        while writable && queued >= replyLimit { backlog.wait() }
+        return writable
     }
 
     /// Runs on the reader thread after it stops using the descriptor.
