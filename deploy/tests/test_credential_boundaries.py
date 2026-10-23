@@ -2,12 +2,16 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("credential_boundaries", ROOT / "scripts/credential_boundaries.py")
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
+api_spec = importlib.util.spec_from_file_location("credential_api", ROOT / "scripts/verify-credential-api.py")
+api = importlib.util.module_from_spec(api_spec)
+api_spec.loader.exec_module(api)
 
 
 class CredentialBoundaryTests(unittest.TestCase):
@@ -64,6 +68,26 @@ class CredentialBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "credential_storage_dependency_forbidden"):
             guard.check_credentials(self.root, {}, [{"name": "AgentVaultBridge", "type": "executable",
                                                      "product_dependencies": ["VaultSecret"]}])
+
+
+class CredentialAPITimeoutTests(unittest.TestCase):
+    def test_build_timeout_never_typechecks_stale_modules(self):
+        with mock.patch.object(api.owned, "run_owned", return_value=(None, "")) as run:
+            with self.assertRaisesRegex(SystemExit, "credential_api_build_failed"):
+                api.main()
+            self.assertEqual(run.call_count, 1)
+
+    def test_build_path_timeout_refuses_a_stale_path(self):
+        with mock.patch.object(api.owned, "run_owned", side_effect=[(0, ""), (None, "/tmp/stale")]) as run:
+            with self.assertRaisesRegex(SystemExit, "credential_api_build_path_unavailable"):
+                api.main()
+            self.assertEqual(run.call_count, 2)
+
+    def test_timed_out_typecheck_cannot_satisfy_a_negative_probe(self):
+        self.assertFalse(api.probe_passes(None, "expected diagnostic", "expected diagnostic"))
+        self.assertFalse(api.probe_passes(None, "", None))
+        self.assertTrue(api.probe_passes(0, "", None))
+        self.assertTrue(api.probe_passes(1, "expected diagnostic", "expected diagnostic"))
 
 
 if __name__ == "__main__":
