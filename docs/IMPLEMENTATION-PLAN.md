@@ -78,12 +78,34 @@ using a debug-only checkpoint seam for the races, and then fixed:
 - observe/takeover/release could answer `failed`, which the wire contract refused. observe may
   now fail; takeover and release always report the change of control.
 
+A second independent source review (34ceaa9) found three more defects. Each was reproduced
+against 34ceaa9 behaviour on new hostile fixture pages, then fixed:
+
+- The login fill fires input and change events, and a page listener can submit the form. A
+  submission whose response replaced the page returned `rejected(staleTarget)`; a fill that
+  threw after the page had submitted returned `rejected(unsupportedLogin)`. Only refusals from
+  before the first value is set now mean nothing was done. After the fill, a login answers
+  with an observation or `siteUnknown`, including a takeover after the fill. If the page sent
+  the form itself, the host does not send it again and reports where that led.
+- After a takeover interrupted a login, the login cleared the host-filled password field with
+  no control check, erasing what the person typed after the takeover was acknowledged. The
+  login now clears only while it holds control. A handover (takeover, or a one-time-code page)
+  clears a pending fill before it answers, and the host does not touch the field after that.
+- Observation, typing and selection read an element's own `disabled`, which stays false
+  inside a disabled fieldset or for an option in a disabled optgroup. They now use the
+  effective `:disabled` state, so such controls are not offered and no event fires.
+
 Remaining limits noticed while fixing, from source reading and not reproduced: a document
 response near the 8 MiB document cap can exceed the 8 MiB pipe message cap once escaped or
 base64-encoded in `Fetch.getResponseBody`, which would end the browser (shared with fixed
 workflows, not changed here); named keys still go to whatever element the page focused; a
 credential-origin page's own script can read the filled password and send it to a navigation
-origin, except non-read-only requests during the pre-submission window.
+origin, except non-read-only requests during the pre-submission window. Control checks run in
+the session actor just before a recipe call is sent. The call then leaves the actor, so a
+takeover can, in principle, answer before an already-checked call reaches the renderer. No
+test reproduces that window. A page timer that submits the filled form between the host's
+check and its own submit can produce a second login POST to the credential origin; the login
+still answers with an observation or `siteUnknown`.
 
 Limits: `HostPolicy.production.sites` is empty, and neither Core, the host link nor MCP can
 send site commands. The operation journal is volatile host memory, bounded per session and
