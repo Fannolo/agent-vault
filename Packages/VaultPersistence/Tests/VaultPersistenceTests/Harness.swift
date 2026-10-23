@@ -55,6 +55,13 @@ final class Sandbox {
 
     func pinRecord() throws -> PinRecord { try TestOnlyFileCustodyPin.load(directory: pinDirectory) }
 
+    func pinnedImage() throws -> PinnedImage {
+        switch try pinRecord() {
+        case .stable(let image), .enrolling(let image): return image
+        default: throw POSIXError(.EINVAL)
+        }
+    }
+
     func entries() -> Set<String> { Set((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []) }
 
     func exists(_ path: String) -> Bool {
@@ -95,4 +102,9 @@ func failure<T>(_ body: () throws -> T) -> PersistenceError? {
         }
         return known
     }
+}
+
+/// Synthetic mismatch for tests that deliberately fabricate a custody record.
+func testImage(_ head: Head, byte: UInt8 = 0xee) -> PinnedImage {
+    PinnedImage(head: head, image: ImageID(bytes: [UInt8](repeating: byte, count: 32))!)
 }

@@ -61,13 +61,14 @@ import Glibc
     let box = try Sandbox()
     _ = try box.create()
     let original = box.bytes(box.database)
-    var latest: Head
+    var latest: PinnedImage
     do {
         let kernel = try box.open()
         _ = try kernel.commit(expecting: kernel.head, next: Synthetic.state(seed: 2), adding: [SignedObject(bytes: [7])])
-        latest = try kernel.commit(expecting: kernel.head, next: Synthetic.state(seed: 1), adding: [])
+        _ = try kernel.commit(expecting: kernel.head, next: Synthetic.state(seed: 1), adding: [])
+        latest = try box.pinnedImage()
     }
-    let future = Head(generation: 3, state: Synthetic.state(seed: 2).id)
+    let future = testImage(Head(generation: 3, state: Synthetic.state(seed: 2).id))
     box.overwrite(box.database, original)
     for record: PinRecord in [.pending(stable: latest, next: future),
                               .pending(stable: future, next: latest)] {
@@ -80,20 +81,26 @@ import Glibc
 
 @Test func pinSerializationBindsGenerationAndRejectsLegacy() throws {
     let box = try Sandbox()
+    _ = try box.create()
     let state = Synthetic.state(seed: 1).id
-    let a = Head(generation: 0, state: state)
-    let b = Head(generation: 0x0102030405060708, state: state)
+    let a = testImage(Head(generation: 0, state: state), byte: 0x11)
+    let b = testImage(Head(generation: 0x0102030405060708, state: state), byte: 0x22)
     for record: PinRecord in [.unenrolled, .enrolling(a), .stable(b), .pending(stable: a, next: b)] {
         try TestOnlyFileCustodyPin.overwrite(directory: box.pinDirectory, with: record)
         #expect(try box.pinRecord() == record, "NAMED: pin full-head round trip")
     }
     let raw = box.bytes(box.pinDirectory + "/pin")
-    #expect(raw.count == 121 && Array(raw.prefix(8)) == Array("AVTPIN02".utf8))
-    #expect(Array(raw[49..<57]) == [1, 2, 3, 4, 5, 6, 7, 8], "NAMED: pin encodes all generation bytes")
-    #expect(Array(raw[17..<49]) == Array(raw[57..<89]), "NAMED: reused frame retains same opaque hash")
-    let legacy = Array("AVTPIN01".utf8) + [2] + state.bytes + [UInt8](repeating: 0, count: 32)
-    box.overwrite(box.pinDirectory + "/pin", legacy + Array(SHA256.hash(data: legacy)))
-    #expect(throws: TestOnlyFileCustodyPin.Failure.self) { try box.pinRecord() }
+    #expect(raw.count == 185 && Array(raw.prefix(8)) == Array("AVTPIN03".utf8))
+    #expect(Array(raw[81..<89]) == [1, 2, 3, 4, 5, 6, 7, 8], "NAMED: pin encodes all generation bytes")
+    #expect(Array(raw[17..<49]) == Array(raw[89..<121]), "NAMED: reused frame retains same opaque hash")
+    #expect(Array(raw[49..<81]) != Array(raw[121..<153]), "NAMED: pin retains complete image commitment")
+    for version in ["AVTPIN01", "AVTPIN02"] {
+        let head = version == "AVTPIN01" ? state.bytes : [UInt8](repeating: 0, count: 8) + state.bytes
+        let legacy = Array(version.utf8) + [2] + head + [UInt8](repeating: 0, count: head.count)
+        box.overwrite(box.pinDirectory + "/pin", legacy + Array(SHA256.hash(data: legacy)))
+        #expect(throws: TestOnlyFileCustodyPin.Failure.self) { try box.pinRecord() }
+        #expect(failure { try box.open() } == .locked(.custodyUnavailable), "NAMED: legacy pin cannot open")
+    }
 }
 
 @Test func unavailableACLInspectionFailsClosed() throws {

@@ -156,7 +156,7 @@ final class SQLiteConnection {
     }
 
     /// Verifies the whole image against its own digests, totals and bounds.
-    func loadImage(limits: KernelLimits) throws(PersistenceError) -> (HeadRow, SealedState) {
+    func loadImage(limits: KernelLimits) throws(PersistenceError) -> (HeadRow, SealedState, PinnedImage) {
         guard try integer("PRAGMA application_id", .read) == Self.applicationID,
               try integer("PRAGMA user_version", .read) == 1 else { throw .locked(.schemaMismatch) }
         let schema = try Statement(self, "SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY name", .read)
@@ -185,13 +185,28 @@ final class SQLiteConnection {
         }
         guard row.objectCount <= limits.maxObjectCount, row.objectBytes <= limits.maxTotalObjectBytes,
               totals.integer(2) <= Int64(limits.maxObjectBytes) else { throw .locked(.exceedsLimits) }
-        let objects = try Statement(self, "SELECT digest, bytes FROM objects", .read)
+        var identity = ImageHasher()
+        identity.integer(UInt64(Self.applicationID))
+        identity.integer(1) // exact validated schema/user version
+        identity.integer(row.head.generation)
+        identity.blob(state.frame)
+        identity.bytes(state.id.bytes)
+        identity.integer(UInt64(row.objectCount))
+        identity.integer(UInt64(row.objectBytes))
+        let objects = try Statement(self, "SELECT digest, generation, bytes FROM objects ORDER BY digest", .read)
         while try objects.step() {
-            guard ObjectDigest(digestOf: objects.blob(1)).bytes == objects.blob(0) else {
+            let digest = objects.blob(0)
+            let bytes = objects.blob(2)
+            guard ObjectDigest(digestOf: bytes).bytes == digest else {
                 throw .locked(.objectCorrupt)
             }
+            guard let admission = UInt64(exactly: objects.integer(1)),
+                  admission > 0, admission <= row.head.generation else { throw .locked(.inventoryMismatch) }
+            identity.bytes(digest)
+            identity.integer(admission)
+            identity.integer(UInt64(bytes.count))
         }
-        return (row, state)
+        return (row, state, PinnedImage(head: row.head, image: identity.finish()))
     }
 
     func readHead() throws(PersistenceError) -> HeadRow {
@@ -336,4 +351,25 @@ private final class Statement {
         guard let value = sqlite3_column_text(pointer, column) else { return nil }
         return String(cString: value)
     }
+}
+
+/// Canonical logical image encoding. Fixed-width integers are big-endian; variable
+/// frame bytes are length-framed. Inventory is ordered by verified BLOB digest.
+private struct ImageHasher {
+    private var hash = SHA256()
+
+    init() { hash.update(data: Array("AgentVault/VaultPersistence/Image/v1\0".utf8)) }
+
+    mutating func integer(_ value: UInt64) {
+        bytes((0..<8).reversed().map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) })
+    }
+
+    mutating func bytes(_ value: [UInt8]) { hash.update(data: value) }
+
+    mutating func blob(_ value: [UInt8]) {
+        integer(UInt64(value.count))
+        bytes(value)
+    }
+
+    mutating func finish() -> ImageID { ImageID(bytes: Array(hash.finalize()))! }
 }

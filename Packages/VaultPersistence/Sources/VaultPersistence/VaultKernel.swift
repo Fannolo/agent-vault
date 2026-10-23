@@ -23,17 +23,19 @@ public final class VaultKernel {
     public private(set) var head: Head
 
     private var row: HeadRow
+    private var image: PinnedImage
     private var current: SealedState
     private var blocked: AmbiguousStep?
     private let lease: ProcessLease
     private let database: SQLiteConnection
     private let custody: any VaultCustodyPin
 
-    private init(limits: KernelLimits, settings: SQLiteSettings, row: HeadRow, current: SealedState,
+    private init(limits: KernelLimits, settings: SQLiteSettings, row: HeadRow, current: SealedState, image: PinnedImage,
                  lease: ProcessLease, database: SQLiteConnection, custody: any VaultCustodyPin) {
         self.limits = limits
         self.settings = settings
         self.row = row
+        self.image = image
         head = row.head
         self.current = current
         self.lease = lease
@@ -61,13 +63,15 @@ public final class VaultKernel {
         try PrivateFiles.syncDirectory(root)
         let settings = try database.configure(limits: limits)
         try database.beginImmediate()
+        let row: HeadRow
+        let first: PinnedImage
         do throws(PersistenceError) {
             try database.createSchema(initial: initial)
+            (row, _, first) = try database.loadImage(limits: limits)
         } catch {
             _ = database.rollbackIfOpen()
             throw error
         }
-        let first = Head(generation: 0, state: initial.id)
         do { try custody.beginEnrollment(first) } catch {
             _ = database.rollbackIfOpen()
             throw .recoveryRequired(.custodyPrepare)
@@ -77,8 +81,7 @@ public final class VaultKernel {
             throw .recoveryRequired(.databaseCommit)
         }
         do { try custody.finish(first) } catch { throw .recoveryRequired(.custodyFinish) }
-        let row = HeadRow(head: first, objectCount: 0, objectBytes: 0)
-        return VaultKernel(limits: limits, settings: settings, row: row, current: initial,
+        return VaultKernel(limits: limits, settings: settings, row: row, current: initial, image: first,
                            lease: lease, database: database, custody: custody)
     }
 
@@ -98,8 +101,7 @@ public final class VaultKernel {
         }
         let database = try SQLiteConnection.open(path: paths.database, mode: .existing)
         let settings = try database.configure(limits: limits)
-        let (row, state) = try database.loadImage(limits: limits)
-        let found = row.head
+        let (row, state, found) = try database.loadImage(limits: limits)
         switch record {
         case .stable(let pinned) where pinned == found:
             break
@@ -112,7 +114,7 @@ public final class VaultKernel {
         default:
             throw .locked(.pinMismatch)
         }
-        return VaultKernel(limits: limits, settings: settings, row: row, current: state,
+        return VaultKernel(limits: limits, settings: settings, row: row, current: state, image: found,
                            lease: lease, database: database, custody: custody)
     }
 
@@ -167,9 +169,11 @@ public final class VaultKernel {
             throw .recoveryRequired(.databaseWrite)
         }
         let staged: HeadRow
+        let stagedImage: PinnedImage
         do throws(PersistenceError) {
             guard lease.stillNamesLockedInode() else { throw .locked(.leaseReplaced) }
-            guard try database.readHead() == row else { throw .locked(.databaseChangedOutsideOwner) }
+            let (verifiedRow, _, verifiedImage) = try database.loadImage(limits: limits)
+            guard verifiedRow == row, verifiedImage == image else { throw .locked(.databaseChangedOutsideOwner) }
             var added = [SignedObject]()
             for object in batch {
                 switch try database.storedObject(object.digest) {
@@ -185,6 +189,7 @@ public final class VaultKernel {
             for object in added { try database.insert(object, generation: generation) }
             staged = HeadRow(head: Head(generation: generation, state: next.id), objectCount: count, objectBytes: bytes)
             try database.replaceHead(from: row, to: staged, state: next)
+            (_, _, stagedImage) = try database.loadImage(limits: limits)
         } catch {
             let rolledBack = database.rollbackIfOpen()
             if case .locked = error { blocked = .integrity }
@@ -193,7 +198,7 @@ public final class VaultKernel {
             if let blocked, blocked != .integrity { throw .recoveryRequired(blocked) }
             throw error
         }
-        do { try custody.prepare(from: head, to: staged.head) } catch {
+        do { try custody.prepare(from: image, to: stagedImage) } catch {
             blocked = .custodyPrepare
             _ = database.rollbackIfOpen()
             throw .recoveryRequired(.custodyPrepare)
@@ -203,11 +208,12 @@ public final class VaultKernel {
             _ = database.rollbackIfOpen()
             throw .recoveryRequired(.databaseCommit)
         }
-        do { try custody.finish(staged.head) } catch {
+        do { try custody.finish(stagedImage) } catch {
             blocked = .custodyFinish
             throw .recoveryRequired(.custodyFinish)
         }
         row = staged
+        image = stagedImage
         head = staged.head
         current = next
         return head

@@ -26,8 +26,8 @@ public final class TestOnlyFileCustodyPin: VaultCustodyPin {
     }
 
     public static let fileName = "pin"
-    static let magic = Array("AVTPIN02".utf8)
-    static let encodedLength = 8 + 1 + 40 + 40 + 32
+    static let magic = Array("AVTPIN03".utf8)
+    static let encodedLength = 8 + 1 + 72 + 72 + 32
 
     private let directory: String
     public var crashAt: CrashPoint?
@@ -75,12 +75,12 @@ public final class TestOnlyFileCustodyPin: VaultCustodyPin {
 
     public func read() throws -> PinRecord { try Self.load(directory: directory) }
 
-    public func beginEnrollment(_ first: Head) throws {
+    public func beginEnrollment(_ first: PinnedImage) throws {
         guard try read() == .unenrolled else { throw Failure(code: "enroll-precondition") }
         try Self.write(.enrolling(first), directory: directory)
     }
 
-    public func prepare(from: Head, to: Head) throws {
+    public func prepare(from: PinnedImage, to: PinnedImage) throws {
         crash(.beforePrepare)
         guard try read() == .stable(from) else { throw Failure(code: "prepare-precondition") }
         if fault == .prepareBeforeWrite { throw Failure(code: "injected") }
@@ -89,7 +89,7 @@ public final class TestOnlyFileCustodyPin: VaultCustodyPin {
         crash(.afterPrepare)
     }
 
-    public func finish(_ next: Head) throws {
+    public func finish(_ next: PinnedImage) throws {
         crash(.beforeFinish)
         switch try read() {
         case .enrolling(next), .pending(_, next): break
@@ -101,7 +101,7 @@ public final class TestOnlyFileCustodyPin: VaultCustodyPin {
         crash(.afterFinish)
     }
 
-    public func abort(retaining: Head) throws {
+    public func abort(retaining: PinnedImage) throws {
         guard case .pending(retaining, _) = try read() else { throw Failure(code: "abort-precondition") }
         try Self.write(.stable(retaining), directory: directory)
     }
@@ -112,17 +112,17 @@ public final class TestOnlyFileCustodyPin: VaultCustodyPin {
         while true { pause() }
     }
 
-    private static func encodeHead(_ head: Head) -> [UInt8] {
-        (0..<8).reversed().map { UInt8(truncatingIfNeeded: head.generation >> ($0 * 8)) } + head.state.bytes
+    private static func encodeImage(_ head: PinnedImage) -> [UInt8] {
+        (0..<8).reversed().map { UInt8(truncatingIfNeeded: head.head.generation >> ($0 * 8)) } + head.head.state.bytes + head.image.bytes
     }
 
     static func encode(_ record: PinRecord) -> [UInt8] {
-        let zero = [UInt8](repeating: 0, count: 40)
+        let zero = [UInt8](repeating: 0, count: 72)
         let (tag, first, second): (UInt8, [UInt8], [UInt8]) = switch record {
         case .unenrolled: (0, zero, zero)
-        case .enrolling(let head): (1, zero, encodeHead(head))
-        case .stable(let head): (2, encodeHead(head), zero)
-        case .pending(let stable, let next): (3, encodeHead(stable), encodeHead(next))
+        case .enrolling(let head): (1, zero, encodeImage(head))
+        case .stable(let head): (2, encodeImage(head), zero)
+        case .pending(let stable, let next): (3, encodeImage(stable), encodeImage(next))
         }
         let body = magic + [tag] + first + second
         return body + Array(SHA256.hash(data: body))
@@ -135,16 +135,17 @@ public final class TestOnlyFileCustodyPin: VaultCustodyPin {
               Array(SHA256.hash(data: body)) == Array(bytes.suffix(32)) else {
             throw Failure(code: "corrupt")
         }
-        func head(_ start: Int) -> Head {
+        func head(_ start: Int) -> PinnedImage {
             let generation = body[start..<(start + 8)].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
-            return Head(generation: generation, state: StateID(bytes: Array(body[(start + 8)..<(start + 40)]))!)
+            return PinnedImage(head: Head(generation: generation, state: StateID(bytes: Array(body[(start + 8)..<(start + 40)]))!),
+                               image: ImageID(bytes: Array(body[(start + 40)..<(start + 72)]))!)
         }
-        let first = head(9), second = head(49)
-        let zero = [UInt8](repeating: 0, count: 40)
+        let first = head(9), second = head(81)
+        let zero = [UInt8](repeating: 0, count: 72)
         switch body[8] {
-        case 0 where Array(body[9..<89]) == zero + zero: return .unenrolled
-        case 1 where Array(body[9..<49]) == zero: return .enrolling(second)
-        case 2 where Array(body[49..<89]) == zero: return .stable(first)
+        case 0 where Array(body[9..<153]) == zero + zero: return .unenrolled
+        case 1 where Array(body[9..<81]) == zero: return .enrolling(second)
+        case 2 where Array(body[81..<153]) == zero: return .stable(first)
         case 3: return .pending(stable: first, next: second)
         default: throw Failure(code: "corrupt")
         }

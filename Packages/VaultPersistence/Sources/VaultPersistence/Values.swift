@@ -57,8 +57,8 @@ public struct SignedObject: Sendable, Equatable {
     }
 }
 
-/// A kernel commit identity: generation plus opaque frame hash. A caller must name the
-/// last acknowledged head to replace it; custody also uses this type for pending commits.
+/// Caller-visible expected state: generation plus exact opaque frame hash. This is not
+/// the custody identity: aborted attempts may reuse a Head with different objects.
 public struct Head: Hashable, Sendable {
     public let generation: UInt64
     public let state: StateID
@@ -66,6 +66,29 @@ public struct Head: Hashable, Sendable {
     public init(generation: UInt64, state: StateID) {
         self.generation = generation
         self.state = state
+    }
+}
+
+/// Collision-resistant identity of one verified complete logical kernel image.
+/// Used by the custody port; it is neither cryptographic authority nor an attempt ID.
+public struct ImageID: Hashable, Sendable {
+    public let bytes: [UInt8]
+
+    public init?(bytes: [UInt8]) {
+        guard bytes.count == 32 else { return nil }
+        self.bytes = bytes
+    }
+}
+
+/// Custody binds both the caller-visible head and the entire immutable inventory.
+/// Equal complete images can have equal identities after an abandoned attempt.
+public struct PinnedImage: Hashable, Sendable {
+    public let head: Head
+    public let image: ImageID
+
+    public init(head: Head, image: ImageID) {
+        self.head = head
+        self.image = image
     }
 }
 

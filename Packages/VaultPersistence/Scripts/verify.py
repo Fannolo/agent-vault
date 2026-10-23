@@ -54,17 +54,34 @@ def image(root):
 
 def pin(directory):
     raw = (directory / 'pin').read_bytes()
-    check(len(raw) == 121 and raw[:8] == b'AVTPIN02' and digest(raw[:-32]) == raw[-32:], 'pin artifact checksum/version')
-    def head(offset):
-        return struct.unpack('>Q', raw[offset:offset + 8])[0], raw[offset + 8:offset + 40]
-    return raw[8], head(9), head(49)
+    check(len(raw) == 185 and raw[:8] == b'AVTPIN03' and digest(raw[:-32]) == raw[-32:], 'pin artifact checksum/version')
+    def entry(offset):
+        return (struct.unpack('>Q', raw[offset:offset + 8])[0], raw[offset + 8:offset + 40],
+                raw[offset + 40:offset + 72])
+    return raw[8], entry(9), entry(81)
 
 
-def commit_id(seed, generation):
-    return generation, digest(opaque('state', seed))
+def logical_identity(head, objects):
+    # Independent canonical encoder over actual/expected logical rows, not kernel output.
+    generation, state_id, frame, count, size = head
+    u64 = lambda n: struct.pack('>Q', n)
+    data = b'AgentVault/VaultPersistence/Image/v1\0'
+    data += u64(0x41565031) + u64(1) + u64(generation)
+    data += u64(len(frame)) + frame + state_id + u64(count) + u64(size)
+    for address, (admission, value) in sorted(objects.items()):
+        check(digest(value) == address, 'independent object digest')
+        data += address + u64(admission) + u64(len(value))
+    return generation, state_id, digest(data)
 
 
-ZERO_HEAD = (0, bytes(32))
+def commit_id(seed, generation, objects=None):
+    objects = objects or {}
+    frame = opaque('state', seed)
+    return logical_identity((generation, digest(frame), frame, len(objects),
+                             sum(len(value) for _, value in objects.values())), objects)
+
+
+ZERO_IMAGE = (0, bytes(32), bytes(32))
 
 
 def source_hashes():
@@ -160,10 +177,14 @@ class Proof:
         _, out = self.invoke(root, custody, 'commit', cut, '20', '3', '4096', '10', expected=-signal.SIGKILL)
         new = cut in ['afterDatabaseCommit', 'afterStablePin', 'afterReturn']
         check(('ACK 2 ' in out) == (cut == 'afterReturn'), 'ack only after stable pin')
-        old_id, new_id = commit_id(11, 1), commit_id(20, 2)
-        expected_pin = ((2, old_id, ZERO_HEAD) if cut == 'beforePending' else
+        new_objects = dict(before_objects)
+        for i in range(3):
+            obj = opaque(f'object-{i}', 20, 4096)
+            new_objects[digest(obj)] = (2, obj)
+        old_id, new_id = commit_id(11, 1, before_objects), commit_id(20, 2, new_objects)
+        expected_pin = ((2, old_id, ZERO_IMAGE) if cut == 'beforePending' else
                         (3, old_id, new_id) if cut in ['afterPending', 'afterDatabaseCommit'] else
-                        (2, new_id, ZERO_HEAD))
+                        (2, new_id, ZERO_IMAGE))
         check(pin(custody) == expected_pin, 'pin artifact at ' + cut)
         frozen = self.freeze(root, custody, cut)
         journal = root / 'vault.sqlite-journal'
@@ -180,7 +201,7 @@ class Proof:
         check(head[:3] == (2 if new else 1, digest(state), state), 'atomic state row at ' + cut)
         check(objects == expected_objects, 'atomic object set at ' + cut)
         check(head[3:] == (len(objects), sum(len(row[1]) for row in objects.values())), 'atomic inventory totals')
-        check(pin(custody) == (2, (head[0], digest(state)), ZERO_HEAD), 'restart pin stable')
+        check(pin(custody) == (2, logical_identity(head, objects), ZERO_IMAGE), 'restart pin stable')
         names = set(x.name for x in root.iterdir())
         check(names <= {'lease', 'vault.sqlite', 'vault.sqlite-journal'}, 'no unexpected temp file')
         if journal.exists():
@@ -190,7 +211,7 @@ class Proof:
         (self.evidence / f'crash-{cut}.json').write_text(json.dumps({
             'generation': head[0], 'state_sha256': head[1].hex(),
             'objects': {d.hex(): {'generation': g, 'length': len(b), 'sha256': digest(b).hex()}
-                        for d, (g, b) in objects.items()}, 'pin_at_death': [expected_pin[0], *[{'generation': g, 'state_sha256': h.hex()} for g, h in expected_pin[1:]]],
+                        for d, (g, b) in objects.items()}, 'pin_at_death': [expected_pin[0], *[{'generation': g, 'state_sha256': h.hex(), 'image_sha256': identity.hex()} for g, h, identity in expected_pin[1:]]],
             'frozen_before_recovery': frozen,
             'exact_frame_and_object_bytes_compared': True}, indent=2))
 
@@ -200,13 +221,63 @@ class Proof:
         check('LIMIT ' in out and 'FAILED recoveryRequired(databaseCommit)' in out, 'real EFBIG failure')
         check('ACK' not in out, 'failed write never acknowledged')
         check('SECOND recoveryRequired(databaseCommit)' in out, 'write failure blocks admission')
-        check(pin(custody) == (3, commit_id(1, 0), commit_id(40, 1)), 'write failure leaves pending')
+        obj = opaque('object-0', 40, 512 * 1024)
+        check(pin(custody) == (3, commit_id(1, 0), commit_id(40, 1, {digest(obj): (1, obj)})), 'write failure leaves pending')
         self.freeze(root, custody, 'EFBIG')
         self.invoke(root, custody, 'info')
         head, objects = image(root)
         check(head[:3] == (0, digest(opaque('state', 1)), opaque('state', 1)) and not objects,
               'failed write retains exact old image')
-        check(pin(custody) == (2, (head[0], head[1]), ZERO_HEAD), 'write failure restart aborts pending')
+        check(pin(custody) == (2, logical_identity(head, objects), ZERO_IMAGE), 'write failure restart aborts pending')
+
+    def abandoned_retry(self, mode, same_totals):
+        base = Path(tempfile.mkdtemp(prefix='tiny-', dir=self.evidence)).resolve()
+        root, custody = base / 'vault', base / 'custody'
+        root.mkdir(mode=0o700)
+        custody.mkdir(mode=0o700)
+        label = mode + ('-same-totals' if same_totals else '-missing-X')
+        self.invoke(root, custody, 'tiny-create')
+        lease_inode = (root / 'lease').stat().st_ino
+        d0 = (root / 'vault.sqlite').read_bytes()
+        self.freeze(root, custody, label + '-D0')
+        _, out = self.invoke(root, custody, 'tiny-commit', 'afterDatabaseCommit', 'B',
+                             'Y' if same_totals else 'none', expected=-signal.SIGKILL)
+        check('ACK' not in out, 'abandoned attempt never acknowledged')
+        d1 = (root / 'vault.sqlite').read_bytes()
+        self.freeze(root, custody, label + '-D1')
+        abandoned = pin(custody)
+        check(abandoned[0] == 3, 'abandoned pin pending')
+        (root / 'vault.sqlite').write_bytes(d0)  # owner is dead; preserve inode/mode
+        self.invoke(root, custody, 'info')
+        check(pin(custody) == (2, abandoned[1], ZERO_IMAGE), 'D0 legitimately aborts pending')
+        cut = 'afterDatabaseCommit' if mode == 'pending-finish' else 'none'
+        _, out = self.invoke(root, custody, 'tiny-commit', cut, 'B', 'X',
+                             expected=-signal.SIGKILL if mode == 'pending-finish' else 0)
+        check(('ACK 1 ' in out) == (mode != 'pending-finish'), 'retry ACK boundary')
+        head, objects = image(root)
+        check(head[:3] == (1, digest(b'B'), b'B') and objects == {digest(b'X'): (1, b'X')},
+              'exact tiny retry image')
+        committed_id = logical_identity(head, objects)
+        check(abandoned[2][:2] == committed_id[:2] and abandoned[2][2] != committed_id[2],
+              'same Head different whole image')
+        if mode == 'pending-abort':
+            self.invoke(root, custody, 'tiny-commit', 'prepareFault', 'C', 'none', expected=5)
+        self.freeze(root, custody, label + '-retry')
+        expected_pin = pin(custody)
+        check(expected_pin[2 if mode == 'pending-finish' else 1] == committed_id, 'custody binds X')
+        check(not (root / 'vault.sqlite-journal').exists(), 'tiny restore has no hot journal')
+        (root / 'vault.sqlite').write_bytes(d1)
+        self.freeze(root, custody, label + '-restored-before-open')
+        _, out = self.invoke(root, custody, 'info', expected=4)
+        check('LOCKED locked(pinMismatch)' in out, 'replayed D1 refuses acknowledged object loss')
+        check(pin(custody) == expected_pin and (root / 'lease').stat().st_ino == lease_inode,
+              'mismatch preserves custody and lease')
+        check((root / 'vault.sqlite').read_bytes() == d1, 'mismatch preserves replayed DB')
+        (self.evidence / ('tiny-' + label + '.json')).write_text(json.dumps({
+            'mode': mode, 'same_totals': same_totals, 'real_SIGKILL_after_SQL_COMMIT': True,
+            'lease_inode_preserved': True, 'custody_never_restored': True, 'no_SQL_state_forgery': True,
+            'old_image': abandoned[2][2].hex(), 'retry_image': committed_id[2].hex(),
+            'retry_acknowledged': mode != 'pending-finish', 'result': 'locked(pinMismatch)'}, indent=2))
 
     def controls(self):
         lease = PACKAGE / 'Sources/VaultPersistence/PrivateFiles.swift'
@@ -217,21 +288,39 @@ class Proof:
              'guard true else {', None, 'exactly one lease holder'),
             ('create-fallback', sql, 'throw .locked(.missingDatabase)',
              'try PrivateFiles.createExclusive(path); throw .locked(.missingDatabase)', 'missingDatabaseWithEnrolledPinLocksWithoutCreating', 'NAMED: no database autocreated'),
-            ('premature-ack', kernel, 'do { try custody.finish(staged.head) } catch {',
+            ('premature-ack', kernel, 'do { try custody.finish(stagedImage) } catch {',
              'do { /* defective control: acknowledge without stable pin */ } catch {',
              'pinFailuresNeverAcknowledge', 'NAMED: pin failure never acknowledged'),
             ('frame-only-stable-match', kernel, 'where pinned == found:',
-             'where pinned.state == found.state:', 'reusedFrameCannotHideAcknowledgedObjects',
+             'where pinned.head.state == found.head.state:', 'reusedFrameCannotHideAcknowledgedObjects',
              'NAMED: reused frame cannot hide acknowledged objects'),
             ('frame-only-pending-match', kernel, 'where next == found:',
-             'where next.state == found.state:', 'pendingCannotMatchOnlyFrameHash',
+             'where next.head.state == found.head.state:', 'pendingCannotMatchOnlyFrameHash',
              'NAMED: pending compares generation and frame hash'),
             ('frame-only-pending-abort', kernel, 'where stable == found:',
-             'where stable.state == found.state:', 'pendingCannotMatchOnlyFrameHash',
+             'where stable.head.state == found.head.state:', 'pendingCannotMatchOnlyFrameHash',
              'NAMED: pending compares generation and frame hash'),
+            ('head-only-stable-match', kernel, 'where pinned == found:',
+             'where pinned.head == found.head:', 'wholeImageStableRejectsAbandonedInventory',
+             'NAMED: stable compares whole inventory'),
+            ('head-only-pending-finish', kernel, 'where next == found:',
+             'where next.head == found.head:', 'wholeImagePendingFinishRejectsAbandonedInventory',
+             'NAMED: pending finish compares whole inventory'),
+            ('head-only-pending-abort', kernel, 'where stable == found:',
+             'where stable.head == found.head:', 'wholeImagePendingAbortRejectsAbandonedInventory',
+             'NAMED: pending abort compares whole inventory'),
+            ('omit-object-digest-binding', sql, 'identity.bytes(digest)',
+             '/* defective control: inventory totals alone */', 'wholeImageStableRejectsAbandonedInventory',
+             'NAMED: stable compares whole inventory'),
+            ('omit-admission-generation-binding', sql, 'identity.integer(admission)',
+             '/* defective control: omit admission metadata */', 'wholeImageBindsObjectAdmissionGeneration',
+             'NAMED: custody rejects admission metadata substitution'),
+            ('omit-old-image-recheck', kernel, 'verifiedRow == row, verifiedImage == image',
+             'verifiedRow == row', 'liveInventorySubstitutionCannotBeAcknowledged',
+             'NAMED: commit verifies previous whole image'),
             ('omit-read-corruption-latch', kernel, 'if case .locked = error { blocked = .integrity }',
              '/* defective control: read integrity error leaves admission open */',
-             'sqliteObjectReadCorruptionBlocksOwner', 'NAMED: caught SQLite corruption cannot acknowledge'),
+             'sqliteObjectReadCorruptionBlocksOwner', 'NAMED: caught SQLite corruption blocks state'),
             ('omit-acl-check', lease, 'switch av_check_acl(descriptor, role == .ancestor ? 1 : 0) {',
              'switch Int32(0) {', 'darwinPrivateACLsRejected',
              'NAMED: private boundary rejects native extended ACL'),
@@ -299,6 +388,10 @@ def main():
         proof.crash(cut)
         print('PASS crash ' + cut, flush=True)
     proof.io_failure()
+    for mode in ['stable', 'pending-finish', 'pending-abort']:
+        for same_totals in [False, True]:
+            proof.abandoned_retry(mode, same_totals)
+            print('PASS abandoned retry ' + mode + ' same_totals=' + str(same_totals), flush=True)
     if args.controls:
         proof.controls()
     proof.unit()
@@ -317,7 +410,7 @@ def main():
             continue
         shutil.copyfile(binary, binary_dir / binary.name)
         (binary_dir / binary.name).chmod(0o700)
-    (evidence / 'PASS').write_text('Native unit, owned five crash cuts, lease race, EFBIG'
+    (evidence / 'PASS').write_text('Native unit, owned five crash cuts, lease race, EFBIG, six whole-image replay cases'
                                  + (' and restored omission controls' if args.controls else '') + '\n')
     # Includes retained fixture images, frozen death-time bytes, executables and logs.
     manifest = {str(p.relative_to(evidence)): digest(p.read_bytes()).hex()

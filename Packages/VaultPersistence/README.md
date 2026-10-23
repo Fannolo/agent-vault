@@ -7,7 +7,8 @@ head maps, grants, effect dispatch, sync or a password store.
 
 A future trusted repository validates the cryptography, complete admitted inventory and
 history before calling this kernel. The kernel hashes exact frames/objects and checks its
-SQL inventory totals; those checks alone cannot authenticate a replacement inventory.
+SQL inventory totals; custody binds the verified complete logical image. These local checks
+do not validate signatures, authorized membership or history.
 `SignedObject` is an opaque byte container, not a verified-authority capability.
 
 ## Ownership and calling contract
@@ -35,25 +36,39 @@ make each compare-and-set atomic and durable before returning. The store cannot 
 that promise or make the adapter non-rollback. There are no keys or raw-secret getters.
 Paths are trusted installation inputs, never agent-supplied destinations.
 
-`StateID` remains SHA-256 of the exact opaque frame. The pin identity is the full kernel
-`Head(generation, state)`, not that hash alone. Every adapter must store and compare both
-fields. Reusing an earlier frame creates a distinct commit identity and cannot make an old
-DB match a current stable or pending pin. This is a local commit identity, not signed
-history or crypto authority. The test-only pin format is `AVTPIN02`; old hash-only
-`AVTPIN01` records are rejected. No deployed-format migration is implemented.
+`StateID` remains SHA-256 of the exact opaque frame. Public `Head(generation, state)` is
+an expected-state token for callers; it can repeat after an abandoned pending attempt.
+Custody stores `PinnedImage(head, image: ImageID)`, binding the complete verified logical
+SQLite image. `ImageID` uses domain-separated SHA-256 over fixed big-endian UInt64
+application/schema version and head generation, length-framed exact frame, StateID,
+inventory count/bytes, then every object's digest, admission generation and length in
+BLOB-digest order. Every object's exact bytes are rehashed before inclusion. The schema
+is verified exactly; physical page layout, rowids, freelists, journal bytes, configurable
+limits and platform settings are not logical image identity.
+
+Aborting pending recovery can reuse a generation. Two different inventories with the
+same public Head still have different image identities, subject to SHA-256 collision
+resistance. An identical complete image can compare equal across retries; this is image
+identity, not unique attempt identity, authenticated history or crypto authority. No
+caller-only frame uniqueness contract, random nonce or larger counter is assumed.
+Adapters must store and compare every PinnedImage field. The undeployed test pin breaks
+explicitly to `AVTPIN03`; both `AVTPIN01` and `AVTPIN02` are refused. No deployed-format
+migration is implemented.
 
 ## Transaction and recovery
 
 A commit checks the expected generation, begins `IMMEDIATE`, verifies lease identity and
-current head, inserts new objects and replaces the exact state in one transaction. It
-persists pending `(old,new)`, commits SQLite, finishes stable `new`, then returns. Exact
+the complete current image against the cached custody identity, inserts new objects and
+replaces the exact state in one transaction. It re-verifies and computes the staged image,
+persists pending `(old image,new image)`, commits SQLite, finishes stable `new image`,
+then returns. A same-frame commit is refused, including when adding objects. Exact
 object duplicates are idempotent; conflicting stored bytes and digest substitution fail
 closed. Deterministic limit/stale-head refusals preserve state. SQLite write, commit or
 custody uncertainty blocks the current instance until reopen; no success is guessed.
 SQLite object-read corruption also latches integrity failure before propagating the error;
 catching that error cannot enable later state/object reads or state-only acknowledgment.
 
-| Retained pin | Database state | Ordinary open |
+| Retained pin | Verified complete database image | Ordinary open |
 | --- | --- | --- |
 | Stable X | X | Open |
 | Pending old/new | new | Finish pin, then open |
@@ -125,7 +140,10 @@ OS, SDK where applicable, compiler, SQLite header/runtime/source IDs, library im
 compile options and actual settings. Do not infer Linux results from macOS builds.
 
 Proof includes missing/corrupt enrolled files and pins, unsafe paths/modes/link counts,
-lease replacement, third/stable rollback mismatch, pending resolution, table/state/object
+lease replacement, original repeated-frame rollback, abort/retry replay across stable and
+both pending branches (including equal-count/equal-size digest substitutions), identical
+complete-image retry, duplicate order/admission metadata, pre-commit whole-image recheck,
+third/stable rollback mismatch, pending resolution, table/state/object
 and inventory tamper, duplicate/digest conflicts, capacity refusal and custody failures.
 Separate processes cover a four-way lease race and five cuts: before pending, after
 pending, after DB commit, after stable pin, after return. The runner decodes actual pin
@@ -133,7 +151,10 @@ artifacts and compares every recovered state/object byte and inventory total to 
 or new fixtures. Before recovery it freezes raw DB, journal (when present) and pin bytes
 under private permissions. The evidence manifest hashes these frozen bytes, retained
 fixture images, test/probe executables and logs; subsequent commits cannot erase the
-archived death-time image. Synthetic bytes are **not encrypted** and contain no real credentials.
+archived death-time image. Six tiny A/B/X/Y scenarios also use real SIGKILL after SQL
+COMMIT, raw DB copies and unchanged lease/custody; they freeze D0, D1, retry and the
+restored image before rejection. Independent Python encoding checks the whole-image pins
+against actual or exact expected rows. Synthetic bytes are **not encrypted** and contain no real credentials.
 
 RLIMIT_FSIZE induces a real EFBIG write failure during commit. Pin adapter tests include before/after persistence failures and a real failing
 `fsync(-1)` (EBADF) seam. The latter is deliberately test-only, not a disk-fsync failure.
@@ -141,6 +162,8 @@ Compiled controls omit flock, create a missing DB on ordinary open, and acknowle
 without finishing the stable pin. Focused controls compare only frame hashes on stable,
 pending-finish and pending-abort recovery, omit the read-corruption latch, skip private
 ACL checks, and skip ancestor ACL checks (the native ACL controls run on Darwin).
+Additional controls compare only full Heads in each restart branch, omit object digest or
+admission generation from image binding, and omit the pre-commit whole-image recheck.
 Each builds successfully, fails its named assertion, restores exact source bytes, builds
 again and passes its target. Full tests run again after controls.
 

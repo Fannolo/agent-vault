@@ -52,6 +52,32 @@ case "create":
     emit("CREATED \(kernel.head.state)")
     exit(0)
 
+case "tiny-create":
+    try TestOnlyFileCustodyPin.provision(directory: pinDirectory)
+    let kernel = try VaultKernel.create(root: root, initial: SealedState(frame: [0x41]), custody: pin)
+    emit("CREATED \(kernel.head.state)")
+    exit(0)
+
+case "tiny-commit":
+    // Fixed synthetic counterexample vocabulary. Never a production/public interface.
+    guard arguments.count == 7,
+          ["none", "afterDatabaseCommit", "prepareFault"].contains(arguments[4]),
+          ["B", "C"].contains(arguments[5]), ["none", "X", "Y"].contains(arguments[6]) else { exit(64) }
+    let kernel = openKernel()
+    let frame = SealedState(frame: arguments[5] == "B" ? [0x42] : [0x43])
+    let objects: [SignedObject] = arguments[6] == "none" ? []
+        : [SignedObject(bytes: arguments[6] == "X" ? [0x58] : [0x59])]
+    if arguments[4] == "afterDatabaseCommit" { pin.crashAt = .beforeFinish }
+    if arguments[4] == "prepareFault" { pin.fault = .prepareAfterPersist }
+    do {
+        let head = try kernel.commit(expecting: kernel.head, next: frame, adding: objects)
+        emit("ACK \(head.generation) \(head.state)")
+        exit(0)
+    } catch {
+        emit("ERROR \(error)")
+        exit(5)
+    }
+
 case "hold":
     let kernel = openKernel()
     emit("OPEN \(kernel.head.generation)")

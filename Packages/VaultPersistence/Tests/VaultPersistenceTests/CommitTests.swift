@@ -28,7 +28,8 @@ func pinFailuresNeverAcknowledge(fault: TestOnlyFileCustodyPin.Fault) throws {
     let expected = reachedDatabase ? next : old
     let kernel = try box.open()
     #expect(kernel.head.state == expected.id, "NAMED: restart resolves the pin")
-    #expect(try box.pinRecord() == .stable(Head(generation: reachedDatabase ? 1 : 0, state: expected.id)), "NAMED: restart leaves a stable pin")
+    guard case .stable(let image) = try box.pinRecord() else { Issue.record("NAMED: restart leaves a stable pin"); return }
+    #expect(image.head == Head(generation: reachedDatabase ? 1 : 0, state: expected.id), "NAMED: restart leaves a stable pin")
     #expect(try RawDatabase.read(box.database).objects.count == (reachedDatabase ? 1 : 0), "NAMED: objects follow the state")
 }
 
@@ -50,7 +51,7 @@ func pinFailuresNeverAcknowledge(fault: TestOnlyFileCustodyPin.Fault) throws {
 
     // Substitute stored bytes underneath the open owner, then re-admit the honest object.
     try RawDatabase.execute(box.database, "UPDATE objects SET bytes = ?1 WHERE digest = ?2",
-                            blobs: [[0xee], objects[0].digest.bytes])
+                            blobs: [[UInt8](repeating: 0xee, count: 128), objects[0].digest.bytes])
     #expect(failure { try kernel.commit(expecting: head, next: Synthetic.state(seed: 4), adding: [objects[0]]) }
             == .locked(.objectCorrupt), "NAMED: substituted object refused")
     #expect(failure { try kernel.commit(expecting: head, next: Synthetic.state(seed: 4), adding: []) }
@@ -138,7 +139,8 @@ func pinFailuresNeverAcknowledge(fault: TestOnlyFileCustodyPin.Fault) throws {
         try VaultKernel.create(root: box.root, initial: Synthetic.state(seed: 1),
                                custody: box.pin(fault: .finishBeforeWrite))
     } == .recoveryRequired(.custodyFinish), "NAMED: incomplete enrollment never acknowledged")
-    #expect(try box.pinRecord() == .enrolling(Head(generation: 0, state: Synthetic.state(seed: 1).id)))
+    guard case .enrolling(let image) = try box.pinRecord() else { Issue.record("Missing enrolling image"); return }
+    #expect(image.head == Head(generation: 0, state: Synthetic.state(seed: 1).id))
     #expect(failure { try box.open() } == .locked(.incompleteEnrollment),
             "NAMED: ordinary open cannot complete enrollment")
     #expect(try RawDatabase.read(box.database).state == Synthetic.state(seed: 1).frame)
