@@ -80,4 +80,6 @@ jobs:
                 --force-resolved-versions --no-parallel --jobs 4
               swift test --package-path Packages/VaultSecret --scratch-path /build/secret \
                 --no-parallel --jobs 4
+              swift test --scratch-path /build/broker \
+                --force-resolved-versions --no-parallel --jobs 4
             '

@@ -1,6 +1,8 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
+let portableCrypto: Target.Dependency = .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))
+
 let package = Package(
     name: "AgentVault",
     platforms: [.macOS(.v14)],
@@ -11,6 +13,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "Packages/VaultSecret"),
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "5.0.3"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1"),
         .package(url: "https://github.com/apple/swift-log.git", exact: "1.16.1")
     ],
@@ -19,7 +22,7 @@ let package = Package(
         .target(name: "AgentVaultCredentials", dependencies: ["AgentVaultContracts", .product(name: "VaultSecret", package: "VaultSecret")]),
         .testTarget(name: "AgentVaultCredentialsTests", dependencies: ["AgentVaultCredentials", "AgentVaultContracts"]),
         .target(name: "AgentVaultJSON"),
-        .target(name: "AgentVaultApproval", dependencies: ["AgentVaultContracts"]),
+        .target(name: "AgentVaultApproval", dependencies: ["AgentVaultContracts", portableCrypto]),
         .testTarget(name: "AgentVaultApprovalTests", dependencies: ["AgentVaultApproval", "AgentVaultContracts"]),
         .target(name: "AgentVaultAppSupport", dependencies: ["AgentVaultContracts", "AgentVaultApproval", "AgentVaultIPC", "AgentVaultRuntime"],
                 linkerSettings: [.linkedFramework("Security"), .linkedFramework("LocalAuthentication"), .linkedFramework("SwiftUI"), .linkedFramework("AppKit")]),
@@ -33,11 +36,11 @@ let package = Package(
         .testTarget(name: "AgentVaultMCPTransportTests", dependencies: ["AgentVaultMCPTransport"]),
         .testTarget(name: "AgentVaultRuntimeTests", dependencies: ["AgentVaultRuntime"]),
         .testTarget(name: "AgentVaultMCPBridgeTests", dependencies: ["AgentVaultMCPBridge", "AgentVaultContracts", .product(name: "MCP", package: "swift-sdk")]),
-        .target(name: "AgentVaultCore", dependencies: ["AgentVaultCredentials", "AgentVaultContracts", "AgentVaultApproval", "AgentVaultJSON"], linkerSettings: [.linkedFramework("Security")]),
+        .target(name: "AgentVaultCore", dependencies: ["AgentVaultCredentials", "AgentVaultContracts", "AgentVaultApproval", "AgentVaultJSON", portableCrypto], linkerSettings: [.linkedFramework("Security", .when(platforms: [.macOS]))]),
         .executableTarget(name: "AgentVaultCLI", dependencies: [
             "AgentVaultCore", "AgentVaultContracts", .product(name: "MCP", package: "swift-sdk")
         ]),
-        .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCredentials", "AgentVaultCore", "AgentVaultContracts"]),
+        .testTarget(name: "AgentVaultCoreTests", dependencies: ["AgentVaultCredentials", "AgentVaultCore", "AgentVaultContracts", portableCrypto]),
         .testTarget(name: "AgentVaultParserFuzzTests", dependencies: [
             "AgentVaultIPC", "AgentVaultMCPTransport", "AgentVaultCore", "AgentVaultContracts", "AgentVaultWebHostProtocol"
         ], exclude: ["README.md"]),
@@ -75,3 +78,15 @@ let package = Package(
         ])
     ]
 )
+
+// Linux builds the same broker authority and metadata implementation. OS-specific stores,
+// transports and UI remain excluded until their native replacements are integrated.
+#if os(Linux)
+let portableTargets: Set<String> = [
+    "AgentVaultContracts", "AgentVaultCredentials", "AgentVaultCredentialsTests", "AgentVaultJSON",
+    "AgentVaultApproval", "AgentVaultApprovalTests", "AgentVaultCore", "AgentVaultCoreTests",
+]
+package.products = [.library(name: "AgentVaultCore", targets: ["AgentVaultCore"])]
+package.targets = package.targets.filter { portableTargets.contains($0.name) }
+package.targets.first { $0.name == "AgentVaultCore" }?.exclude = ["KeychainStore.swift", "PrivateKeychainStore.swift"]
+#endif

@@ -1,5 +1,9 @@
 import AgentVaultContracts
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// A signing digest for the operation metadata the human app can verify and display.
