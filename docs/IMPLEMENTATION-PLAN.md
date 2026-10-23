@@ -111,8 +111,16 @@ constructor refusal and zero-callback payload refusal pass. Callback documentati
 states that trusted callers may retain content. The 19 X25519 field-alias cases cover
 unaffected readers, not the selected holder; selected low-order coverage remains separate.
 The original 14 native removal controls are retained pre-fix evidence. Current-source
-review, independent Linux parity, reverse exchange and full-record mixed-order evidence
-remain pending; no format freeze or product approval is claimed. The collection
+review and native/Linux exchange were accepted for the isolated codec merged in PR #15;
+that acceptance did not freeze the format. Two additional complete-record fixtures now
+exercise a mixed-order author and mixed-order signature nonces. Independent affine and
+RFC 8032 arithmetic establish an accepted exact reduced-challenge equation and a rejected
+cofactored-only equation over the same authenticated body. Native worker evidence records
+60 tests with all exchange/reference cases enabled, exact payload callbacks for three
+holders in the accepted case, and `badSignature` with zero callbacks in the rejected case.
+Independent Linux execution of these new fixtures remains pending. This pair covers one
+author, two nonces and one login body; no general subgroup or enrollment claim follows.
+No format freeze or product approval is claimed. The collection
 protocol still must resolve at least 4,096-item capacity and append-only lifetime quotas;
 the draft 512-item snapshot limit is not accepted as the final product limit. Neither a
 database MAC nor paths for custody establish protection against whole-machine rollback.
