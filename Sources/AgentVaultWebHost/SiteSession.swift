@@ -51,6 +51,29 @@ actor SiteSession {
     private var operating = false
     private var ended = false
 
+    /// Named suspension points. Debug builds await a test hook there, so a test can interleave a
+    /// command at exactly that point; release builds do nothing.
+    enum Checkpoint: Sendable { case loginDocument, loginFilled, beforeInput, dispatched, observed }
+
+    #if DEBUG
+    typealias Hook = @Sendable (UUID, Checkpoint) async -> Void
+    final class Hooks: @unchecked Sendable {
+        private let lock = NSLock()
+        private var current: Hook?
+        var hook: Hook? {
+            get { lock.withLock { current } }
+            set { lock.withLock { current = newValue } }
+        }
+    }
+    static let hooks = Hooks()
+    #endif
+
+    private func pause(_ point: Checkpoint) async {
+        #if DEBUG
+        if let hook = Self.hooks.hook { await hook(id, point) }
+        #endif
+    }
+
     init(id: UUID, pipe: ChromiumPipe, router: EventRouter, policy: SitePolicy, epochs: DocumentEpochs, timing: WebRun.Timing) {
         self.id = id; self.pipe = pipe; self.router = router; self.policy = policy; self.epochs = epochs; self.timing = timing
     }
@@ -140,6 +163,7 @@ actor SiteSession {
         _ = network?.takeFailure()
         guard let (url, page) = await currentDocument(), let origin = WebOrigin(url: url),
               policy.credential.contains(origin) else { return .rejected(.credentialOrigin) }
+        await pause(.loginDocument)
         network?.phase = .login
         defer { restorePhase() }
         var fields: [String: Any] = [:]
@@ -155,6 +179,7 @@ actor SiteSession {
         default: return .rejected(.unsupportedLogin)
         }
         try? await Task.sleep(for: timing.settle)
+        await pause(.loginFilled)
         // Taken over, ended or replaced while filling: the form stays unsubmitted.
         guard !ended, mode == .agent, await currentDocument()?.document.epoch == page.epoch else {
             return .rejected(.staleTarget)
@@ -166,6 +191,7 @@ actor SiteSession {
         case .string?: return .rejected(.unsupportedLogin)
         default: return .siteUnknown
         }
+        await pause(.dispatched)
         await settle(loadedAfter: before)
         restorePhase()
         if let failure = network?.takeFailure() { return .failed(failure) }
@@ -251,6 +277,7 @@ actor SiteSession {
         guard case .object(let point)? = found, let x = point["x"]?.double, let y = point["y"]?.double else {
             return refusal(found)
         }
+        await pause(.beforeInput)
         let at: [String: Any] = ["x": x, "y": y, "button": "left", "clickCount": 1]
         return await dispatch(target, [(.inputDispatchMouseEvent, CDPParameters(at.merging(["type": "mousePressed"]) { $1 })),
                                        (.inputDispatchMouseEvent, CDPParameters(at.merging(["type": "mouseReleased"]) { $1 }))])
@@ -260,6 +287,7 @@ actor SiteSession {
         guard await current(target) else { return .rejected(.staleTarget) }
         let focused = await run(.focusText, origins: policy.navigation, ["index": target.element, "roles": [SiteRole.textField.rawValue]])
         guard case .string("ok")? = focused else { return refusal(focused) }
+        await pause(.beforeInput)
         // The field's text is selected, so typing replaces it; an empty text deletes it.
         return await dispatch(target, text.isEmpty ? Self.key(.delete) : [(.inputInsertText, ["text": text])])
     }
@@ -306,6 +334,7 @@ actor SiteSession {
             guard !ended, mode == .agent else { return .siteUnknown }
             guard (try? await pipe.call(method, params, session: session, timeout: 2)) != nil else { return .siteUnknown }
         }
+        await pause(.dispatched)
         await settle(loadedAfter: nil)
         return await outcome()
     }
@@ -333,6 +362,7 @@ actor SiteSession {
                 return .site(summary(page.epoch))
             }
             let value = await run(.observe, origins: policy.navigation, [:])
+            await pause(.observed)
             guard await currentDocument()?.document.epoch == page.epoch else { continue }
             guard case .object(let fields)? = value, let title = fields["title"]?.string,
                   let items = fields["elements"]?.array, let lines = fields["text"]?.array else { continue }

