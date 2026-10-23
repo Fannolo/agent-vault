@@ -125,6 +125,8 @@ func expectLogin(_ content: RecordContent, title: [UInt8], username: Username, p
     for invalid in ["http://example.invalid", "https://Example.invalid", "https://example.invalid/",
                     "https://example.invalid:443", "https://example.invalid:0443", "https://example.invalid:",
                     "https://user@example.invalid", "https://example.invalid.", "https://-a.example",
+                    "https://0x7f000001", "https://0x7f.1", "https://example.1",
+                    "https://example.0xff", "https://example.0x", "https://example.09",
                     "https://1.2.3.4", "https://[::1]", "https://example.invalid?x", "https://exa mple.invalid",
                     "https://example.invalid:65536", "https://" + String(repeating: "a", count: 64) + ".invalid"] {
         #expect(throws: RecordError.invalidContent, "\(invalid)") { _ = try CanonicalOrigin(invalid) }

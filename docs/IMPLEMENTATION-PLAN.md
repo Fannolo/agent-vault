@@ -81,8 +81,17 @@ from every root product. The complete AWS 0x0478 inner profile and custom outer 
 binding passed focused design analysis, with explicit dependence on independently trusted
 writer authority. The closed GitHub token tag and common pinned Ed25519 verifier profile
 now have design acceptance. Actual effective signature outcomes on both platforms must
-still be measured before format freeze. Source implementation, AWS reference decryption
-and cross-platform byte exchange remain pending. The collection
+still be measured before format freeze. The isolated implementation now has native evidence: 58 declarations pass with all
+three exchange/reference tests enabled; nine cases read the retained native fixture, and
+20 newly generated cases pass AWS reference decryption. Source review required rejecting
+WHATWG numeric-ending hosts in the DNS-only origin profile. Before the fix, six constructor
+cases and six authenticated payloads were accepted (18 recorded issues); after the fix,
+constructor refusal and zero-callback payload refusal pass. Callback documentation now
+states that trusted callers may retain content. The 19 X25519 field-alias cases cover
+unaffected readers, not the selected holder; selected low-order coverage remains separate.
+The original 14 native removal controls are retained pre-fix evidence. Current-source
+review, independent Linux parity, reverse exchange and full-record mixed-order evidence
+remain pending; no format freeze or product approval is claimed. The collection
 protocol still must resolve at least 4,096-item capacity and append-only lifetime quotas;
 the draft 512-item snapshot limit is not accepted as the final product limit. Neither a
 database MAC nor paths for custody establish protection against whole-machine rollback.

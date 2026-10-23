@@ -40,14 +40,15 @@ decryption.
 ```swift
 let sealed = try RecordSealer.seal(content, identity: identity, authority: authority, author: writerKey)
 let verified = try ParsedRecord(bytes).verify(under: authority, item: itemID, revision: revisionID)
-try verified.open(as: recipientKey) { content in /* borrowed; secrets are SecretBytes */ }
+try verified.open(as: recipientKey) { content in /* validated content; secrets are SecretBytes */ }
 ```
 
 The interface has no plaintext getter, no signing or verification oracle, no injectable DK
 or RNG, and no credential content hash. `open` calls its closure only after every check
 succeeds: signature, authority, exact recipient set, all X25519 keys (selected and
 unselected), HPKE, commitment, header tag, frame tag, padding and schema. Errors are fixed
-`RecordError` codes.
+`RecordError` codes. The callback is synchronous; callers may retain or return its
+content. Neither this API nor SPI confines the content to the callback lifetime.
 
 `SecretBytes` clears only its own allocation. Swift `Data` and arrays, the crypto libraries
 and callers can leave transient copies. This package does not claim to erase them.

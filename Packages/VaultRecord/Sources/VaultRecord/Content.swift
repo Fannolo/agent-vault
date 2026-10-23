@@ -62,7 +62,14 @@ public struct CanonicalOrigin: Hashable, Sendable, CustomStringConvertible {
     private static func isHost(_ host: [UInt8]) -> Bool {
         guard (1...253).contains(host.count) else { return false }
         let labels = host.split(separator: UInt8(ascii: "."), omittingEmptySubsequences: false)
-        guard !labels.allSatisfy({ $0.allSatisfy { (0x30...0x39).contains($0) } }) else { return false }
+        // WHATWG sends numeric-ending domains through IPv4 parsing. This DNS-only
+        // profile refuses them, including hexadecimal and invalid octal spellings.
+        guard let last = labels.last else { return false }
+        let decimal = !last.isEmpty && last.allSatisfy { (0x30...0x39).contains($0) }
+        let hexadecimal = last.starts(with: [0x30, 0x78]) && last.dropFirst(2).allSatisfy {
+            (0x30...0x39).contains($0) || (0x61...0x66).contains($0)
+        }
+        guard !decimal, !hexadecimal else { return false }
         return labels.allSatisfy { label in
             (1...63).contains(label.count) && label.first != UInt8(ascii: "-") && label.last != UInt8(ascii: "-")
                 && label.allSatisfy { (0x61...0x7a).contains($0) || (0x30...0x39).contains($0) || $0 == UInt8(ascii: "-") }

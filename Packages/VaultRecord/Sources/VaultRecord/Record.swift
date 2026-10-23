@@ -194,7 +194,7 @@ public struct ParsedRecord: Sendable {
 }
 
 /// Signed by the expected author for the expected vault, membership and recipient set.
-/// Content is reachable only inside `open`'s borrowed closure.
+/// `open` invokes a synchronous callback after validation. Callers may retain its content.
 public struct VerifiedRecord: Sendable {
     let parsed: ParsedRecord
     public let bodyID: RevisionBodyID

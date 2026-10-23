@@ -196,6 +196,15 @@ private func loginLogical(title: [UInt8] = [], usernameTag: UInt8 = 0, username:
     return writer.bytes
 }
 
+@Test func authenticatedBrowserNumericHostsAreRefused() throws {
+    let fixture = Fixture()
+    for origin in ["https://0x7f000001", "https://0x7f.1", "https://example.1",
+                   "https://example.0xff", "https://example.0x", "https://example.09"] {
+        let logical = loginLogical(origins: [Array(origin.utf8)])
+        expectOpenRefusal(.invalidPayload, fixture, try authenticatedPayload(fixture, logical))
+    }
+}
+
 @Test func authenticatedSchemaViolations() throws {
     let fixture = Fixture()
     let control = loginLogical()
