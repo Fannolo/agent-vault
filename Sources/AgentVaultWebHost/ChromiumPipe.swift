@@ -241,25 +241,46 @@ final class ChromiumPipe: @unchecked Sendable {
               timeout: TimeInterval = 10, admission: Admission? = nil) async throws(CDPError) -> JSONValue {
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<JSONValue, CDPError>, Never>) in
             guard admission?.queue() ?? true else { return continuation.resume(returning: .failure(.withdrawn)) }
-            let id: Int? = lock.withLock {
-                guard !closed else { return nil }
-                nextID += 1
-                pending[nextID] = continuation
-                return nextID
+            @Sendable func enqueue() {
+                let id: Int? = lock.withLock {
+                    guard !closed else { return nil }
+                    nextID += 1
+                    pending[nextID] = continuation
+                    return nextID
+                }
+                guard let id else { return continuation.resume(returning: .failure(.closed)) }
+                var message: [String: Any] = ["id": id, "method": method.rawValue, "params": params.fields]
+                if let session { message["sessionId"] = session }
+                guard var data = try? JSONSerialization.data(withJSONObject: message) else {
+                    return finish(id, .failure(.protocolError))
+                }
+                data.append(0)
+                let deadline = Date().addingTimeInterval(timeout)
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in self?.finish(id, .failure(.timeout)) }
+                writer.async { [weak self, data] in self?.send(data, id: id, until: deadline) }
             }
-            guard let id else { return continuation.resume(returning: .failure(.closed)) }
-            var message: [String: Any] = ["id": id, "method": method.rawValue, "params": params.fields]
-            if let session { message["sessionId"] = session }
-            guard var data = try? JSONSerialization.data(withJSONObject: message) else {
-                return finish(id, .failure(.protocolError))
-            }
-            data.append(0)
-            let deadline = Date().addingTimeInterval(timeout)
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak self] in self?.finish(id, .failure(.timeout)) }
-            writer.async { [weak self] in self?.send(data, id: id, until: deadline) }
+            #if DEBUG
+            if admission != nil, let hook = Self.queueing.take() { return hook(enqueue) }
+            #endif
+            enqueue()
         }
         return try result.get()
     }
+
+    #if DEBUG
+    /// Test seam: the next admitted call, once claimed for queueing and before the writer has it, is
+    /// handed to the hook, which decides when it goes on. Another thread can run there. Release builds
+    /// queue at once.
+    final class Queueing: @unchecked Sendable {
+        typealias Hook = @Sendable (_ proceed: @escaping @Sendable () -> Void) -> Void
+        private let lock = NSLock()
+        private var next: Hook?
+        func arm(_ hook: @escaping Hook) { lock.withLock { next = hook } }
+        func disarm() { lock.withLock { next = nil } }
+        fileprivate func take() -> Hook? { lock.withLock { defer { next = nil }; return next } }
+    }
+    static let queueing = Queueing()
+    #endif
 
     /// Ends the browser tree: closes the pipes and kills the whole process group, then reaps it.
     /// Bounded: it does not depend on CDP answering.

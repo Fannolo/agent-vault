@@ -35,6 +35,8 @@ public final class FixtureSite: @unchecked Sendable {
         case fillListenerSubmits               // the password field's input listener submits the form
         case fillListenerBreaksFill            // the username's input listener submits, then the fill throws
         case personEditsPassword               // stands in for a person typing a password (see `personTypes`)
+        case fillHangsPage                     // reports its password field like personEditsPassword; the host's fill
+                                               // makes it busy for 22 seconds, starting 300 ms later
     }
 
     public enum Profile: Sendable {
@@ -315,14 +317,19 @@ public final class FixtureSite: @unchecked Sendable {
                 <script>document.getElementById('login_field').addEventListener('input', (e) => {
                 e.target.form.requestSubmit(); document.getElementById('password').type = 'file' })</script>
                 """)
-        case .personEditsPassword:
+        case .personEditsPassword, .fillHangsPage:
+            let hang = loginPage == .fillHangsPage ? """
+                document.getElementById('password').addEventListener('input', () => setTimeout(() => {
+                const end = Date.now() + 22000; while (Date.now() < end) {} }, 300), { once: true });
+                """ : ""
             return page(body: loginForm() + """
                 <script>let typed = false; setInterval(() => {
                 const field = document.getElementById('password');
                 const state = field.value === '' ? 'empty' : field.value === 'typed-by-person' ? 'person' : 'other';
                 fetch('/person?state=' + state).then((r) => r.text()).then((t) => {
                 if (t === 'type' && !typed) { typed = true; field.value = 'typed-by-person' } });
-                }, 50)</script>
+                }, 50);
+                \(hang)</script>
                 """)
         case .workerAndBeacon:
             return page(body: loginForm() + """
