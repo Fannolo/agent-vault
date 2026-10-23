@@ -162,40 +162,56 @@ func finishes(within seconds: Double, _ operation: @escaping @Sendable () async 
     return finished
 }
 
-/// A hand-driven peer for malformed, partial and raw frames.
+/// A hand-driven peer for malformed, partial and raw frames. Every call that can block runs
+/// off the cooperative pool.
 final class RawPeer: @unchecked Sendable {
-    enum Read: Equatable { case reply(id: UInt32, body: Data), eof, timeout, broken }
+    /// `reset`: Linux reports a stream its peer closed with unread bytes as reset, not ended.
+    enum Read: Equatable { case reply(id: UInt32, body: Data), eof, reset, timeout, broken }
 
     let fd: Int32
     private let lock = NSLock()
     private var open = true
 
-    init(_ path: String) throws {
-        var inProgress: Int32 = 0
-        let fd = av_socket_connect(path, &inProgress)
-        guard fd >= 0 else { throw POSIXError(.ECONNREFUSED) }
-        if inProgress != 0 {
-            guard case .ready = SocketIO.wait(fd, wake: -1, events: Int32(AV_WAIT_WRITE), deadline: .after(2)),
-                  av_socket_connect_result(fd) == 0 else { closeDescriptor(fd); throw POSIXError(.ECONNREFUSED) }
+    init(_ path: String) async throws {
+        fd = try await blocking {
+            var inProgress: Int32 = 0
+            let fd = av_socket_connect(path, &inProgress)
+            guard fd >= 0 else { throw POSIXError(.ECONNREFUSED) }
+            if inProgress != 0 {
+                guard case .ready = SocketIO.wait(fd, wake: -1, events: Int32(AV_WAIT_WRITE), deadline: .after(2)),
+                      av_socket_connect_result(fd) == 0 else { closeDescriptor(fd); throw POSIXError(.ECONNREFUSED) }
+            }
+            return fd
         }
-        self.fd = fd
     }
 
     init(accepted fd: Int32) { self.fd = fd }
 
     @discardableResult
-    func send(_ data: Data) -> Bool { SocketIO.writeAll(fd, wake: -1, data, deadline: .after(2)) }
-
-    func request(id: UInt32, _ opcode: SocketFrame.Opcode, _ body: Data) -> Bool {
-        send(SocketFrame.request(id: id, opcode: opcode, body: body))
+    func send(_ data: Data) async -> Bool {
+        let fd = fd
+        return (try? await blocking { SocketIO.writeAll(fd, wake: -1, data, deadline: .after(2)) }) ?? false
     }
 
-    func read(within seconds: Double) -> Read {
+    func request(id: UInt32, _ opcode: SocketFrame.Opcode, _ body: Data) async -> Bool {
+        await send(SocketFrame.request(id: id, opcode: opcode, body: body))
+    }
+
+    func read(within seconds: Double) async -> Read {
+        let fd = fd
+        return (try? await blocking { Self.read(fd, within: seconds) }) ?? .broken
+    }
+
+    private static func read(_ fd: Int32, within seconds: Double) -> Read {
         switch SocketIO.wait(fd, wake: -1, events: Int32(AV_WAIT_READ), deadline: .after(seconds)) {
         case .expired: return .timeout
         case .woken, .failed: return .broken
         case .ready: break
         }
+        var byte: UInt8 = 0
+        let peeked = recv(fd, &byte, 1, Int32(MSG_PEEK))
+        if peeked == 0 { return .eof }
+        if peeked < 0 { return errno == ECONNRESET ? .reset : .broken }
         switch SocketIO.readFrame(fd, wake: -1, headerSize: SocketFrame.replyHeader, maxBody: 1 << 20, timeout: 2) {
         case .success(.complete(let header, let body)): return .reply(id: SocketFrame.number(header, at: 4), body: Data(body))
         case .success(.oversized): return .broken

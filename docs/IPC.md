@@ -258,6 +258,8 @@ Identity and framing:
 
 - The server reads the peer UID with `SO_PEERCRED` on Linux and `getpeereid` on macOS
   before it reads any byte, and closes a connection whose UID does not match its endpoint.
+  A refused peer sees the stream end. On Linux, a peer that already wrote bytes sees a reset
+  instead, because the server closes without reading them.
   Clients check the broker UID the same way before writing any byte. No request field
   names a UID or a connection. A small C target, `CAgentVaultSocket`, isolates these calls.
 - A request frame is `length:u32be | id:u32be | opcode:u8 | body`; a reply is
