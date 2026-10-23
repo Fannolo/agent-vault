@@ -53,6 +53,7 @@ final class CommandCounts: @unchecked Sendable {
         case .showHuman: name = "show"
         case .frame: name = "frame"
         case .input: name = "input"
+        case .openSite, .siteObserve, .siteLogin, .siteOperate, .siteTakeover, .siteRelease: name = "site"
         }
         lock.withLock { counts[name, default: 0] += 1 }
     }

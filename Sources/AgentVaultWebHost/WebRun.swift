@@ -33,7 +33,7 @@ actor WebRun {
     private var context: String?
     private var target: String?
     private var session: String?
-    private var network: RunNetwork?
+    private var network: RunNetwork<RequestGate>?
     private var step: UInt64 = 0
     private var latest: CaptureBinding?
     private var lastCapture = Date.distantPast
@@ -67,20 +67,23 @@ actor WebRun {
         // The page starts paused; it runs only after its gate is in place.
         guard let session = await router.claimSession(for: target), !ended else { throw CDPError.closed }
         self.session = session
-        let network = RunNetwork(gate: gate, mainFrame: target)
+        let network = RunNetwork(gate: gate, mainFrame: target, phase: .login)
         self.network = network
         router.register(session: session, network: network)
-        for (method, params) in [
-            (CDPMethod.fetchEnable, ["patterns": EventRouter.fetchPatterns] as CDPParameters),
-            (.pageEnable, [:]), (.networkEnable, [:]),
-            (.targetSetAutoAttach, ["autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true]),
-            (.emulationSetDeviceMetricsOverride, ["width": Self.viewport.width, "height": Self.viewport.height,
-                                                  "deviceScaleFactor": 1, "mobile": false]),
-        ] {
+        for (method, params) in Self.pageSetup {
             _ = try await pipe.call(method, params, session: session)
         }
         _ = try await pipe.call(.runtimeRunIfWaitingForDebugger, [:], session: session)
     }
+
+    /// Sent to every page this host creates while it is still paused: its gate, then its viewport.
+    static let pageSetup: [(CDPMethod, CDPParameters)] = [
+        (.fetchEnable, ["patterns": EventRouter.fetchPatterns]),
+        (.pageEnable, [:]), (.networkEnable, [:]),
+        (.targetSetAutoAttach, ["autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true]),
+        (.emulationSetDeviceMetricsOverride, ["width": viewport.width, "height": viewport.height,
+                                              "deviceScaleFactor": 1, "mobile": false]),
+    ]
 
     /// Disposes the context. Idempotent; returns whether the browser confirmed it.
     func dispose() async -> Bool {
@@ -297,7 +300,7 @@ actor WebRun {
         return nil
     }
 
-    private static let keys: [NamedKey: (String, String, Int, String?)] = [
+    static let keys: [NamedKey: (String, String, Int, String?)] = [
         .enter: ("Enter", "Enter", 13, "\r"), .tab: ("Tab", "Tab", 9, nil), .backspace: ("Backspace", "Backspace", 8, nil),
         .delete: ("Delete", "Delete", 46, nil), .escape: ("Escape", "Escape", 27, nil),
         .arrowLeft: ("ArrowLeft", "ArrowLeft", 37, nil), .arrowRight: ("ArrowRight", "ArrowRight", 39, nil),

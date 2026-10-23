@@ -502,6 +502,9 @@ extension HostRejection {
         case .busy: .busy
         case .unsupportedWorkflow: .unsupportedWorkflow
         case .duplicateRun, .notPaused, .staleStep, .captureUnavailable: .unexpectedPage
+        // Site-session refusals: the link never sends a site command, so a fixed run never gets one.
+        case .unsupportedSite, .staleTarget, .notPermitted, .humanControl, .operationConflict, .operationInFlight,
+             .credentialOrigin, .unsupportedLogin: .unexpectedPage
         }
     }
 }

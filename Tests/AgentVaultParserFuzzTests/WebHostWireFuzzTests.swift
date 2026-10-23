@@ -30,6 +30,10 @@ private func inspectCommand(_ data: Data, context: FuzzCase) throws -> Bool {
         try check(step >= 1 && frame >= 1 && (1...32).contains(batch.events.count), context, "input bounds")
         try check(batch.events.allSatisfy { $0.fits() }, context, "event bounds")
     case .classify, .end, .showHuman, .frame: break
+    case .openSite(_, _, let lifetime):
+        try check((1...HostCommand.maximumLifetime).contains(lifetime), context, "lifetime bound")
+    case .siteOperate(_, _, let command): try check(command.fits, context, "site command bounds")
+    case .siteObserve, .siteLogin, .siteTakeover, .siteRelease: break
     }
     let canonical = try HostWire.encode(request)
     guard let source = jsonObject(data), let result = jsonObject(canonical) else {
