@@ -94,6 +94,10 @@ private let page = SiteObservation(
         #expect(HostReply.site(page).answers(operate) && HostReply.siteUnknown.answers(operate))
         #expect(!HostReply.profile(profile).answers(operate) && !HostReply.accepted.answers(operate))
         #expect(!HostReply.siteUnknown.answers(.siteObserve(session: session)), "an observation has no effect to be unknown")
+        // An observation can fail; a change of control is always reported as an observation.
+        #expect(HostReply.failed(.rendererUnavailable).answers(.siteObserve(session: session)))
+        #expect(!HostReply.failed(.rendererUnavailable).answers(.siteTakeover(session: session)))
+        #expect(!HostReply.failed(.rendererUnavailable).answers(.siteRelease(session: session)))
         #expect(!HostReply.site(page).answers(.start(run: session, workflow: .browserDemo, credential: credential, lifetime: 5)))
         #expect(!HostReply.site(page).answers(.classify(run: session)))
     }

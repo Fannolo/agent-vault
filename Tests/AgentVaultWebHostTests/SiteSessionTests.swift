@@ -390,4 +390,23 @@ extension RealBrowserTests {
             #expect(h.site.notes.count == 2)
         }
     }
+
+    /// Finding 8: what the host answers on a page that never holds still is what the wire permits,
+    /// and a change of control is always reported, so `WebHostServer` never turns it into `unavailable`.
+    @Test func everySiteReplyTheHostProducesIsOneTheWireContractPermits() async throws {
+        try await Host.using { h in
+            let (session, _) = await h.open()
+            let operate = HostCommand.siteOperate(session: session, operation: UUID(), command: .navigate(h.url("/churn")))
+            let churn = await h.service.perform(operate)
+            #expect(churn.answers(operate) && churn == .siteUnknown, "\(churn)")
+            let seen = await h.observe(session)
+            #expect(seen.answers(.siteObserve(session: session)), "\(seen)")
+            let taken = await h.service.perform(.siteTakeover(session: session))
+            #expect(taken.answers(.siteTakeover(session: session)) && observed(taken)?.mode == .human, "\(taken)")
+            let released = await h.service.perform(.siteRelease(session: session))
+            #expect(released.answers(.siteRelease(session: session)), "\(released)")
+            let back = try #require(observed(released), "control returned, but the reply says otherwise")
+            #expect(back.mode == .agent && back.control > (observed(taken)?.control ?? 0))
+        }
+    }
 }

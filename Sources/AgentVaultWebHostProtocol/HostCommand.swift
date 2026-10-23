@@ -42,7 +42,9 @@ public enum HostCommand: Sendable, Equatable {
     case siteLogin(session: UUID, operation: UUID, credential: WebLoginCredential)
     /// `operation` deduplicates retries: the same ID with a different command is refused.
     case siteOperate(session: UUID, operation: UUID, command: SiteCommand)
-    /// A person takes control: agent observation and input are refused until release.
+    /// A person takes control: agent observation and input are refused until release. Takeover and
+    /// release answer an observation (at least the page's identity, mode and control epoch) or a
+    /// rejection made before control changed; never a failure that would hide the change.
     case siteTakeover(session: UUID)
     case siteRelease(session: UUID)
 
@@ -141,7 +143,7 @@ public enum HostReply: Sendable, Equatable {
              (.input, .accepted), (.input, .rejected),
              (.frame, .rejected),
              (.openSite, .site), (.openSite, .failed), (.openSite, .rejected),
-             (.siteObserve, .site), (.siteObserve, .rejected),
+             (.siteObserve, .site), (.siteObserve, .failed), (.siteObserve, .rejected),
              (.siteLogin, .site), (.siteLogin, .failed), (.siteLogin, .rejected), (.siteLogin, .siteUnknown),
              (.siteOperate, .site), (.siteOperate, .failed), (.siteOperate, .rejected), (.siteOperate, .siteUnknown),
              (.siteTakeover, .site), (.siteTakeover, .rejected), (.siteRelease, .site), (.siteRelease, .rejected):

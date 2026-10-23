@@ -205,19 +205,30 @@ actor SiteSession {
     /// A person takes control: agent observation and input stop, and every earlier target expires.
     func takeover() async -> HostReply {
         guard !ended else { return .rejected(.unknownRun) }
+        // Still opening: there is no page to hand over yet, and nothing changes.
+        guard document != nil else { return .rejected(.busy) }
         if mode == .agent { fence(.human) }
-        return await observation()
+        return await controlReply()
     }
 
     /// Control returns to the agent with a new control epoch: targets seen before release expire.
     func release() async -> HostReply {
         guard !ended else { return .rejected(.unknownRun) }
+        guard document != nil else { return .rejected(.busy) }
         if mode == .human {
             fence(.agent)
             // The person decided to return control; the page's state is reported, not enforced.
             if auth == .humanRequired || auth == .rejected { await judgeLogin(handOver: false) }
         }
-        return await observation()
+        return await controlReply()
+    }
+
+    /// Control may just have changed hands, so the reply always carries the mode and control epoch:
+    /// a page that cannot be read yields its last known identity instead of a failure.
+    private func controlReply() async -> HostReply {
+        let reply = await observation()
+        guard case .failed = reply, let page = document else { return reply }
+        return .site(summary(page.epoch))
     }
 
     /// Whether the agent still holds the control generation an operation began under. Takeover and
