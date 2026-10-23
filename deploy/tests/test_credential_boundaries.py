@@ -2,12 +2,16 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("credential_boundaries", ROOT / "scripts/credential_boundaries.py")
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
+api_spec = importlib.util.spec_from_file_location("credential_api", ROOT / "scripts/verify-credential-api.py")
+api = importlib.util.module_from_spec(api_spec)
+api_spec.loader.exec_module(api)
 
 
 class CredentialBoundaryTests(unittest.TestCase):
@@ -54,6 +58,48 @@ class CredentialBoundaryTests(unittest.TestCase):
         guard.check_credentials(self.root, {"AgentVaultCore": {"AgentVaultCredentials"},
                                            "AgentVaultWebHost": {"AgentVaultCredentials"}})
 
+    def test_cloud_token_reveal_has_its_own_group(self):
+        # Browser files keep their login reveal but cannot name the cloud token group.
+        for path in sorted(guard.REVEAL_IMPORTS["CredentialUse"]) + [guard.REVEAL_DECLARATIONS["CredentialUse"]]:
+            with self.subTest(path=path):
+                bad = self.write(path, "@_spi(CloudTokenUse) import AgentVaultCredentials\n")
+                with self.assertRaisesRegex(SystemExit, "credential_reveal_import_forbidden"):
+                    guard.check_credentials(self.root, {})
+                bad.unlink()
+        # The token wrapper declares only its own group.
+        self.write(guard.REVEAL_DECLARATIONS["CloudTokenUse"], "@_spi(CredentialUse) public func f() {}\n")
+        with self.assertRaisesRegex(SystemExit, "credential_reveal_import_forbidden"):
+            guard.check_credentials(self.root, {})
+
+    def test_cloud_transport_is_unavailable_to_every_unapproved_role(self):
+        roles = ["AgentVaultBridge", "AgentVaultMCPBridge", "AgentVaultMCPTransport", "AgentVaultWebHost",
+                 "AgentVaultWebHostProtocol", "AgentVaultWebHostLink", "AgentVaultApp", "AgentVaultAppSupport",
+                 "AgentVaultIPC", "AgentVaultRuntime", "AgentVaultCLI", "AgentVaultCore", "AgentVaultContracts",
+                 "UnlistedFutureTarget"]
+        for target in roles:
+            with self.subTest(target=target, path="direct"), self.assertRaisesRegex(SystemExit, "cloud_transport_target_forbidden: " + target):
+                guard.check_credentials(self.root, {target: {"AgentVaultCloud"}})
+            with self.subTest(target=target, path="transitive"), self.assertRaisesRegex(SystemExit, "cloud_transport_target_forbidden"):
+                guard.check_credentials(self.root, {target: {"Wrapper"}, "Wrapper": {"AgentVaultCloud"}})
+
+    def test_cli_mcp_server_cannot_reach_cloud_through_core(self):
+        # The review scenario: a sync engine lands in Core, and the CLI's MCP process links Core.
+        graph = {"AgentVaultCLI": {"AgentVaultCore"}, "AgentVaultCore": {"AgentVaultCloud"},
+                 "AgentVaultBrokerDaemon": {"AgentVaultCore"}, "AgentVaultCloud": {"AgentVaultCredentials"}}
+        with self.assertRaisesRegex(SystemExit, "cloud_transport_target_forbidden: AgentVaultC(LI|ore)"):
+            guard.check_credentials(self.root, graph)
+
+    def test_broker_daemon_is_the_only_approved_cloud_consumer(self):
+        self.assertEqual(guard.CLOUD_CONSUMERS, {"AgentVaultBrokerDaemon"})
+        guard.check_credentials(self.root, {"AgentVaultBrokerDaemon": {"AgentVaultCloud"},
+                                           "AgentVaultCloud": {"AgentVaultCredentials"}})
+
+    def test_test_targets_may_link_cloud_but_only_when_declared_as_tests(self):
+        graph = {"AgentVaultCloudTests": {"AgentVaultCloud"}}
+        guard.check_credentials(self.root, graph, [{"name": "AgentVaultCloudTests", "type": "test"}])
+        with self.assertRaisesRegex(SystemExit, "cloud_transport_target_forbidden: AgentVaultCloudTests"):
+            guard.check_credentials(self.root, graph, [{"name": "AgentVaultCloudTests", "type": "executable"}])
+
     def test_custom_target_path_cannot_bypass_reveal_check(self):
         self.write("Custom/Module/Bad.swift", "@_spi(CredentialUse) import AgentVaultCredentials")
         with self.assertRaisesRegex(SystemExit, "credential_reveal_import_forbidden"):
@@ -64,6 +110,26 @@ class CredentialBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "credential_storage_dependency_forbidden"):
             guard.check_credentials(self.root, {}, [{"name": "AgentVaultBridge", "type": "executable",
                                                      "product_dependencies": ["VaultSecret"]}])
+
+
+class CredentialAPITimeoutTests(unittest.TestCase):
+    def test_build_timeout_never_typechecks_stale_modules(self):
+        with mock.patch.object(api.owned, "run_owned", return_value=(None, "")) as run:
+            with self.assertRaisesRegex(SystemExit, "credential_api_build_failed"):
+                api.main()
+            self.assertEqual(run.call_count, 1)
+
+    def test_build_path_timeout_refuses_a_stale_path(self):
+        with mock.patch.object(api.owned, "run_owned", side_effect=[(0, ""), (None, "/tmp/stale")]) as run:
+            with self.assertRaisesRegex(SystemExit, "credential_api_build_path_unavailable"):
+                api.main()
+            self.assertEqual(run.call_count, 2)
+
+    def test_timed_out_typecheck_cannot_satisfy_a_negative_probe(self):
+        self.assertFalse(api.probe_passes(None, "expected diagnostic", "expected diagnostic"))
+        self.assertFalse(api.probe_passes(None, "", None))
+        self.assertTrue(api.probe_passes(0, "", None))
+        self.assertTrue(api.probe_passes(1, "expected diagnostic", "expected diagnostic"))
 
 
 if __name__ == "__main__":

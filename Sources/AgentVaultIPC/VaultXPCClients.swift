@@ -65,10 +65,7 @@ public final class VaultAdminClient: Sendable {
         return snapshot
     }
 
-    public enum BeginResult: Sendable {
-        case challenge(AdminChallenge)
-        case rejected(AdminReply)
-    }
+    public typealias BeginResult = AdminBeginResult
 
     public func begin(_ request: AdminRequest) async throws(IPCError) -> BeginResult {
         let data = try WireCodec.encode(request)
@@ -100,9 +97,7 @@ public final class VaultAdminClient: Sendable {
             (proxy as? VaultAdminRPC)?.continueHuman(data, reply: reply)
         }
         guard case .continuation(let reply) = try envelope.get() else { throw .malformedReply }
-        if case .frame(let frame) = reply, case .frame(let after) = request.operation, frame.sequence <= after {
-            throw .malformedReply
-        }
+        try WireCodec.checkContinuation(reply, for: request)
         return reply
     }
 

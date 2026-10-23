@@ -2,6 +2,74 @@
 
 ## Headless delivery work: 23 October 2026
 
+The trusted `AgentVaultCloud` client now implements the fixed ciphertext transport routes,
+bounded streaming replies, digest/cursor validation and explicit unconfirmed-write results.
+After independent review, the access token's reveal moved to its own `CloudTokenUse` SPI.
+Only the fixed adapter may import that SPI; the browser roles' `CredentialUse` import cannot
+reveal the token (compiler probe). The cloud target graph is now an allowlist: only the
+broker daemon may reach the transport, and the CLI's MCP process, Core and new targets are
+refused. Vault creation confirms ownership of an existing id instead of reporting another
+account's id as created. The endpoint origin is canonical. Fifteen native client tests,
+the native root suite (opt-ins skipped), guard tests, 13 compiler probes, MCP checks and 21 marker-checked mutants
+pass in `scripts/verify-cloud-client.py`. The head-conflict client expects HTTP 409 from a
+`PT409` server raise; the merged migration and native SQL assertion now use that code. Linux runtime and live
+PostgREST remain unmeasured. This module is not composed into production. Signup, token
+refresh/custody, pairing and durable verified sync remain unfinished; see
+[CLOUD-TRANSPORT.md](CLOUD-TRANSPORT.md).
+
+The first opaque cloud transport migration is implemented under `supabase/`. Native
+PostgreSQL 17.11 checks pass in an invocation-owned private cluster with TCP disabled:
+owner/cross-user/anonymous rules, immutable objects, size and quota limits, exact retry,
+conditional-head races and commit-ordered cursors. Removing the vault owner-read predicate
+makes the real SQL assertion fail; restoring it passes. This is database behavior only.
+The SQL auth functions are synthetic test stubs, not a test of hosted JWT validation or
+PostgREST. No hosted project, signup, pairing mailbox, token custody or client sync engine
+exists yet. The bounded database source review is accepted; native PostgreSQL 16.15 Linux
+CI and 17.11 macOS checks passed for that component. These are not hosted auth tests. See
+[`supabase/README.md`](../supabase/README.md) for the transport contract and deployment gates.
+
+Shared broker Core, approval and credential modules now compile on Linux. GitHub Actions
+run [39880214643](https://github.com/Fannolo/agent-vault/actions/runs/39880214643), at
+`2219b11`, passed both jobs: Linux ran 55 VaultCore tests, 7 VaultSecret tests and 131
+shared-root tests. Native macOS checks passed in the same run. Source review found no
+actionable defect in the bounded streaming replacement. The later integration of the
+reviewed credential-verifier timeout fix requires its own exact-head CI result.
+This proves library portability, not a Linux daemon, dedicated service identity, secret
+custody, cross-process durability, network containment or installed-host behavior.
+The Linux manifest omits Keychain implementations rather than substituting weaker storage.
+OrbStack remains stopped.
+
+The native socket transport (commit `2571da2`) carries the fixed read and signed admin
+calls over separate Unix sockets into the real broker, using the daemon's own handler
+composition. Peer UIDs come from `SO_PEERCRED` on Linux and `getpeereid` on macOS; see
+[IPC](IPC.md#unix-socket-transport). A source review of `4d84080` found five defects, each
+reproduced by a regression that failed on that code before its fix: an unbounded reply queue,
+stop and deadline checks that a busy peer could skip, concurrent starts that could unlink
+each other's sockets, admin slots released before broker cleanup, and a test peer that could
+close a reused descriptor. A follow-up found that a request ID left flight when its handler
+returned, so a duplicate could run again while the reply was unwritten; that is fixed the same
+way. Commit `be621d9`, on macOS 15 with Swift 6.2.4, through
+`scripts/verify-socket-transport.py --full --stress 5 --mutations`: 32 socket tests pass,
+the same suite passes 5 more times in the same run, the root suite reports 394 passing tests
+with existing opt-ins skipped, and `verify-mcp.py` and `verify-boundaries.py` pass. All 19
+transport mutations fail every named test, and after each one the restored file rebuilds and
+the same tests pass. The synthetic canary scan of 86 logs is clean, and `MANIFEST.txt` records
+each log's SHA-256 with the source hashes. Tests run every role under one UID; denied UIDs are
+simulated by configuration. Linux CI run 39884964104 of `4d84080` showed that Linux resets a
+refused peer that had already written; the test now accepts that and still requires that no
+reply is sent. The integrated source at `f3d3b4f` received bounded source acceptance. Its
+macOS and cloud-database CI jobs passed; Linux compiled the broker and MCP bridge but failed
+one of 192 tests: `unwrittenRepliesKeepTheirServiceCapacity` failed its recovery assertion after 48 rapid attempts. Suspected cause: retries outran
+asynchronous writer cleanup. A private macOS experiment with a one-second writer-cleanup
+delay reproduces this failure mode. A bounded recovery wait passes with the delay
+and still fails when reply completion never releases capacity. Production socket code is
+unchanged by this test correction; the corrected Linux CI run remains pending.
+
+The Linux MCP bridge now builds with portable bounded stdio and the kernel-authenticated
+read socket client. It retains the same four tools and fixed installed configuration. The
+broker exits `custody_unavailable` until vault key custody exists. Dedicated accounts,
+systemd units and an installed host remain unproven.
+
 The user authorized completion of private website login and continuing browser operation,
 native Linux/headless service, cloud accounts/sync, import/export and installed distribution.
 The end-to-end acceptance criteria are in [DELIVERY-PLAN.md](DELIVERY-PLAN.md). This is active
@@ -21,8 +89,8 @@ the private wire serializer and host fill adapter import its reveal SPI. A sourc
 allowlist rejects reveal imports elsewhere, including declared custom source paths.
 Seven native buffer tests and four credential tests pass. The default root suite reports
 356 passing tests, with existing opt-ins skipped. With Chromium 149.0.7827.55 enabled,
-26 synthetic browser/continuation/secret-boundary tests pass. The 7 guard tests pass normally
-and optimized; module boundaries and MCP checks pass. Compiler probes confirm the credential
+26 synthetic browser/continuation/secret-boundary tests pass. The guard/API-timeout suite
+passes 10 tests normally and optimized; module boundaries and MCP checks pass. Compiler probes confirm the credential
 is absent from Contracts, has no password property, and cannot reveal bytes without SPI.
 This integration is awaiting independent review. It does not prove installed custody or
 erase transient copies made by validation and the JSON/CDP serializer.
@@ -561,6 +629,25 @@ or session state, navigate to arbitrary destinations or perform unapproved actio
 - CI builds, package validation, signed artifacts and release provenance.
 - Compatibility checks in target MCP hosts, without broad permission bypasses.
 - Publish documented security guarantees only after their verification.
+
+## Native Linux MCP bridge (development)
+
+The bridge now selects the kernel-peer-authenticated Unix read socket on Linux and XPC
+on macOS. Linux uses only `/etc/agent-vault/sockets.json`, refuses development policy,
+and validates its configured agent UID and the broker peer UID before sending requests.
+It exposes the same four narrow tools; it has no credential store or admin client.
+
+The bounded stdio transport uses nonblocking descriptors on both platforms. Darwin keeps
+`F_SETNOSIGPIPE`; Linux blocks SIGPIPE only around each write on the writer thread,
+consumes a newly generated broken-pipe signal, and restores the thread mask. It does not
+change the process-wide signal disposition or consume an earlier pending SIGPIPE.
+
+Native macOS checks: 15 transport/bridge tests and all 381 root tests pass (existing
+opt-ins skipped); boundary and synthetic MCP verifiers pass. A standalone C broken-pipe
+check passes with the default signal disposition. Linux compilation, the Linux-specific
+pending-signal case and installed end-to-end MCP/socket identity remain pending CI and
+installed-host checks. The Linux broker still refuses to serve without real key custody.
+This change does not provide cloud login, browser site dispatch, an installer or a GUI.
 
 ## Verification record
 

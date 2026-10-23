@@ -66,6 +66,7 @@ func privateDirectory() throws -> URL {
     #expect(try first.transaction { $0.clients.count } == 30)
 }
 
+#if canImport(Security)
 @Test(.enabled(if: ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1",
                "Set AGENT_VAULT_KEYCHAIN_TEST=1 to run the isolated native Keychain fixture"))
 func nativeKeychainRoundTripWhenExplicitlyEnabled() throws {
@@ -78,6 +79,8 @@ func nativeKeychainRoundTripWhenExplicitlyEnabled() throws {
     try store.delete(for: id)
     #expect(throws: VaultError.secretUnavailable) { try store.load(for: id) }
 }
+
+#endif
 
 @Test func snapshotsDoNotRewriteMetadata() throws {
     let root = try privateDirectory()
@@ -140,6 +143,7 @@ func nativeKeychainRoundTripWhenExplicitlyEnabled() throws {
     #expect(throws: VaultError.stateUnavailable) { _ = try store.snapshot() }
 }
 
+#if canImport(Security)
 @Test(.enabled(if: ProcessInfo.processInfo.environment["AGENT_VAULT_KEYCHAIN_TEST"] == "1",
                "Set AGENT_VAULT_KEYCHAIN_TEST=1 to run the isolated private Keychain fixture"))
 func privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled() throws {
@@ -159,3 +163,5 @@ func privateKeychainRoundTripUsesOnlyExplicitDatabaseWhenEnabled() throws {
     try reopened.delete(for: id)
     #expect(throws: VaultError.secretUnavailable) { _ = try store.load(for: id) }
 }
+
+#endif

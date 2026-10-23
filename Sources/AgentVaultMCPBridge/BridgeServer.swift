@@ -54,7 +54,7 @@ public enum BridgeServer {
     private static var tools: [Tool] {
         let id: Value = .object(["type": "string", "format": "uuid"])
         return [
-            Tool(name: "accounts_list", description: "List accounts allowed for this signed bridge and OS user.",
+            Tool(name: "accounts_list", description: "List accounts allowed for this authenticated bridge and OS user.",
                  inputSchema: .object(["type": "object", "properties": .object([:]), "additionalProperties": false])),
             Tool(name: "action_run", description: "Run a fixed read-only operation under a current grant.", inputSchema: .object([
                 "type": "object", "properties": .object(["accountId": id,

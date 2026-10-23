@@ -1,5 +1,10 @@
 import AgentVaultMCPTransport
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+import CAgentVaultStdio
+#endif
 import Dispatch
 import Foundation
 import Testing
@@ -22,8 +27,10 @@ private final class Pipes: @unchecked Sendable {
         outputReader = outgoing[0]; output = outgoing[1]
         for descriptor in [inputWriter, outputReader] {
             let flags = fcntl(descriptor, F_GETFL)
-            guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0,
-                  fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0 else { throw StdioTransportError.ioFailure }
+            guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else { throw StdioTransportError.ioFailure }
+            #if canImport(Darwin)
+            guard fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0 else { throw StdioTransportError.ioFailure }
+            #endif
         }
     }
 
@@ -49,7 +56,11 @@ private final class Pipes: @unchecked Sendable {
                             let ready = poll(&event, 1, 25)
                             if ready < 0 { if errno == EINTR { continue }; throw StdioTransportError.ioFailure }
                             if ready == 0 { continue }
+                            #if canImport(Darwin)
                             let count = Darwin.write(inputWriter, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                            #else
+                            let count = av_stdio_write(inputWriter, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                            #endif
                             if count < 0 { if errno == EINTR || errno == EAGAIN { continue }; throw StdioTransportError.ioFailure }
                             guard count > 0 else { throw StdioTransportError.ioFailure }
                             offset += count
@@ -73,7 +84,7 @@ private final class Pipes: @unchecked Sendable {
                         let ready = poll(&event, 1, 25)
                         if ready < 0 { if errno == EINTR { continue }; throw StdioTransportError.ioFailure }
                         if ready == 0 { continue }
-                        let count = Darwin.read(outputReader, &byte, 1)
+                        let count = read(outputReader, &byte, 1)
                         if count < 0 { if errno == EINTR || errno == EAGAIN { continue }; throw StdioTransportError.ioFailure }
                         guard count == 1 else { throw StdioTransportError.ioFailure }
                         if byte == 0x0A { break }

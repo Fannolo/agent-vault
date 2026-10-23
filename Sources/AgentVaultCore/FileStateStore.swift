@@ -1,6 +1,14 @@
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 /// A locked, private metadata store. It never contains credential values.
 public final class FileStateStore: StateStore, @unchecked Sendable {
