@@ -4,7 +4,8 @@ import re
 
 REVEAL_IMPORTS = {
     "SecretReveal": {"Sources/AgentVaultCredentials/WebLoginCredential.swift", "Sources/AgentVaultCredentials/CloudAccessToken.swift"},
-    "CredentialUse": {"Sources/AgentVaultWebHostProtocol/HostWire.swift", "Sources/AgentVaultWebHost/WebRun.swift"},
+    "CredentialUse": {"Sources/AgentVaultWebHostProtocol/HostWire.swift", "Sources/AgentVaultWebHost/WebRun.swift",
+                      "Sources/AgentVaultWebHost/SiteSession.swift"},
     "CloudTokenUse": {"Sources/AgentVaultCloud/SupabaseTransport.swift"},
 }
 # The one wrapper file that declares each reveal SPI; it may name only its own group.
