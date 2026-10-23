@@ -31,6 +31,10 @@ public final class FixtureSite: @unchecked Sendable {
         case submitListenerRedirectsToPartner  // submit listener rewrites action and method
         case submitListenerTargetsFrame        // submit listener retargets into a partner frame
         case submitterOverridesWithinPolicy    // formaction/formmethod that still POST to /session
+        // The page reacts to the host filling the form.
+        case fillListenerSubmits               // the password field's input listener submits the form
+        case fillListenerBreaksFill            // the username's input listener submits, then the fill throws
+        case personEditsPassword               // stands in for a person typing a password (see `personTypes`)
     }
 
     public enum Profile: Sendable {
@@ -56,6 +60,8 @@ public final class FixtureSite: @unchecked Sendable {
     private var _profile = Profile.normal
     private var _sessions: Set<String> = []
     private var _notes: [String] = []
+    private var _personTypes = false
+    private var _passwordField = ""
     public let trusted: FixtureHTTPServer
     public let elsewhere: FixtureHTTPServer
     public let partner: FixtureHTTPServer
@@ -99,6 +105,15 @@ public final class FixtureSite: @unchecked Sendable {
     public var sessionCount: Int { lock.withLock { _sessions.count } }
     /// Notes saved through the authenticated form, in order.
     public var notes: [String] { lock.withLock { _notes } }
+    /// `personEditsPassword`: once set, the page writes its own value into the password field once, as a
+    /// person in control would. There is no human relay, so the page stands in for the person.
+    public var personTypes: Bool {
+        get { lock.withLock { _personTypes } }
+        set { lock.withLock { _personTypes = newValue } }
+    }
+    /// `personEditsPassword`: what the page last reported its password field holds, never the value
+    /// itself: "empty", "person" or "other" (such as the password the host filled).
+    public var passwordField: String { lock.withLock { _passwordField } }
 
     /// Wire-format credential accepted by the fixture: `username`, LF, `password`.
     public static func credential(user: String = loginName, password: String = FixtureSite.password) -> Data {
@@ -128,6 +143,11 @@ public final class FixtureSite: @unchecked Sendable {
         case ("GET", "/script.js"): return FixtureResponse(status: 200, headers: ["Content-Type": "text/javascript"], body: Data("window.__fixtureScript=1".utf8))
         case ("GET", "/oops"): return .html("<!doctype html><html><head><title>Error</title></head><body><h1>Something went wrong</h1></body></html>", status: 500)
         case ("GET", "/focus-trap"): return focusTrap()
+        case ("GET", "/disabled"): return disabledControls()
+        case ("GET", "/person"):
+            let state = request.target.components(separatedBy: "state=").last ?? ""
+            let typing = lock.withLock { _passwordField = state; return _personTypes }
+            return FixtureResponse(status: 200, headers: ["Content-Type": "text/plain"], body: Data((typing ? "type" : "").utf8))
         case ("GET", "/huge"): return huge()
         case ("GET", "/churn"): return page(body: "<script>location.reload()</script><p>churning</p>")
         // Commits, then lands on a page that never holds still long enough to be observed.
@@ -175,6 +195,27 @@ public final class FixtureSite: @unchecked Sendable {
                 other.addEventListener('click', () => status('delete clicked'));
                 document.getElementById('save').replaceWith(other);
             }, 50), { once: true });
+            </script>
+            """)
+    }
+
+    /// Controls disabled by inheritance only: their own `disabled` is false. "Lock" disables the
+    /// first fieldset later. Every input or change event the page sees is listed in `#events`.
+    private func disabledControls() -> FixtureResponse {
+        page(body: """
+            <h1>Disabled</h1><ul id="events"></ul>
+            <fieldset id="box"><legend>Box</legend><input type="text" aria-label="Inside">
+            <select aria-label="Inside size"><option>small</option><option>large</option></select></fieldset>
+            <fieldset disabled><input type="text" aria-label="Locked note"></fieldset>
+            <select aria-label="Priority"><option>open</option><optgroup label="Closed" disabled><option>locked</option></optgroup></select>
+            <button type="button" aria-label="Lock">Lock</button>
+            <script>
+            for (const type of ['input', 'change']) document.addEventListener(type, (e) => {
+                const item = document.createElement('li');
+                item.textContent = type + ' on ' + e.target.getAttribute('aria-label');
+                document.getElementById('events').appendChild(item);
+            }, true);
+            document.querySelector('[aria-label=Lock]').addEventListener('click', () => { document.getElementById('box').disabled = true; });
             </script>
             """)
     }
@@ -238,6 +279,22 @@ public final class FixtureSite: @unchecked Sendable {
             return page(body: "<iframe name=\"sink\"></iframe>" + loginForm() + "<script>document.forms[0].addEventListener('submit', (e) => { e.target.action = '\(partnerOrigin)/collect'; e.target.method = 'get'; e.target.target = 'sink' })</script>")
         case .submitterOverridesWithinPolicy:
             return page(body: loginForm(action: "/unused", submit: "<input type=\"submit\" name=\"commit\" value=\"Sign in\" formaction=\"/session\" formmethod=\"post\">"))
+        case .fillListenerSubmits:
+            return page(body: loginForm() + "<script>document.getElementById('password').addEventListener('input', (e) => e.target.form.requestSubmit())</script>")
+        case .fillListenerBreaksFill:
+            return page(body: loginForm() + """
+                <script>document.getElementById('login_field').addEventListener('input', (e) => {
+                e.target.form.requestSubmit(); document.getElementById('password').type = 'file' })</script>
+                """)
+        case .personEditsPassword:
+            return page(body: loginForm() + """
+                <script>let typed = false; setInterval(() => {
+                const field = document.getElementById('password');
+                const state = field.value === '' ? 'empty' : field.value === 'typed-by-person' ? 'person' : 'other';
+                fetch('/person?state=' + state).then((r) => r.text()).then((t) => {
+                if (t === 'type' && !typed) { typed = true; field.value = 'typed-by-person' } });
+                }, 50)</script>
+                """)
         case .workerAndBeacon:
             return page(body: loginForm() + """
                 <script>try { new Worker('/worker.js') } catch (e) {}
