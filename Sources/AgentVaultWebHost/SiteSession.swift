@@ -51,6 +51,9 @@ actor SiteSession {
     /// Takeover, release and end never wait for it.
     private var operating = false
     private var ended = false
+    /// A password the host filled may be in the page: set just before a login sends its fill, and
+    /// cleared once that login, or a handover to a person, has cleared the field.
+    private var filled = false
 
     /// Named suspension points. Debug builds await a test hook there, so a test can interleave a
     /// command at exactly that point; release builds do nothing.
@@ -154,19 +157,22 @@ actor SiteSession {
     /// a credential origin and the form posts to one. Nothing the caller supplied decides that.
     func login(_ operation: UUID, _ account: CredentialVersion, _ credential: WebLoginCredential) async -> HostReply {
         await journaled(operation, .login(account)) {
-            let reply = await attemptLogin(credential)
+            let held = control
+            let reply = await attemptLogin(credential, held)
             if reply == .siteUnknown { auth = .unknown }
             // Unless signed in by this login, a password the host filled must not stay in a page the
-            // agent operates. On a new document there is nothing to clear.
-            if case .site = reply, auth == .signedIn { return reply }
-            _ = await run(.loginClear, origins: policy.navigation + policy.credential, [:])
+            // agent operates. Only while this login still holds control: a handover clears it before the
+            // person is told they have control, and after that the field may hold what they typed. On a
+            // new document there is nothing to clear.
+            let signedIn = if case .site = reply { auth == .signedIn } else { false }
+            if filled && !signedIn { _ = await run(.loginClear, origins: policy.navigation + policy.credential, [:], while: held) }
+            filled = false
             return reply
         }
     }
 
-    private func attemptLogin(_ credential: WebLoginCredential) async -> HostReply {
+    private func attemptLogin(_ credential: WebLoginCredential, _ held: UInt64) async -> HostReply {
         guard mode == .agent else { return .rejected(.humanControl) }
-        let held = control
         _ = network?.takeFailure()
         guard let (url, page) = await currentDocument(), let origin = WebOrigin(url: url),
               policy.credential.contains(origin) else { return .rejected(.credentialOrigin) }
@@ -180,6 +186,7 @@ actor SiteSession {
             fields["username"] = String(decoding: username, as: UTF8.self)
             fields["password"] = String(decoding: password, as: UTF8.self)
         }
+        filled = true
         let fill = await run(.loginFill, origins: policy.credential, fields, while: held)
         fields = [:]
         // The fill sets values and fires input and change events, which the page may act on, even by
@@ -211,7 +218,7 @@ actor SiteSession {
         guard !ended else { return .rejected(.unknownRun) }
         // Still opening: there is no page to hand over yet, and nothing changes.
         guard document != nil else { return .rejected(.busy) }
-        if mode == .agent { fence(.human) }
+        if mode == .agent { await handToPerson() }
         return await controlReply()
     }
 
@@ -244,6 +251,16 @@ actor SiteSession {
         ended ? .rejected(.unknownRun) : mode == .human ? .rejected(.humanControl) : .rejected(.staleTarget)
     }
 
+    /// Control passes to a person. A password the host filled for a login that has not finished is
+    /// cleared first, before anyone is told the person has control: from then on the field may hold
+    /// what they typed, and the host never touches it.
+    private func handToPerson() async {
+        fence(.human)
+        guard filled else { return }
+        filled = false
+        _ = await run(.loginClear, origins: policy.navigation + policy.credential, [:])
+    }
+
     private func fence(_ next: SiteMode) {
         mode = next
         control += 1
@@ -268,7 +285,7 @@ actor SiteSession {
         }
         if state["code"]?.bool == true {
             auth = .humanRequired
-            if handOver && mode == .agent { fence(.human) }
+            if handOver && mode == .agent { await handToPerson() }
         } else if state["password"]?.bool == true {
             auth = .rejected
         } else {

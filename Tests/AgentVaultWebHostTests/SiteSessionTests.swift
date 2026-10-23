@@ -511,6 +511,29 @@ extension RealBrowserTests {
         }
     }
 
+    /// Finding 2: a takeover that interrupts a login clears the password the host filled before it
+    /// answers, and nothing the host does later touches what the person then types.
+    @Test func loginCleanupNeverTouchesAFieldAfterTakeoverIsAcknowledged() async throws {
+        try await Host.using { h in
+            defer { SiteSession.hooks.hook = nil }
+            h.site.loginPage = .personEditsPassword
+            let (session, _) = await h.open()
+            #expect(await eventually { h.site.passwordField == "empty" })
+            at(.loginFilled, of: session) {
+                let taken = observed(await h.service.perform(.siteTakeover(session: session)))
+                #expect(taken?.mode == .human)
+                #expect(await eventually(2) { h.site.passwordField == "empty" }, "the host's fill outlived the takeover")
+                h.site.personTypes = true
+                #expect(await eventually { h.site.passwordField == "person" })
+            }
+            #expect(await h.login(session) == .siteUnknown)
+            // Long enough for the page to report the field many times over.
+            try await Task.sleep(for: .milliseconds(500))
+            #expect(h.site.passwordField == "person", "the host cleared what the person typed")
+            #expect(h.posts.filter { $0.path == "/session" }.isEmpty)
+        }
+    }
+
     /// Finding 3: a control disabled by its fieldset, or an option in a disabled group, is disabled.
     /// It is never observed as operable, and typing or choosing is refused before any event fires.
     @Test func controlsDisabledByAnAncestorAreNeitherObservedNorOperated() async throws {
