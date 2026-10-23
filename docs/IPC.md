@@ -1,7 +1,8 @@
 # Broker IPC
 
-`AgentVaultIPC` connects three programs over XPC: the broker, the MCP bridge and the
-human app. The bridge may use only the read service. The app may use only the admin
+`AgentVaultIPC` connects three programs over XPC on macOS: the broker, the MCP bridge
+and the human app. The same closed wire and handlers also run over kernel-authenticated
+Unix sockets for the Linux service; see [Unix-socket transport](#unix-socket-transport). The bridge may use only the read service. The app may use only the admin
 service. Both services belong to the broker. The module depends only on
 `AgentVaultContracts` and the shared strict JSON guard. It contains no secret store, so linking it into the bridge does
 not give the bridge credential access.
@@ -229,6 +230,79 @@ Text events and web credentials exclude Unicode Cc/Cf control and format scalars
 including ZWJ, LRM and BOM. Separators such as U+2028 remain accepted within the byte
 limits. Named key events carry Enter/Tab separately.
 
+## Unix-socket transport
+
+`VaultSocketServer`, `VaultSocketReadClient` and `VaultSocketAdminClient` carry the same
+closed `ReadRequest`, `AdminRequest`, authorize and continuation messages as XPC. Both
+transports call one `BrokerHandlers` value, built by the daemon's `BrokerComposition` from
+`ReadOperations`, `Administration` and `ContinuationOperations`. Permission logic stays in
+the broker; the transport adds no grant, approval or pairing rule of its own.
+
+`SocketConfiguration` replaces code requirements with kernel UIDs:
+
+| Field | Meaning |
+| --- | --- |
+| `read.path`, `admin.path` | Absolute socket paths, at most 103 bytes, portable characters only. |
+| `read.clientUID` | The only peer UID the read socket serves: the agent's OS account. |
+| `admin.clientUID` | The only peer UID the admin socket serves: the controller's OS account. |
+| `read.group`, `admin.group` | Group of each socket file, which is mode 0660. Defense in depth only. |
+| `brokerUID` | The only socket peer UID a client accepts as the broker. |
+| `development` | Allows equal UIDs and group 0 for single-user tests. |
+
+Production requires three distinct non-root UIDs. An agent that shares the controller's
+UID could read administrative snapshots; it would still need the pinned controller's
+signature for any mutation. The installed file is `/etc/agent-vault/sockets.json` and must be
+root-owned and not group/other writable, in a directory with the same property.
+
+Identity and framing:
+
+- The server reads the peer UID with `SO_PEERCRED` on Linux and `getpeereid` on macOS
+  before it reads any byte, and closes a connection whose UID does not match its endpoint.
+  Clients check the broker UID the same way before writing any byte. No request field
+  names a UID or a connection. A small C target, `CAgentVaultSocket`, isolates these calls.
+- A request frame is `length:u32be | id:u32be | opcode:u8 | body`; a reply is
+  `length:u32be | id:u32be | body`. The ID only matches replies; it carries no authority.
+  Read and admin opcodes are disjoint. An opcode from the other role, an unknown opcode or
+  a duplicate in-flight ID closes the connection without a reply.
+- A body above `maxRequestBytes` is refused from the header with `request_too_large`, and
+  the connection is closed. A malformed body gets the same fixed codes as XPC and the
+  connection stays usable.
+- An idle connection stays open. Once a frame starts, it must complete within 5 seconds.
+  A reply write must complete within 5 seconds. Client calls have one monotonic deadline
+  covering connect, write and reply. `EINTR`, partial reads and partial writes recompute the
+  remaining time from that deadline. Writes use `MSG_NOSIGNAL` or `SO_NOSIGPIPE`.
+
+Capacity and lifetime:
+
+- Connection, per-connection and per-service limits are the `IPCLimits` values used by XPC,
+  with the same separate admin and continuation lanes. Excess connections are closed.
+- A read handler is cancelled when its connection ends. Admin handlers run to completion;
+  their reply is dropped if the connection is gone, and the client reports `timeout` or
+  `connection_failed` for an unknown outcome. Nothing retries a mutation.
+- Each admin connection gets an `AdminConnection` minted at accept. Its liveness is cleared
+  when the connection ends, before the broker's closed callback runs. A continuation lease
+  therefore needs the client's one persistent connection; after a reconnect it needs a new
+  signed open.
+- Only a connection's writer queue closes its descriptor, after the reader thread exits.
+  `stop()` wakes every thread, closes listeners and peers, and returns only after every
+  descriptor is closed and every handler task has finished.
+
+Socket files:
+
+- The socket directory and every ancestor must be a real directory owned by root or the
+  broker UID. The directory itself must not be group/other writable. An ancestor may be
+  writable only with the sticky bit, as `/tmp` is.
+- An existing path is replaced only if it is a socket owned by the broker UID that refuses
+  connections. A live socket fails `unavailable`. Any other file fails
+  `invalid_configuration` and is left in place.
+- Mode 0660 and the group are set before `listen()`. `stop()` unlinks a socket only while
+  its device and inode still match the one this server bound.
+
+The Linux `agent-vault-broker` validates `sockets.json` for the broker role and then exits
+with `custody_unavailable`. Vault key custody through a systemd encrypted credential is the
+next delivery unit. There is no fallback secret store. The Linux MCP bridge is not built:
+its bounded stdio transport still uses macOS-only descriptor options.
+
 ## Production layout
 
 `deploy/ipc/agentvault_installer.py` implements this layout. Reference config/plist templates
@@ -310,6 +384,10 @@ Results on 13 October 2026, Apple Swift 6.2.4, macOS 15:
   working privileged installation.
 
 ## Unproven
+
+- The Unix-socket transport on an installed Linux host. Tests run both roles under one UID,
+  with denied UIDs simulated by configuration. Dedicated broker, agent and controller
+  accounts, systemd units and socket directory provisioning have not been run.
 
 - Separation by UID at runtime. Every verified process ran as the same user. The `uid+1`
   scenario shows that the broker rejects a UID it does not expect. It does not show that

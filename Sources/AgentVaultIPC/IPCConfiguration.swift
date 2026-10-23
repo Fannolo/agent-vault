@@ -32,7 +32,7 @@ public struct IPCConfiguration: Codable, Sendable, Equatable {
     /// A production configuration must pass the `readProtectedFile` ownership checks; otherwise
     /// a same-user process could repoint a client at its own service or requirement.
     public static func load(contentsOf path: String) throws(IPCError) -> IPCConfiguration {
-        let (data, file) = try readFile(atPath: path, maxBytes: 16_384)
+        let (data, file) = try ProtectedFile.contents(atPath: path, maxBytes: 16_384)
         let keys: Set<String> = ["readServiceName", "adminServiceName", "brokerRequirement", "readRequirement",
                                  "adminRequirement", "brokerUID", "allowedUID", "development"]
         let decoder = JSONDecoder()
@@ -41,7 +41,7 @@ public struct IPCConfiguration: Codable, Sendable, Equatable {
               let configuration = try? decoder.decode(IPCConfiguration.self, from: data) else {
             throw .invalidConfiguration
         }
-        if !configuration.development { try requireProtected(file, path: path) }
+        if !configuration.development { try ProtectedFile.requireProtected(file, path: path) }
         return configuration
     }
 
@@ -49,32 +49,9 @@ public struct IPCConfiguration: Codable, Sendable, Equatable {
     /// root-owned directory that group and others cannot write. A final symlink is refused.
     /// Use it for any production file that names peers or keys, such as the deployment configuration.
     public static func readProtectedFile(atPath path: String, maxBytes: Int = 65_536) throws(IPCError) -> Data {
-        let (data, file) = try readFile(atPath: path, maxBytes: maxBytes)
-        try requireProtected(file, path: path)
+        let (data, file) = try ProtectedFile.contents(atPath: path, maxBytes: maxBytes)
+        try ProtectedFile.requireProtected(file, path: path)
         return data
-    }
-
-    private static func readFile(atPath path: String, maxBytes: Int) throws(IPCError) -> (Data, stat) {
-        let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard descriptor >= 0 else { throw .invalidConfiguration }
-        defer { close(descriptor) }
-        var file = stat()
-        guard fstat(descriptor, &file) == 0, (file.st_mode & S_IFMT) == S_IFREG,
-              (1...Int64(maxBytes)).contains(file.st_size) else { throw .invalidConfiguration }
-        var data = Data(count: Int(file.st_size))
-        let count = data.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
-        guard count == Int(file.st_size) else { throw .invalidConfiguration }
-        return (data, file)
-    }
-
-    private static func requireProtected(_ file: stat, path: String) throws(IPCError) {
-        var directory = stat()
-        let parent = (path as NSString).deletingLastPathComponent
-        guard file.st_uid == 0, file.st_mode & (S_IWGRP | S_IWOTH) == 0,
-              lstat(parent.isEmpty ? "." : parent, &directory) == 0, (directory.st_mode & S_IFMT) == S_IFDIR,
-              directory.st_uid == 0, directory.st_mode & (S_IWGRP | S_IWOTH) == 0 else {
-            throw .invalidConfiguration
-        }
     }
 
     /// Validates the policy for the process that will use it.

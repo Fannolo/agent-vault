@@ -1,3 +1,4 @@
+#if os(macOS)
 import AgentVaultContracts
 import AgentVaultCore
 import AgentVaultIPC
@@ -24,26 +25,8 @@ enum BrokerMain {
                 try await broker.recoverInterruptedLifecycle()
                 let admin = try Administration(broker: broker, publicKey: config.approvalPublicKey,
                     allowedServices: [.demo, .github], allowedClientUID: config.ipc.allowedUID)
-                let read = ReadOperations(broker: broker)
-                let continuation = ContinuationOperations(broker: broker)
                 let server = try VaultXPCServer(configuration: config.ipc,
-                    read: { uid, request in
-                        do { return try await read.perform(uid: uid, request: request) }
-                        catch { return ReadReply(.failure((error as? VaultError)?.readFailure ?? .operationFailed)) }
-                    }, snapshot: { _ in try await admin.snapshot() },
-                    begin: { peer, request in
-                        do { return try await admin.begin(request, connection: ContinuationConnectionID(peer)) }
-                        catch { throw AdminRejection(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
-                    }, authorize: { peer, id, signature in
-                        do {
-                            return try await admin.authorize(id, signature: signature,
-                                                             connection: ContinuationConnectionID(peer))
-                        } catch { return AdminReply(status: (error as? VaultError)?.rawValue ?? "operation_failed") }
-                    }, continuation: { peer, request in
-                        await continuation.perform(request, connection: ContinuationConnectionID(peer))
-                    }, connectionClosed: { peer in
-                        await broker.continuationConnectionClosed(ContinuationConnectionID(peer))
-                    })
+                                                handlers: BrokerComposition.handlers(broker: broker, administration: admin))
                 running = (lease, server)
                 server.activate()
             } catch { fail() }
@@ -56,8 +39,4 @@ enum BrokerMain {
         exit(1)
     }
 }
-
-private extension ContinuationConnectionID {
-    /// The listener-minted identity and liveness of an admin connection.
-    init(_ peer: AdminConnection) { self.init(minted: peer.id, isOpen: { peer.isOpen }) }
-}
+#endif

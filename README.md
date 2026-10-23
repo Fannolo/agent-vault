@@ -6,8 +6,11 @@ An agent should notice a website is logged out, ask whether it may use an approv
 and request private login without receiving password text.
 
 The current app is a macOS broker for fixed operations. Shared broker authority, approval,
-metadata and bounded GitHub adapter code also build and test on Linux. A native Linux
-service/UI, cloud signup/sync and general website operation are not implemented yet.
+metadata and bounded GitHub adapter code also build and test on Linux. A Unix-socket broker
+transport with kernel peer-UID checks carries the same fixed read and signed admin calls into
+the broker; see [IPC](docs/IPC.md#unix-socket-transport). The Linux service still refuses to
+start until vault key custody is integrated. Linux UI, cloud signup/sync and general website
+operation are not implemented yet.
 The first portable component is
 the standalone [sealed-record core](Packages/VaultCore), tested on macOS and Linux with
 bidirectional synthetic ciphertext exchange. It is not connected to current app products.
