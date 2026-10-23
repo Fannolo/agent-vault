@@ -2,6 +2,27 @@
 
 ## Headless delivery work: 23 October 2026
 
+The standalone `Packages/VaultPersistence` kernel now implements SQLite commit/recovery
+with an external custody-pin port. Native proof for package commit `7e0d18e` reports
+32 tests, five process-kill crash cuts, six abort/retry replay cases, a four-process
+lease race, COMMIT-time EFBIG refusal and 15 restored omission controls. A protected
+pin must identify the complete logical image, including object inventory: frame hash
+alone, then frame hash plus generation, both admitted demonstrated rollback scenarios.
+The current image hash and test-only AVTPIN03 address that premise. Independent
+package and root-source reviews accept the bounded unit; platform CI remains pending. Observed SQLite read corruption blocks the owner. Descriptor ACL checks
+reject private ACLs and unsafe ancestor grants. System SQLite is measured as 3.43.2
+on native macOS, distinct from SDK headers 3.51.0; no exact-source SQLite pin is claimed.
+
+This package is quarantined from root products alongside VaultCore. Separate macOS
+and Linux CI jobs run its crash/control verifier and retain synthetic evidence. Linux
+uses a derivative of the pinned Swift image with system SQLite headers; the verifier
+records actual runtime settings and versions. Those new CI jobs have not yet run.
+The test-only file pin does not implement protected, nonrollback installed custody.
+Process kill is not power loss. Actual ENOSPC, SQLite disk-fsync failure, installed
+UID/custody, history authority, collection capacity/retention, broker/effect-journal
+integration and production acceptance remain open.
+
+
 The trusted `AgentVaultCloud` client now implements the fixed ciphertext transport routes,
 bounded streaming replies, digest/cursor validation and explicit unconfirmed-write results.
 After independent review, the access token's reveal moved to its own `CloudTokenUse` SPI.
@@ -120,6 +141,165 @@ passes 10 tests normally and optimized; module boundaries and MCP checks pass. C
 is absent from Contracts, has no password property, and cannot reveal bytes without SPI.
 This integration is awaiting independent review. It does not prove installed custody or
 erase transient copies made by validation and the JSON/CDP serializer.
+
+A continuing-site host slice adds a separate entry beside fixed workflows: `openSite`,
+`siteObserve`, `siteLogin`, `siteOperate`, `siteTakeover` and `siteRelease` on the existing
+authenticated host wire. A closed `HostSite` names a compiled `SitePolicy`; a `HostWorkflow`
+grant cannot name one. Navigation, credential, authentication and passive-resource origins
+are separate; there is no cross-origin GET allowance. The host creates the context and
+loads the policy's own entry page. The password is filled only when the main-frame origin
+the host reads from the browser is a credential origin and the single login form posts to
+one; a caller URL only requests navigation. Observations are typed and bounded and omit
+password values. Targets bind a host-wide document epoch, the control epoch and an element
+row held in an isolated world; the element is rechecked and acted on in one recipe call.
+Operations are navigate, click, plain-text typing, select, named keys and scroll, one at a
+time per session. Takeover fences agent observation and input; end, lifetime and teardown
+dispose the context. Operation IDs return the first reply on retry and refuse reuse for
+another command; a login ID is bound to the broker's credential item and version.
+
+Synthetic acceptance on the loopback fixture and Chromium 149.0.7827.55: private login, then
+navigation, typing, selection and an authenticated form submission in the same context,
+whose result the next observation shows. Negative tests cover stale, cross-session and
+pre-takeover targets, partner/redirected credential origins, off-policy navigation and form
+posts, duplicate submission, operation-ID conflicts, unsupported login forms, one-time-code
+handover, lifetime, end, teardown and run/session command separation. The fixed workflow
+browser tests still pass.
+
+An independent source review of that slice (c4bdb69) found eight defects. Each was first
+reproduced against c4bdb69 behaviour on the synthetic fixture with Chromium 149.0.7827.55,
+using a debug-only checkpoint seam for the races, and then fixed:
+
+- A login submit button's `formaction`/`formmethod`, or a submit listener, sent the filled
+  password as a GET to the navigation-only partner. The recipes now check the submitter's
+  overrides, and until the filled form's own POST to a credential origin is allowed, the
+  gate admits no other document, no frame and no non-read-only request to another origin.
+  Named-frame variants produced no request in this browser either way; the cause is not
+  established and the gate rule is covered by unit tests.
+- Click and typing checked the element, then sent CDP input separately; a page timer could
+  move focus to a password field or swap the button. They now run as DOM actions (`click()`,
+  the value setter, input/change events) in the checking call. Those events are untrusted
+  (`isTrusted` false); sites that require trusted input will not react.
+- Login and observation checked control only before suspending; a takeover and release could
+  let a login submit, and a takeover could release page contents. Operations now hold a
+  control generation, rechecked after every suspension and before every recipe call.
+- After dispatch, a session end or later failure returned `rejected`/`failed` although the
+  site had committed. Any error after dispatch is now `siteUnknown`.
+- Observation text was bounded per string only; a page with over 16 MiB of option text broke
+  the shared 8 MiB pipe and ended every session. The recipe cuts all strings from one budget.
+- A reused login operation ID returned the first credential's reply for another credential.
+- A page without a password field counted as signed in (CAPTCHA, error page), and the claim
+  outlived a return to the login form. Signed in now needs a policy-named signed-in page;
+  otherwise the new `unknown` state is reported.
+- observe/takeover/release could answer `failed`, which the wire contract refused. observe may
+  now fail; takeover and release always report the change of control.
+
+A second independent source review (34ceaa9) found three more defects. Each was reproduced
+against 34ceaa9 behaviour on new hostile fixture pages, then fixed:
+
+- The login fill fires input and change events, and a page listener can submit the form. A
+  submission whose response replaced the page returned `rejected(staleTarget)`; a fill that
+  threw after the page had submitted returned `rejected(unsupportedLogin)`. Only refusals from
+  before the first value is set now mean nothing was done. After the fill, a login answers
+  with an observation or `siteUnknown`, including a takeover after the fill. If the host sees
+  that the page already sent the form (the gate allowed its POST), the host does not submit it
+  again and reports where that led. A page that submits after that check is the timer limit
+  below.
+- After a takeover interrupted a login, the login cleared the host-filled password field with
+  no control check, erasing what the person typed after the takeover was acknowledged. The
+  login now clears only while it holds control. A handover (takeover, or a one-time-code page)
+  clears a pending fill, and waits for any clear already started, before it answers. The host
+  does not touch the field after that.
+- Observation, typing and selection read an element's own `disabled`, which stays false
+  inside a disabled fieldset or for an option in a disabled optgroup. They now use the
+  effective `:disabled` state, so such controls are not offered and no event fires.
+
+A third independent source review (49c6d92) found one more defect. A takeover could answer
+before an agent call that had already passed its control check reached the page.
+`ChromiumPipe.call` is a nonisolated async function, so the session actor is free again
+before the command is queued for the browser. Every earlier fence assumed that the check and
+the queueing were one step. The second review had not accepted this window, and this plan
+had described it only as unreproduced. A debug-only seam in that gap reproduced it against
+49c6d92 behaviour for every agent effect. After takeover answered, the click's form POST and
+the login submit's POST reached the site, and the navigation was requested. Typing,
+selection, a named key and a wheel event reached the page. The login fill put the password
+into a field the person then controlled.
+
+Each call sent under an agent hold is now admitted on the session actor, in the same step
+as its control check. The pipe queues it only if it was not withdrawn, and checks that in
+the same step that queues it. A handover withdraws admitted calls that are not yet queued,
+and they are never sent. It waits for queued calls to be answered, bounded by each call's
+own deadline (10 s for a recipe, 5 s for navigation, 2 s per input event). Only then does it
+clear a pending fill and answer. A lost answer (timeout or closed pipe) does not count as
+drained: the takeover refuses with `unknownRun`, and the session ends and its context is
+disposed, as for `end`. Every later handover of a session with a lost answer ends it the
+same way. Tests cover all eight effect kinds (click, typing, selection, navigation, named
+key, scroll, login fill and login submit), a takeover that waits for a queued call, a busy
+page whose answer is lost, and a second takeover that waits for the clear the first started.
+
+A fourth independent source review (84ef816) found that this handover was still not
+exclusive. Each fix had assumed that switching the mode to human, taking one snapshot of the
+admitted calls and waiting for the clear task made the handover exclusive. That assumption
+fails three ways, each first reproduced against 84ef816 behaviour with Chromium
+149.0.7827.55, using a debug-only pipe seam between claiming a call for queueing and handing
+it to the writer:
+
+- The handover's own clear did not count a lost answer. On a page busy for 22 seconds after
+  the fill, the clear timed out, the page read timed out, and takeover still answered human.
+  The clear then ran after the answer.
+- A release during a takeover gave the agent control back while that takeover was still
+  waiting for an agent call. A key the agent sent after the release reached the page after
+  the first takeover had answered human.
+- The handover started its clear before it waited for admitted calls. A fill the pipe had
+  claimed but not yet written was overtaken by the clear. Both takeovers then answered with
+  the host's password still in the field.
+
+A handover is now one transition that the session owns: agent, handing over, human. The step
+that enters it closes admission and bumps the control epoch. Every takeover meanwhile joins
+the same transition, and a release waits for it to finish. The transition first withdraws
+or waits for every admitted call, and only then clears the host's fill. Only a clear the
+browser answered counts. A lost answer, either from an agent call or from the clear, ends
+the session and disposes its context. Takeover then refuses with `unknownRun`, and no
+reply says a person has control. Takeover and release replies wait for any handover under
+way, and read the page again if control moved while they read it. Tests cover the lost
+clear (the session ends, the other session continues and the host stays healthy), the
+release overlapping a takeover, a fill held before the writer, and a release reply that
+overlaps a later takeover.
+
+A fifth independent review (da4f099) closed those three handover findings and identified
+one terminal-reply error: ending a session during the control reply's frame-tree read
+could still produce a successful cached human/agent identity. A deterministic test ends
+the session at that read for takeover and release; both fail against da4f099 behavior.
+Control replies now recheck termination after observation and before identity fallback,
+returning `unknownRun` for an ended session while retaining fallback for a live unreadable
+page. The frame-read scheduling hook is DEBUG-only. Current-source proof is recorded
+separately from the earlier 390-test and split mutation results.
+
+After it acknowledges a person's control, the host sends no call under the agent's hold,
+and no handover clear can still arrive. It does not stop what the page or site does on its
+own, or the consequences of calls answered before the acknowledgement, such as a form
+submission a click started.
+
+Remaining limits noticed while fixing, from source reading and not reproduced: a document
+response near the 8 MiB document cap can exceed the 8 MiB pipe message cap once escaped or
+base64-encoded in `Fetch.getResponseBody`, which would end the browser (shared with fixed
+workflows, not changed here); named keys still go to whatever element the page focused; a
+credential-origin page's own script can read the filled password and send it to a navigation
+origin, except non-read-only requests during the pre-submission window. A page timer that
+submits the filled form between the host's check and its own submit can produce a second
+login POST to the credential origin; the login still answers with an observation or
+`siteUnknown`. A page that keeps the renderer busy past an agent call's deadline, or past
+the handover clear's deadline, makes that answer lost, and the session then ends at its next
+handover instead of passing to a person. A handover can take as long as the latest admitted
+call's deadline, plus the deadlines of preparing and sending the clear. While a handover is
+under way, agent replies already report human mode.
+
+Limits: `HostPolicy.production.sites` is empty, and neither Core, the host link nor MCP can
+send site commands. The operation journal is volatile host memory, bounded per session and
+lost with the host; durable broker journaling before dispatch must be integrated before any
+production external effect. A person in control has no raster relay for sessions yet.
+Uploads, downloads, popups, extra tabs, history, coordinates, iframe and multi-step logins
+are unsupported. Input sent just before a takeover is not recalled, and a receiving site can
+still reflect a password it was given.
 
 Local Linux attempts are retained as failures. One lost the Docker connection; a later run
 passed all 55 Swift tests on each platform but interleaved framework output with corpus JSON,

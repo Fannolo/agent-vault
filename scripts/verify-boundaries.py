@@ -10,8 +10,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# The successor codec remains isolated until its format and implementation are reviewed.
-QUARANTINED_PACKAGES = ("VaultCore", "VaultRecord")
+# Experimental codec and storage packages stay isolated until their integration is approved.
+QUARANTINED_PACKAGES = ("VaultCore", "VaultRecord", "VaultPersistence")
 
 
 def _quarantined_name(value):
@@ -87,7 +87,7 @@ def _scan(path):
     elif stat.S_ISREG(mode):
         if path.suffix == ".swift":
             # Conservative identifiers also catch attributed/declaration-specific imports.
-            tokens = "|".join(re.escape(name) for name in (*QUARANTINED_PACKAGES, "AVSEAL01", "AVMEMB01", "AVREC002"))
+            tokens = "|".join(re.escape(name) for name in (*QUARANTINED_PACKAGES, "AVSEAL01", "AVMEMB01", "AVREC002", "AVTPIN03"))
             if re.search(r"\b(?:" + tokens + r")\b", path.read_text(encoding="utf-8")):
                 raise FixtureBoundaryError("fixture_source_reference")
     else:

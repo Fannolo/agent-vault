@@ -1,5 +1,6 @@
 import AgentVaultCredentials
 @testable import AgentVaultWebHost
+import AgentVaultWebHostProtocol
 import AgentVaultContracts
 import Foundation
 import Testing
@@ -67,5 +68,26 @@ private let hostSources: [(name: String, text: String)] = {
         }
         // The page never gets a recipe it could call back into: only the five fixed bodies exist.
         #expect(Recipe.allCases.count == 5)
+    }
+
+    /// Continuing sites grow the vocabulary by eight more constant bodies, and no more.
+    @Test func siteRecipesAreConstantsThatNeverReachStorageOrTheNetwork() {
+        #expect(SiteRecipe.allCases.count == 8)
+        for recipe in SiteRecipe.allCases {
+            #expect(recipe.declaration.hasPrefix("function (origins"))
+            for word in ["eval(", "Function(", "cookie", "innerHTML", "outerHTML", "Storage", "indexedDB", "fetch(",
+                         "XMLHttpRequest", "postMessage", "sendBeacon", "WebSocket", "window.open"] {
+                #expect(!recipe.body.contains(word), "\(recipe) contains \(word)")
+            }
+            // Only the fill recipe ever receives the credential.
+            #expect(recipe == .loginFill || !recipe.parameters.contains("password"))
+        }
+        // Every observed string is cut from one budget in the page, at most 6 JSON bytes per unit, plus
+        // fixed per-element structure: far below the pipe's message cap.
+        let structure = SiteObservation.maximumElements * (200 + SiteElement.maximumOptions * 3) + SiteObservation.maximumTextItems * 3
+        #expect(SiteRecipe.observationBudget * 6 + structure < ChromiumPipe.maximumMessageBytes / 2)
+        #expect(SiteRecipe.observe.body.contains("budget -= s.length"))
+                let session = hostSources.first { $0.name == "SiteSession.swift" }?.text ?? ""
+        #expect(session.components(separatedBy: "withLoginBytes").count == 2, "one reveal, inside login")
     }
 }

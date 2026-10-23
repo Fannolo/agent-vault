@@ -42,6 +42,17 @@ public enum HostWire {
         case .input(_, let step, let frame, let batch):
             object["op"] = "input"; object["step"] = step; object["frame"] = frame
             object["events"] = batch.events.map(eventObject)
+        case .openSite(_, let site, let lifetime): object["op"] = "openSite"; object["site"] = site.rawValue; object["lifetime"] = lifetime
+        case .siteObserve: object["op"] = "siteObserve"
+        case .siteLogin(_, let operation, let account, let credential):
+            object["op"] = "siteLogin"; object["operation"] = operation.uuidString
+            object["account"] = ["item": account.item.uuidString, "version": account.version]
+            object["credential"] = credential.withCanonicalBytes { Data($0).base64EncodedString() }
+        case .siteOperate(_, let operation, let site):
+            object["op"] = "siteOperate"; object["operation"] = operation.uuidString
+            object.merge(siteCommandObject(site)) { _, new in new }
+        case .siteTakeover: object["op"] = "siteTakeover"
+        case .siteRelease: object["op"] = "siteRelease"
         }
         let data = try serialize(object, error: .invalidRequest)
         guard try decodeRequest(data) == request else { throw .invalidRequest }
@@ -75,6 +86,23 @@ public enum HostWire {
             for item in items { events.append(try event(item)) }
             guard let batch = HumanInputBatch(events) else { throw .invalidRequest }
             command = .input(run: run, step: step, frame: frame, batch: batch)
+        case "openSite":
+            guard let site = HostSite(rawValue: try fields.string("site")) else { throw .invalidRequest }
+            command = .openSite(session: run, site: site, lifetime: try fields.integer("lifetime", 1...HostCommand.maximumLifetime))
+        case "siteObserve": command = .siteObserve(session: run)
+        case "siteLogin":
+            let operation = try fields.uuid("operation")
+            var account = try Fields(try fields.value("account"), error: .invalidRequest)
+            let item = try account.uuid("item"), version = try account.counter("version", minimum: 1)
+            try account.finish()
+            guard let used = CredentialVersion(item: item, version: version),
+                  let bytes = Data(base64Encoded: try fields.string("credential")),
+                  let credential = WebLoginCredential(bytes) else { throw .invalidRequest }
+            command = .siteLogin(session: run, operation: operation, account: used, credential: credential)
+        case "siteOperate":
+            command = .siteOperate(session: run, operation: try fields.uuid("operation"), command: try siteCommand(&fields))
+        case "siteTakeover": command = .siteTakeover(session: run)
+        case "siteRelease": command = .siteRelease(session: run)
         default: throw .invalidRequest
         }
         try fields.finish()
@@ -112,6 +140,51 @@ public enum HostWire {
         return event
     }
 
+    private static func targetObject(_ target: SiteTarget) -> [String: Any] {
+        ["document": target.document, "control": target.control, "element": target.element]
+    }
+
+    private static func siteCommandObject(_ command: SiteCommand) -> [String: Any] {
+        switch command {
+        case .navigate(let url): ["action": "navigate", "url": url]
+        case .click(let target): ["action": "click", "target": targetObject(target)]
+        case .typePublic(let target, let text): ["action": "type", "target": targetObject(target), "text": text]
+        case .select(let target, let option): ["action": "select", "target": targetObject(target), "option": option]
+        case .press(let key): ["action": "press", "key": key.rawValue]
+        case .scroll(let dy): ["action": "scroll", "dy": dy]
+        }
+    }
+
+    private static func siteTarget(_ value: Any) throws(HostWireError) -> SiteTarget {
+        var fields = try Fields(value, error: .invalidRequest)
+        let document = try fields.counter("document", minimum: 1), control = try fields.counter("control", minimum: 1)
+        let element = try fields.integer("element", 0...SiteTarget.maximumElement)
+        try fields.finish()
+        guard let target = SiteTarget(document: document, control: control, element: element) else { throw .invalidRequest }
+        return target
+    }
+
+    private static func siteCommand(_ fields: inout Fields) throws(HostWireError) -> SiteCommand {
+        let command: SiteCommand
+        switch try fields.string("action") {
+        case "navigate": command = .navigate(try fields.string("url"))
+        case "click": command = .click(try siteTarget(try fields.value("target")))
+        case "type": command = .typePublic(try siteTarget(try fields.value("target")), try fields.string("text"))
+        case "select":
+            command = .select(try siteTarget(try fields.value("target")),
+                              option: try fields.integer("option", 0...SiteCommand.maximumOption))
+        case "press":
+            guard let key = NamedKey(rawValue: try fields.string("key")) else { throw .invalidRequest }
+            command = .press(key)
+        case "scroll":
+            let bound = HumanInput.maximumWheelDelta
+            command = .scroll(dy: try fields.integer("dy", -bound...bound))
+        default: throw .invalidRequest
+        }
+        guard command.fits else { throw .invalidRequest }
+        return command
+    }
+
     // MARK: Replies
 
     public enum Envelope: Sendable, Equatable {
@@ -134,6 +207,9 @@ public enum HostWire {
         case .accepted: object["reply"] = "accepted"
         case .ended: object["reply"] = "ended"
         case .rejected(let rejection): object["reply"] = "rejected"; object["rejection"] = rejection.rawValue
+        case .site(let observation):
+            object.merge(observationObject(observation)) { _, new in new }; object["reply"] = "site"
+        case .siteUnknown: object["reply"] = "siteUnknown"
         }
         let data = try serialize(object, error: .unavailable)
         guard case .response(response) = try decodeReply(data) else { throw .unavailable }
@@ -186,10 +262,59 @@ public enum HostWire {
         case "rejected":
             guard let rejection = HostRejection(rawValue: try fields.string("rejection")) else { throw .malformedReply }
             reply = .rejected(rejection)
+        case "site": reply = .site(try observation(&fields))
+        case "siteUnknown": reply = .siteUnknown
         default: throw .malformedReply
         }
         try fields.finish()
         return .response(HostResponse(request: request, run: run, reply: reply))
+    }
+
+    private static func observationObject(_ observation: SiteObservation) -> [String: Any] {
+        ["document": observation.document, "control": observation.control, "mode": observation.mode.rawValue,
+         "auth": observation.auth.rawValue, "origin": observation.origin, "path": observation.path,
+         "title": observation.title, "text": observation.text,
+         "elements": observation.elements.map { element -> [String: Any] in
+             ["ref": element.ref, "role": element.role.rawValue, "label": element.label, "value": element.value,
+              "options": element.options]
+         }]
+    }
+
+    private static func observation(_ fields: inout Fields) throws(HostWireError) -> SiteObservation {
+        let document = try fields.counter("document", minimum: 1), control = try fields.counter("control", minimum: 1)
+        guard let mode = SiteMode(rawValue: try fields.string("mode")),
+              let auth = SiteAuth(rawValue: try fields.string("auth")) else { throw .malformedReply }
+        let origin = try fields.string("origin"), path = try fields.string("path"), title = try fields.string("title")
+        let text = try fields.strings("text", maximum: SiteObservation.maximumTextItems)
+        var elements: [SiteElement] = []
+        for item in try fields.array("elements", maximum: SiteObservation.maximumElements) {
+            var element = try Fields(item, error: .malformedReply)
+            let ref = try element.integer("ref", 0...SiteTarget.maximumElement)
+            guard let role = SiteRole(rawValue: try element.string("role")) else { throw .malformedReply }
+            let label = try element.string("label"), value = try element.string("value")
+            let options = try element.strings("options", maximum: SiteElement.maximumOptions)
+            try element.finish()
+            guard let parsed = SiteElement(ref: ref, role: role, label: label, value: value, options: options) else {
+                throw .malformedReply
+            }
+            elements.append(parsed)
+        }
+        guard let observation = SiteObservation(document: document, control: control, mode: mode, auth: auth, origin: origin,
+                                                path: path, title: title, elements: elements, text: text) else {
+            throw .malformedReply
+        }
+        return observation
+    }
+
+    /// `observation` with trailing text, then trailing elements, removed until any reply carrying it fits.
+    public static func fitted(_ observation: SiteObservation) -> SiteObservation {
+        var elements = observation.elements.count, text = observation.text.count
+        while true {
+            let candidate = observation.truncated(elements: elements, text: text)
+            let probe = HostResponse(request: maximumCounter, run: UUID(), reply: .site(candidate))
+            if (try? encode(probe)) != nil || (elements == 0 && text == 0) { return candidate }
+            if text > 0 { text /= 2 } else { elements /= 2 }
+        }
     }
 
     // MARK: Exact fields
@@ -235,6 +360,13 @@ public enum HostWire {
             let text = try string(key)
             guard text.utf8.count == 36, let uuid = UUID(uuidString: text) else { throw error }
             return uuid
+        }
+
+        mutating func value(_ key: String) throws(HostWireError) -> Any { try take(key) }
+
+        mutating func strings(_ key: String, maximum: Int) throws(HostWireError) -> [String] {
+            guard let value = try take(key) as? [String], value.count <= maximum else { throw error }
+            return value
         }
 
         mutating func array(_ key: String, maximum: Int) throws(HostWireError) -> [Any] {
