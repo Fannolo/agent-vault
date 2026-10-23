@@ -2,6 +2,27 @@
 
 ## Headless delivery work: 23 October 2026
 
+The standalone `Packages/VaultPersistence` kernel now implements SQLite commit/recovery
+with an external custody-pin port. Native proof for package commit `7e0d18e` reports
+32 tests, five process-kill crash cuts, six abort/retry replay cases, a four-process
+lease race, COMMIT-time EFBIG refusal and 15 restored omission controls. A protected
+pin must identify the complete logical image, including object inventory: frame hash
+alone, then frame hash plus generation, both admitted demonstrated rollback scenarios.
+The current image hash and test-only AVTPIN03 address that premise. Independent
+package and root-source reviews accept the bounded unit; platform CI remains pending. Observed SQLite read corruption blocks the owner. Descriptor ACL checks
+reject private ACLs and unsafe ancestor grants. System SQLite is measured as 3.43.2
+on native macOS, distinct from SDK headers 3.51.0; no exact-source SQLite pin is claimed.
+
+This package is quarantined from root products alongside VaultCore. Separate macOS
+and Linux CI jobs run its crash/control verifier and retain synthetic evidence. Linux
+uses a derivative of the pinned Swift image with system SQLite headers; the verifier
+records actual runtime settings and versions. Those new CI jobs have not yet run.
+The test-only file pin does not implement protected, nonrollback installed custody.
+Process kill is not power loss. Actual ENOSPC, SQLite disk-fsync failure, installed
+UID/custody, history authority, collection capacity/retention, broker/effect-journal
+integration and production acceptance remain open.
+
+
 The trusted `AgentVaultCloud` client now implements the fixed ciphertext transport routes,
 bounded streaming replies, digest/cursor validation and explicit unconfirmed-write results.
 After independent review, the access token's reveal moved to its own `CloudTokenUse` SPI.

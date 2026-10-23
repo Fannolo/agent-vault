@@ -10,6 +10,12 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# Experimental codec and storage packages stay isolated until their integration is approved.
+QUARANTINED_PACKAGES = ("VaultCore", "VaultPersistence")
+
+
+def _quarantined_name(value):
+    return value.casefold() in {name.casefold() for name in QUARANTINED_PACKAGES}
 
 
 class FixtureBoundaryError(RuntimeError):
@@ -35,12 +41,14 @@ def _identity(path):
 
 def _fixture_path(root, path):
     """Directory identity survives symlinks and case aliases on insensitive volumes."""
-    portable = root / "Packages" / "VaultCore"
-    if not portable.is_dir():
-        raise FixtureBoundaryError("fixture_input_unavailable")
-    fixture = _identity(portable)
+    fixtures = set()
+    for name in QUARANTINED_PACKAGES:
+        portable = root / "Packages" / name
+        if not portable.is_dir():
+            raise FixtureBoundaryError("fixture_input_unavailable")
+        fixtures.add(_identity(portable))
     path = path.resolve(strict=True)
-    return any(_identity(parent) == fixture for parent in (path, *path.parents))
+    return any(_identity(parent) in fixtures for parent in (path, *path.parents))
 
 
 def _controlled_path(root, value):
@@ -79,7 +87,8 @@ def _scan(path):
     elif stat.S_ISREG(mode):
         if path.suffix == ".swift":
             # Conservative identifiers also catch attributed/declaration-specific imports.
-            if re.search(r"\b(?:VaultCore|AVSEAL01|AVMEMB01)\b", path.read_text(encoding="utf-8")):
+            tokens = "|".join(re.escape(name) for name in (*QUARANTINED_PACKAGES, "AVSEAL01", "AVMEMB01", "AVTPIN03"))
+            if re.search(r"\b(?:" + tokens + r")\b", path.read_text(encoding="utf-8")):
                 raise FixtureBoundaryError("fixture_source_reference")
     else:
         raise FixtureBoundaryError("fixture_source_invalid")
@@ -118,7 +127,7 @@ def _check_resolved_dependencies(root, package, resolved):
         identity_key = _identity(path)
         if not path.is_dir() or identity_key in ancestors:
             raise FixtureBoundaryError("fixture_graph_invalid")
-        if identity.casefold() == "vaultcore" or name.casefold() == "vaultcore" or _fixture_path(root, path):
+        if _quarantined_name(identity) or _quarantined_name(name) or _fixture_path(root, path):
             raise FixtureBoundaryError("fixture_dependency")
         children = node.get("dependencies")
         if not isinstance(children, list):
@@ -161,7 +170,7 @@ def _check_compiler_inputs(fixture_root, root, package, *, scan):
     for product in package["products"]:
         if not isinstance(product, dict):
             raise FixtureBoundaryError("fixture_graph_invalid")
-        if "VaultCore" in [_text(product.get("name")), *_names(product.get("targets"))]:
+        if any(_quarantined_name(name) for name in [_text(product.get("name")), *_names(product.get("targets"))]):
             raise FixtureBoundaryError("fixture_dependency")
     seen = set()
     for target in package["targets"]:
@@ -176,7 +185,7 @@ def _check_compiler_inputs(fixture_root, root, package, *, scan):
         references = [name, _text(target.get("c99name"))]
         for key in ("target_dependencies", "product_dependencies", "product_memberships"):
             references.extend(_names(target.get(key, [])))
-        if "VaultCore" in references:
+        if any(_quarantined_name(name) for name in references):
             raise FixtureBoundaryError("fixture_dependency")
         relative = Path(_text(target.get("path")))
         path = (_controlled_path(root, str(relative)) if scan else
@@ -205,7 +214,7 @@ def check_fixture_boundary(root, package, resolved=None):
         for dependency in package["dependencies"]:
             if not isinstance(dependency, dict):
                 raise FixtureBoundaryError("fixture_graph_invalid")
-            if _text(dependency.get("identity")).casefold() == "vaultcore":
+            if _quarantined_name(_text(dependency.get("identity"))):
                 raise FixtureBoundaryError("fixture_dependency")
             kind = dependency.get("type")
             if kind == "fileSystem":

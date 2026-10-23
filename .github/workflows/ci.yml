@@ -106,3 +106,61 @@ jobs:
               swift test --scratch-path /build/broker \
                 --force-resolved-versions --no-parallel --jobs 4
             '
+
+  persistence-macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Resolve exact persistence dependencies
+        run: swift package --package-path Packages/VaultPersistence --scratch-path "$RUNNER_TEMP/persistence-build" resolve --force-resolved-versions
+      - name: Verify persistence, crash recovery and controls
+        run: python3 -I -B Packages/VaultPersistence/Scripts/verify.py --scratch "$RUNNER_TEMP/persistence-build" --evidence verification-logs/persistence-ci/macos --controls
+      - name: Retain synthetic persistence evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: persistence-macos-evidence
+          path: verification-logs/persistence-ci/macos/
+          retention-days: 7
+          if-no-files-found: warn
+  persistence-linux:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare pinned Swift image with system SQLite headers
+        run: |
+          mkdir -p "$RUNNER_TEMP/persistence-image"
+          cat > "$RUNNER_TEMP/persistence-image/Dockerfile" <<'DOCKERFILE'
+          FROM swift@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+          RUN apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev python3 && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker build -t agent-vault-persistence-ci "$RUNNER_TEMP/persistence-image"
+      - name: Verify independent Linux persistence and controls
+        run: |
+          mkdir -p "$RUNNER_TEMP/persistence-work/checkout/Packages" "$RUNNER_TEMP/persistence-work/checkout/scripts"
+          cp -R Packages/VaultPersistence "$RUNNER_TEMP/persistence-work/checkout/Packages/"
+          cp scripts/verify-webhost-link-mutations.py "$RUNNER_TEMP/persistence-work/checkout/scripts/"
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777 \
+            --env HOME=/tmp \
+            --mount "type=bind,src=$RUNNER_TEMP/persistence-work,dst=/work" \
+            --workdir /work/checkout agent-vault-persistence-ci /bin/bash -euc '
+              swift package --package-path Packages/VaultPersistence --scratch-path /work/build resolve --force-resolved-versions
+              python3 -I -B Packages/VaultPersistence/Scripts/verify.py --scratch /work/build --evidence /work/evidence --controls
+            '
+      - name: Retain synthetic persistence evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: persistence-linux-evidence
+          path: ${{ runner.temp }}/persistence-work/evidence/
+          retention-days: 7
+          if-no-files-found: warn
