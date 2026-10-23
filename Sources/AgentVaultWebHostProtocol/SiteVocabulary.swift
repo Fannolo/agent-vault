@@ -77,9 +77,16 @@ public enum SiteMode: String, CaseIterable, Sendable {
     case human
 }
 
+/// What the host can establish about the session's account. Signed in needs positive evidence;
+/// a page merely lacking a password field is not that.
 public enum SiteAuth: String, CaseIterable, Sendable {
     case signedOut
+    /// After the private login the site showed a page its policy names as reached only when signed
+    /// in, with no password form. Later pages that show a password form make this `unknown`.
     case signedIn
+    /// Neither established nor refuted: an unrecognised page after login (a CAPTCHA, an error), an
+    /// unknown login outcome, or a password form after signing in.
+    case unknown
     /// The site showed its password form again after the private login.
     case rejected
     /// The site asked for a step this host does not perform (for example a one-time code).

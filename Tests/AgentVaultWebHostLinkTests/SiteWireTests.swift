@@ -45,6 +45,13 @@ private let page = SiteObservation(
         #expect(try HostWire.decodeReply(try HostWire.encode(response)) == .response(response))
     }
 
+    @Test(arguments: SiteAuth.allCases) func everyAuthStateRoundTrips(_ auth: SiteAuth) throws {
+        let observation = SiteObservation(document: 1, control: 1, mode: .agent, auth: auth, origin: "", path: "", title: "",
+                                          elements: [], text: [])!
+        let response = HostResponse(request: 2, run: session, reply: .site(observation))
+        #expect(try HostWire.decodeReply(try HostWire.encode(response)) == .response(response))
+    }
+
     @Test func siteOperationsHaveExactlyTheirKeysAndBounds() {
         let click = #"{"op":"siteOperate","request":1,"run":"\#(sessionText)","operation":"\#(operation.uuidString)","action":"click","target":{"document":3,"control":2,"element":7}}"#
         #expect(!rejects(click))

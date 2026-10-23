@@ -110,7 +110,8 @@ struct HostPolicy: Sendable {
         let partnerOrigin = partner.flatMap(loopback)
         if partner != nil && partnerOrigin == nil { return nil }
         guard let site = SitePolicy(entry: origin.url(path: "/login")!, navigation: [origin] + (partnerOrigin.map { [$0] } ?? []),
-                                    credential: [origin], authentication: [], resources: []) else { return nil }
+                                    credential: [origin], authentication: [], resources: [],
+                                    signedIn: [origin.url(path: "/home")!]) else { return nil }
         return HostPolicy(primary: origin, assetOrigins: [], challengeOrigins: challengeOrigin.map { [$0] } ?? [],
                           workflows: [.browserDemo: .fixture], sites: [.syntheticFixture: site])
     }
@@ -231,13 +232,22 @@ struct SitePolicy: Sendable {
     let authentication: [WebOrigin]
     /// Passive cross-origin resources: GET or HEAD subresources only, never documents or frames.
     let resources: [WebOrigin]
+    /// Exact origin and path of pages the site shows only to a signed-in account: the positive
+    /// evidence a login needs. With none, no login is ever reported signed in.
+    let signedIn: [URL]
 
-    init?(entry: URL, navigation: [WebOrigin], credential: [WebOrigin], authentication: [WebOrigin], resources: [WebOrigin]) {
+    init?(entry: URL, navigation: [WebOrigin], credential: [WebOrigin], authentication: [WebOrigin], resources: [WebOrigin],
+          signedIn: [URL] = []) {
         guard let start = WebOrigin(url: entry), !navigation.isEmpty, !credential.isEmpty,
               navigation.contains(start) || credential.contains(start),
-              credential.allSatisfy({ navigation.contains($0) || authentication.contains($0) }) else { return nil }
+              credential.allSatisfy({ navigation.contains($0) || authentication.contains($0) }),
+              signedIn.allSatisfy({ WebOrigin(url: $0).map(navigation.contains) == true && !$0.path.isEmpty }) else { return nil }
         self.entry = entry; self.navigation = navigation; self.credential = credential
-        self.authentication = authentication; self.resources = resources
+        self.authentication = authentication; self.resources = resources; self.signedIn = signedIn
+    }
+
+    func showsSignedIn(_ url: URL) -> Bool {
+        signedIn.contains { WebOrigin(url: $0) == WebOrigin(url: url) && $0.path == url.path }
     }
 }
 

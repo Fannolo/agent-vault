@@ -155,6 +155,7 @@ actor SiteSession {
     func login(_ operation: UUID, _ account: CredentialVersion, _ credential: WebLoginCredential) async -> HostReply {
         await journaled(operation, .login(account)) {
             let reply = await attemptLogin(credential)
+            if reply == .siteUnknown { auth = .unknown }
             // Unless signed in by this login, a password the host filled must not stay in a page the
             // agent operates. On a new document there is nothing to clear.
             if case .site = reply, auth == .signedIn { return reply }
@@ -219,7 +220,7 @@ actor SiteSession {
         if mode == .human {
             fence(.agent)
             // The person decided to return control; the page's state is reported, not enforced.
-            if auth == .humanRequired || auth == .rejected { await judgeLogin(handOver: false) }
+            if auth != .signedOut && auth != .signedIn { await judgeLogin(handOver: false) }
         }
         return await controlReply()
     }
@@ -253,19 +254,23 @@ actor SiteSession {
         network?.phase = mode == .agent ? .agent : .human
     }
 
-    /// Signed in unless the page still shows a password form or asks for a one-time code, which a
-    /// person must enter: after a login the session then passes to them.
+    /// Signed in only on positive evidence: a page the site policy names as shown to signed-in
+    /// accounts, without a password form. A one-time code is a step a person must take (after a login
+    /// the session passes to them); a password form again is a rejection; anything else, such as a
+    /// CAPTCHA or an error page, is unknown. A missing password field alone proves nothing.
     private func judgeLogin(handOver: Bool) async {
-        guard await currentDocument() != nil,
+        guard let (url, _) = await currentDocument(),
               case .object(let state)? = await run(.authState, origins: policy.navigation + policy.credential, [:]).value else {
-            auth = .rejected
+            auth = .unknown
             return
         }
         if state["code"]?.bool == true {
             auth = .humanRequired
             if handOver && mode == .agent { fence(.human) }
+        } else if state["password"]?.bool == true {
+            auth = .rejected
         } else {
-            auth = state["password"]?.bool == true ? .rejected : .signedIn
+            auth = policy.showsSignedIn(url) ? .signedIn : .unknown
         }
     }
 
@@ -388,6 +393,9 @@ actor SiteSession {
             guard await currentDocument()?.document.epoch == page.epoch, holds(held) else { continue }
             guard case .object(let fields)? = value, let title = fields["title"]?.string,
                   let items = fields["elements"]?.array, let lines = fields["text"]?.array else { continue }
+            // A password form after signing in (a login page again, an expired session) means the
+            // host no longer knows; it never infers signed out either.
+            if auth == .signedIn && fields["password"]?.bool != false { auth = .unknown }
             let elements = items.compactMap(Self.element)
             let text = lines.compactMap { $0.string.map { Self.clipped($0, SiteObservation.maximumTextBytes) } }
             guard let observed = SiteObservation(

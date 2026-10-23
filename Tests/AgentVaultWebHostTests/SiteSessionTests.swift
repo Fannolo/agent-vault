@@ -448,4 +448,22 @@ extension RealBrowserTests {
             #expect(h.posts.filter { $0.path == "/session" }.count == 1)
         }
     }
+
+    /// Finding 7: signed in needs the policy's positive evidence; a page without a password field
+    /// (a CAPTCHA, an error page) is unknown, and a login form later withdraws the claim.
+    @Test func signedInNeedsPositiveEvidenceNotAMissingPasswordField() async throws {
+        try await Host.using { h in
+            for (user, path) in [("captcha-user", "/captcha"), ("error-user", "/oops")] {
+                let (session, _) = await h.open()
+                let page = try #require(observed(await h.login(session, user: user)))
+                #expect(page.auth == .unknown && page.mode == .agent && page.path == path, "\(user): \(page.auth) on \(page.path)")
+            }
+            let (session, _) = await h.open()
+            #expect(observed(await h.login(session))?.auth == .signedIn)
+            #expect(observed(await h.operate(session, .navigate(h.url("/notes"))))?.auth == .signedIn, "an ordinary signed-in page")
+            let back = try #require(observed(await h.operate(session, .navigate(h.url("/login")))))
+            #expect(back.auth == .unknown, "a login form again, still reported signed in")
+            #expect(observed(await h.operate(session, .navigate(h.url("/home"))))?.auth == .unknown, "only a login establishes it")
+        }
+    }
 }

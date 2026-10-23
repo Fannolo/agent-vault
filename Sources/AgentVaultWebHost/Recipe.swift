@@ -235,7 +235,8 @@ enum SiteRecipe: CaseIterable, Sendable {
                 const t = take(e.innerText, 1024);
                 if (t && text[text.length - 1] !== t) text.push(t);
             }
-            return { title: take(document.title, 256), elements, text };
+            const password = Array.prototype.some.call(all.call(document, "input"), (e) => (secret.has(e) || e.type === "password") && shown(e));
+            return { title: take(document.title, 256), elements, text, password };
             """
         // The effect recipes resolve the element and act on that same element in one synchronous call:
         // no page timer, focus change or replacement can come between the check and the action. They
